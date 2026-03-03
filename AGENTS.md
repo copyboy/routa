@@ -15,6 +15,9 @@ Both backends implement **identical REST APIs** for seamless frontend compatibil
 - Use playwright testing e2e
 - Test Tauri UI with `npm run tauri dev`, then use playwright to test the UI too.
 
+## Pull Request
+
+- When plan to create a PR, should  attach screenshot with Playwright in GitHub PR body 
 
 ## Issue Management
 
