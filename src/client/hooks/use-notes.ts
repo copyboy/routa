@@ -212,18 +212,16 @@ export function useNotes(workspaceId: string, sessionId?: string): UseNotesRetur
     const noteSessionId = note.sessionId;
     const noteType = note.metadata?.type;
 
-    // Task notes: include if workspace-wide (no sessionId) or exact session match.
-    // Workspace-wide tasks are created when the MCP server runs without ?sid= context
-    // and should still be visible from the session that created them.
+    // Task notes: strict session match
     if (noteType === "task") {
-      return !noteSessionId || noteSessionId === sessionId;
+      return noteSessionId === sessionId;
     }
-    // Spec notes: include if workspace-wide (no sessionId) or matching session
+    // Spec notes: strict session match
     if (noteType === "spec") {
-      return !noteSessionId || noteSessionId === sessionId;
+      return noteSessionId === sessionId;
     }
-    // General notes: include if workspace-wide or matching session
-    return !noteSessionId || noteSessionId === sessionId;
+    // General notes: strict session match
+    return noteSessionId === sessionId;
   }, [sessionId]);
 
   const connectSSE = useCallback(() => {

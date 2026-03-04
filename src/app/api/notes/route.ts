@@ -41,16 +41,9 @@ export async function GET(request: NextRequest) {
     ? await system.noteStore.listByType(workspaceId, type)
     : await system.noteStore.listByWorkspace(workspaceId);
 
-  // Filter by sessionId if provided.
-  // Include notes that either:
-  //   1. Exactly match the requested sessionId, OR
-  //   2. Have no sessionId (workspace-wide notes) — these are created when the
-  //      MCP server runs without a ?sid= parameter and should still be visible
-  //      from the associated session view.
+  // Filter by sessionId if provided — strict match only.
   if (sessionIdFilter) {
-    notes = notes.filter(
-      (note) => note.sessionId === sessionIdFilter || !note.sessionId
-    );
+    notes = notes.filter((note) => note.sessionId === sessionIdFilter);
   }
 
   // Group by session if requested
