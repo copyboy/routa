@@ -250,7 +250,6 @@ pub fn parse_github_menu_id_to_url(id: &str) -> Option<String> {
 
     Some(url)
 }
-
 /// Toggle the main window's visibility.
 fn toggle_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
