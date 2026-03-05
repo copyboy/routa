@@ -139,9 +139,14 @@ export function SessionPageClient() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(workspaceId);
   const { codebases } = useCodebases(workspaceId);
 
+  // Track whether repoSelection was restored from session metadata
+  const repoRestoredFromSessionRef = useRef(false);
+
   // Auto-select default codebase as repo when workspace changes
+  // but don't override if already restored from session metadata
   useEffect(() => {
     if (codebases.length === 0) return;
+    if (repoRestoredFromSessionRef.current) return;
     const def = codebases.find((c) => c.isDefault) ?? codebases[0];
     setRepoSelection({ path: def.repoPath, branch: def.branch ?? "", name: def.label ?? def.repoPath.split("/").pop() ?? "" });
   }, [codebases]);
@@ -278,7 +283,7 @@ export function SessionPageClient() {
       })
       .then((data) => {
         if (!data?.session) return;
-        const { role, provider } = data.session;
+        const { role, provider, cwd, branch } = data.session;
         // Restore agent role if stored
         if (role && ["CRAFTER", "ROUTA", "GATE", "DEVELOPER"].includes(role)) {
           setSelectedAgent(role as AgentRole);
@@ -287,7 +292,17 @@ export function SessionPageClient() {
         if (provider) {
           acp.setProvider(provider);
         }
-        console.log(`[SessionPage] Restored session metadata: role=${role}, provider=${provider}`);
+        // Restore repo selection from session's cwd/branch
+        if (cwd) {
+          const matchedCodebase = codebases.find((c) => c.repoPath === cwd);
+          setRepoSelection({
+            path: cwd,
+            branch: branch ?? matchedCodebase?.branch ?? "",
+            name: matchedCodebase?.label ?? cwd.split("/").pop() ?? "",
+          });
+          repoRestoredFromSessionRef.current = true;
+        }
+        console.log(`[SessionPage] Restored session metadata: role=${role}, provider=${provider}, cwd=${cwd}, branch=${branch}`);
       })
       .catch((err) => {
         console.warn("[SessionPage] Failed to restore session metadata:", err);

@@ -33,6 +33,7 @@ export async function GET(
       sessionId: session.sessionId,
       name: session.name,
       cwd: session.cwd,
+      branch: session.branch,
       workspaceId: session.workspaceId,
       routaAgentId: session.routaAgentId,
       provider: session.provider,
