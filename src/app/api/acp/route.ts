@@ -78,6 +78,10 @@ interface IdempotencyEntry {
 const idempotencyCache = new Map<string, IdempotencyEntry>();
 const IDEMPOTENCY_TTL_MS = 30_000; // 30 seconds
 
+// ─── Pending ACP creations ──────────────────────────────────────────────
+// Tracks sessions whose ACP process is being created in the background.
+// session/prompt checks this to wait for creation instead of auto-creating.
+const pendingAcpCreations = new Map<string, Promise<void>>();
 function cleanupIdempotencyCache() {
   const now = Date.now();
   for (const [key, entry] of idempotencyCache.entries()) {
@@ -374,7 +378,7 @@ export async function POST(request: NextRequest) {
       };
 
       // ── Background: spawn ACP process + orchestrator + DB persist ──
-      void (async () => {
+      const creationPromise = (async () => {
         try {
           let acpSessionId: string;
 
@@ -565,8 +569,12 @@ export async function POST(request: NextRequest) {
             "error",
             err instanceof Error ? err.message : "ACP process creation failed",
           );
+        } finally {
+          pendingAcpCreations.delete(sessionId);
         }
       })();
+
+      pendingAcpCreations.set(sessionId, creationPromise);
 
       return jsonrpcResponse(id ?? null, responsePayload);
     }
@@ -614,6 +622,15 @@ export async function POST(request: NextRequest) {
         if (!skillContent) {
           console.warn(`[ACP Route] Could not load skill content for: ${skillName}, proceeding without skill`);
         }
+      }
+
+      // ── Wait for pending ACP creation if in progress ──────────────────
+      // If session/new spawned a background ACP creation, wait for it
+      // instead of auto-creating a duplicate process.
+      const pendingCreation = pendingAcpCreations.get(sessionId);
+      if (pendingCreation) {
+        console.log(`[ACP Route] Waiting for pending ACP creation for session ${sessionId}...`);
+        await pendingCreation;
       }
 
       // ── Auto-create session if it doesn't exist ────────────────────────
