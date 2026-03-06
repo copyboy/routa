@@ -115,7 +115,6 @@
   },
   "optionalDependencies": {
     "@google/generative-ai-cli": "^1.0.0",
-    "@openai/codex": "latest",
     "better-sqlite3": "^12.6.2",
     "opencode-ai": "latest"
   },
