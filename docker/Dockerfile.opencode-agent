@@ -4,11 +4,19 @@ RUN apk add --no-cache libc6-compat
 
 RUN npm install -g opencode-ai
 
+# The opencode-ai postinstall may cache the wrong binary (.opencode).
+# Set OPENCODE_BIN_PATH so the bridge server always resolves the correct
+# musl binary that was installed as an optional dependency.
+# The bridge auto-detects the path from known locations; this env var
+# overrides the detection as a reliable fallback.
+ENV OPENCODE_BIN_PATH=/usr/local/lib/node_modules/opencode-ai/node_modules/opencode-linux-arm64-musl/bin/opencode
+
+COPY docker/opencode-bridge/server.js /usr/local/bin/opencode-bridge.js
+
 EXPOSE 4321
 
 ENV PORT=4321
 ENV HOST=0.0.0.0
-ENV OPENCODE_HTTP_PORT=4321
-ENV OPENCODE_HTTP_HOST=0.0.0.0
+ENV WORKSPACE=/workspace
 
-CMD ["sh", "-c", "opencode serve --host ${OPENCODE_HTTP_HOST} --port ${OPENCODE_HTTP_PORT}"]
+CMD ["node", "/usr/local/bin/opencode-bridge.js"]

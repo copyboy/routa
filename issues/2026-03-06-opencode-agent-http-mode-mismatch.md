@@ -1,12 +1,14 @@
 ---
 title: "Docker OpenCode image starts but CLI command set mismatches expected HTTP mode"
 date: "2026-03-06"
-status: open
+status: resolved
 severity: high
 area: "acp"
 tags: ["docker", "opencode", "agent-runtime"]
 reported_by: "GitHub Copilot"
 related_issues: ["https://github.com/phodal/routa/issues/55"]
+resolved_by: "GitHub Copilot (Claude Sonnet 4.6)"
+resolved_at: "2026-03-06"
 ---
 
 # Docker OpenCode 镜像中的 CLI 命令与预期 HTTP 模式不匹配
@@ -50,6 +52,29 @@ related_issues: ["https://github.com/phodal/routa/issues/55"]
 - `colima status` 显示运行正常（runtime: docker）
 - `docker build` 成功
 - `docker run` 容器启动后立即退出，日志持续报 `Script not found` 对应子命令
+
+## Root Cause Analysis
+
+深入排查发现原因是：`npm install -g opencode-ai` 的 `postinstall.mjs` 会将一个缓存 binary（`.opencode`）写入 `bin/` 目录，但在 Alpine/musl 环境下写入的是错误的平台 binary（Bun runtime 而非 opencode CLI）。wrapper script 会优先读取 `.opencode` 缓存，导致所有子命令被当作 Bun script 名，报 `Script not found`。
+
+正确的 musl binary 已经存在于：
+```
+/usr/local/lib/node_modules/opencode-ai/node_modules/opencode-linux-arm64-musl/bin/opencode
+```
+该 binary 支持完整的 opencode CLI（包括 `acp`、`serve` 等子命令）。
+
+## Resolution
+
+采用 Node.js ACP bridge 方案：
+- 新增 `docker/opencode-bridge/server.js`：一个纯 Node.js HTTP server，通过 `opencode acp`（JSON-RPC over stdin/stdout）与 opencode 进程通信，并对外暴露 REST+SSE API
+  - `GET  /health`
+  - `POST /session/new`    → `{ sessionId }`
+  - `POST /session/prompt` → SSE（与 `DockerOpenCodeAdapter` 兼容）
+  - `POST /session/cancel`
+  - `POST /session/delete`
+- 更新 `docker/Dockerfile.opencode-agent`：
+  - 设置 `OPENCODE_BIN_PATH` 指向正确的 musl binary
+  - CMD 改为 `node /usr/local/bin/opencode-bridge.js`
 
 ## References
 
