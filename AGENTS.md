@@ -49,11 +49,11 @@ context handoff between agents (and humans) — focus on **WHAT** and **WHY**, n
 - Follow the Baby-Step Commit principle — keep commits small, but not excessively granular.
 - Always include the related GitHub issue ID when applicable.
 - Make sure tests pass before pushing.
-- Append a co-author line in the following format: (YourName, like Copilot,Augment,Claude, etc.) <YourEmail, like, <claude@anthropic.com>, <auggie@augmentcode.com>)
+- Append a co-author line in the following format: (YourName, like Copilot,Augment,Claude etc.) (Your model name) <YourEmail, like, <claude@anthropic.com>, <auggie@augmentcode.com>)
   for example:
   ```
-  Co-authored-by: GitHub Copilot Agent <198982749+copilot@users.noreply.github.com>
-  Co-authored-by: Kiro AI <kiro@kiro.dev>
-  Co-authored-by: QoderAI <qoder_ai@qoder.com>
-  Co-authored-by: gemini-cli <218195315+gemini-cli@users.noreply.github.com>
+  Co-authored-by: GitHub Copilot Agent (GPT 5.4) <198982749+copilot@users.noreply.github.com>
+  Co-authored-by: Kiro AI (...) <kiro@kiro.dev>
+  Co-authored-by: QoderAI (Qwen 3.5 Max) <qoder_ai@qoder.com>
+  Co-authored-by: gemini-cli (...) <218195315+gemini-cli@users.noreply.github.com>
   ```
