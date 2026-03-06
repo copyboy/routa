@@ -5,7 +5,7 @@
  * Supports three storage modes:
  *   1. InMemory (no database) — for quick dev / tests
  *   2. Postgres (DATABASE_URL set) — Neon Serverless via Drizzle ORM (Web/Vercel)
- *   3. SQLite (ROUTA_DB_DRIVER=sqlite or desktop) — local file via better-sqlite3 (Tauri/Electron)
+ *   3. SQLite (ROUTA_DB_DRIVER=sqlite or local Node dev) — local file via better-sqlite3
  *
  * Workspace is a first-class citizen: every agent/task/note belongs
  * to a workspace.
@@ -162,7 +162,7 @@ export function createPgSystem(): RoutaSystem {
 
 /**
  * Create a SQLite-backed RoutaSystem.
- * Used for desktop deployments (Tauri, Electron).
+ * Used by the local Node.js backend during development.
  *
  * NOTE: sqlite.ts and sqlite-stores.ts are loaded via dynamic require
  * to prevent webpack from bundling better-sqlite3 in web builds.
@@ -212,7 +212,7 @@ export function createSqliteSystem(): RoutaSystem {
     scheduleStore = new SqliteScheduleStore(db);
     noteToolsBroadcast = true; // SqliteNoteStore doesn't broadcast — NoteTools must
   } catch (err) {
-    // Standalone desktop bundles may not include sqlite dynamic modules.
+    // Some builds may not include sqlite native modules.
     // Keep app usable by falling back to in-memory stores.
     console.warn(
       "[RoutaSystem] SQLite modules unavailable, falling back to in-memory stores:",
@@ -274,7 +274,7 @@ export function getRoutaSystem(): RoutaSystem {
         g[GLOBAL_KEY] = createPgSystem();
         break;
       case "sqlite":
-        console.log("[RoutaSystem] Initializing with SQLite stores (desktop)");
+        console.log("[RoutaSystem] Initializing with SQLite stores (local Node.js)");
         g[GLOBAL_KEY] = createSqliteSystem();
         break;
       default:

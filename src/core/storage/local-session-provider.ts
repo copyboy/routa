@@ -183,6 +183,28 @@ export class LocalSessionProvider implements SessionStorageProvider {
     await writer.append(entry);
   }
 
+  async replaceHistory(
+    sessionId: string,
+    entries: SessionJsonlEntry[]
+  ): Promise<void> {
+    const filePath = this.sessionFilePath(sessionId);
+    const dir = path.dirname(filePath);
+    await fs.mkdir(dir, { recursive: true });
+
+    const existing = await readJsonlFile<SessionJsonlEntry>(filePath);
+    const preserved = existing.filter((entry) => {
+      const type = (entry as SessionMetadata | SessionSummary).type;
+      return type === "metadata" || type === "summary";
+    });
+
+    const content = [...preserved, ...entries]
+      .map((entry) => JSON.stringify(entry))
+      .join("\n");
+
+    await fs.writeFile(filePath, content ? `${content}\n` : "", "utf-8");
+    this.writers.delete(sessionId);
+  }
+
   // ─── Helpers ────────────────────────────────────────────────────────
 
   /** Derive a label from the first user message (truncated to 80 chars). */

@@ -1,8 +1,8 @@
 /**
- * SQLite Database Connection — for desktop platforms (Tauri / Electron).
+ * SQLite Database Connection — for the local Node.js backend.
  *
  * Uses better-sqlite3 via drizzle-orm for local database storage.
- * The database file is stored in the application data directory.
+ * The database file defaults to the project-local `routa.db`.
  *
  * Connection is lazy-initialized and cached for the lifetime of the process.
  */
@@ -312,7 +312,7 @@ function initializeSqliteTables(db: SqliteDatabase): void {
 
 /**
  * Check if SQLite is configured as the database.
- * Always true for desktop platforms.
+ * Always true when the local Node.js backend selects SQLite.
  */
 export function isSqliteConfigured(): boolean {
   return true;

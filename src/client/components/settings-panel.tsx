@@ -452,7 +452,7 @@ function SpecialistsTab({ modelDefs }: { modelDefs: ModelDefinition[] }) {
       const res = await desktopAwareFetch("/api/specialists");
       if (!res.ok) {
         setError(res.status === 501
-          ? "Specialist management requires a Postgres or SQLite database"
+          ? "Specialist editing requires Postgres; local SQLite uses bundled/file-based specialists"
           : "Failed to load specialists");
         return;
       }
@@ -1167,7 +1167,7 @@ function McpServersTab() {
       const res = await desktopAwareFetch("/api/mcp-servers");
       if (!res.ok) {
         setError(res.status === 501
-          ? "MCP server management requires a Postgres or SQLite database"
+          ? "Custom MCP server management currently requires Postgres"
           : "Failed to load MCP servers");
         return;
       }

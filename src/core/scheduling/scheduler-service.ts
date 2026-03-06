@@ -1,8 +1,8 @@
 /**
- * SchedulerService — in-process cron scheduler for local development.
+ * SchedulerService — in-process cron scheduler for the local Node.js backend.
  *
  * Uses node-cron to tick every minute and call the /api/schedules/tick endpoint.
- * Only active in non-Vercel environments (NODE_ENV !== "production" or ROUTA_DB_DRIVER === "sqlite").
+ * Only active outside Vercel production.
  *
  * In production on Vercel, the tick is handled by Vercel Cron Jobs instead.
  */

@@ -1,5 +1,5 @@
 /**
- * SQLite Store Implementations — for desktop platforms (Tauri / Electron).
+ * SQLite Store Implementations — for the local Node.js backend.
  *
  * Mirrors the Pg store implementations but uses the SQLite schema.
  * All stores implement the same interfaces as their Pg counterparts.

@@ -13,7 +13,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
   BrowserAcpClient,
-  AcpSessionNotification,
   AcpNewSessionResult,
   AcpProviderInfo,
   AcpClientError,
@@ -21,7 +20,6 @@ import {
 } from "../acp-client";
 import {
   getDesktopApiBaseUrl,
-  desktopAwareFetch,
   logRuntime,
   toErrorMessage,
 } from "../utils/diagnostics";
@@ -95,6 +93,7 @@ export interface UseAcpActions {
 export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
   const clientRef = useRef<BrowserAcpClient | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const tearingDownRef = useRef(false);
 
   const [state, setState] = useState<UseAcpState>({
     connected: false,
@@ -109,9 +108,33 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
 
   // Clean up on unmount
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const markTearingDown = () => {
+        tearingDownRef.current = true;
+      };
+      window.addEventListener("pagehide", markTearingDown);
+      window.addEventListener("beforeunload", markTearingDown);
+
+      return () => {
+        tearingDownRef.current = true;
+        window.removeEventListener("pagehide", markTearingDown);
+        window.removeEventListener("beforeunload", markTearingDown);
+        clientRef.current?.disconnect();
+      };
+    }
+
     return () => {
+      tearingDownRef.current = true;
       clientRef.current?.disconnect();
     };
+  }, []);
+
+  const shouldSuppressPromptError = useCallback((err: unknown): boolean => {
+    if (tearingDownRef.current) return true;
+    const message = toErrorMessage(err) || "";
+    return message.includes("Failed to fetch") &&
+      typeof document !== "undefined" &&
+      document.visibilityState === "hidden";
   }, []);
 
   /** Connect (initialize only). Session creation is explicit. */
@@ -325,21 +348,10 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
 
     sessionIdRef.current = sessionId;
     client.attachSession(sessionId);
-    // Reset updates first, then restore history from server
+    // Reset live updates when switching sessions.
+    // Historical transcript hydration is owned by ChatPanel to avoid loading
+    // the same history both into `updates` and into the chat transcript state.
     setState((s) => ({ ...s, sessionId, updates: [] }));
-
-    // Restore message history so the chat panel shows previous messages
-    desktopAwareFetch(`/api/sessions/${sessionId}/history?consolidated=true`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        const history: AcpSessionNotification[] = data?.history ?? [];
-        if (history.length > 0) {
-          setState((s) => ({ ...s, updates: history }));
-        }
-      })
-      .catch((err) => {
-        logRuntime("warn", "useAcp.selectSession", "Failed to restore session history", err);
-      });
   }, []);
 
   /** Send a prompt to current session (content streams over SSE). */
@@ -356,6 +368,11 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
       await client.prompt(sessionId, text, skillContext);
       setState((s) => ({ ...s, loading: false }));
     } catch (err) {
+      if (shouldSuppressPromptError(err)) {
+        logRuntime("info", "useAcp.prompt", "Ignoring prompt fetch interruption during page teardown", err);
+        setState((s) => ({ ...s, loading: false }));
+        return;
+      }
       logRuntime("error", "useAcp.prompt", "Failed to send prompt", err);
       setState((s) => ({
         ...s,
@@ -363,7 +380,7 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
         error: toErrorMessage(err) || "Prompt failed",
       }));
     }
-  }, []);
+  }, [shouldSuppressPromptError]);
 
   const cancel = useCallback(async () => {
     const client = clientRef.current;

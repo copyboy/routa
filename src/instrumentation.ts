@@ -1,6 +1,6 @@
 /**
  * Next.js Instrumentation — runs once on server startup.
- * Used to start the in-process cron scheduler for local/desktop deployments.
+ * Used to start the in-process cron scheduler for the local Node.js backend.
  *
  * See: https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
  */

@@ -1,19 +1,19 @@
 /**
  * Database Connection — Multi-Driver Support
  *
- * Supports two database backends:
+ * Supports three database modes for the TypeScript/Next.js backend:
  * - **Postgres** (Neon Serverless): Used in Web/Vercel deployments
  * - **Postgres** (standard postgres-js): Used in CI and local Postgres setups
- * - **SQLite** (better-sqlite3): Used in desktop deployments (Tauri/Electron)
+ * - **SQLite** (better-sqlite3): Used in local Node.js development
  *
- * The driver is selected based on the platform bridge configuration.
+ * The driver is selected from the current backend runtime.
  * Connection is lazy-initialized and cached for the lifetime of the process.
  * In Next.js dev mode, the instance survives HMR via globalThis.
  *
  * For Postgres: Requires DATABASE_URL environment variable.
  *   - Neon URLs (containing "neon.tech"): use @neondatabase/serverless
  *   - Standard URLs (localhost, RDS, etc.): use postgres-js driver
- * For SQLite: Uses local file (default: routa.db in app data directory).
+ * For SQLite: Uses a local file (default: routa.db in the project directory).
  */
 
 import { neon } from "@neondatabase/serverless";
@@ -37,6 +37,16 @@ export type Database = PostgresDatabase;
 
 export type DatabaseDriver = "postgres" | "sqlite" | "memory";
 
+export type DatabaseRuntime = "serverless" | "node-local";
+
+export function isServerlessRuntime(): boolean {
+  return !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
+export function getDatabaseRuntime(): DatabaseRuntime {
+  return isServerlessRuntime() ? "serverless" : "node-local";
+}
+
 /**
  * Determine which database driver to use based on environment.
  *
@@ -44,9 +54,9 @@ export type DatabaseDriver = "postgres" | "sqlite" | "memory";
  * 1. ROUTA_DB_DRIVER env var (explicit override)
  * 2. Serverless (Vercel / AWS Lambda) + DATABASE_URL → postgres
  * 3. Serverless without DATABASE_URL → memory
- * 4. Non-serverless (localhost, Tauri, desktop) → sqlite
+ * 4. Local Node.js backend → sqlite
  *
- * Rationale: Local/desktop environments always use SQLite for reliability —
+ * Rationale: Local Node development prefers SQLite for reliability —
  * cloud Postgres (e.g. Neon) auto-suspends and causes session history loss
  * when DATABASE_URL is present in .env.local but the app runs locally.
  * Set ROUTA_DB_DRIVER=postgres to force Postgres in local development.
@@ -59,11 +69,11 @@ export function getDatabaseDriver(): DatabaseDriver {
   }
 
   // 2. Serverless deployments: use Postgres if available, else memory
-  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  if (isServerlessRuntime()) {
     return process.env.DATABASE_URL ? "postgres" : "memory";
   }
 
-  // 3. Non-serverless (localhost, Tauri, desktop): always use SQLite
+  // 3. Local Node.js backend: default to SQLite
   // Even if DATABASE_URL is present (e.g. pulled from Vercel via `vercel env pull`),
   // local environments prefer local SQLite to avoid cloud dependency.
   return "sqlite";
@@ -118,7 +128,7 @@ export function getPostgresDatabase(): PostgresDatabase {
  * Get the database instance for the current environment.
  *
  * Returns a Postgres database if DATABASE_URL is configured,
- * otherwise returns a SQLite database for desktop environments.
+ * otherwise returns a SQLite database for local Node.js environments.
  *
  * @throws Error if no database can be configured
  */

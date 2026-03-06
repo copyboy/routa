@@ -18,7 +18,7 @@ export type {
 } from "./specialist-store";
 export { PostgresSpecialistStore } from "./specialist-store";
 
-// SQLite stores — for desktop platforms (Tauri/Electron)
+// SQLite stores — for the local Node.js backend
 // NOTE: Only import these in environments where better-sqlite3 is available.
 // They are NOT exported from the barrel to avoid bundling SQLite in web builds.
 // Import directly from "@/core/db/sqlite-stores" when needed.

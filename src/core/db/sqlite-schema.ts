@@ -2,8 +2,7 @@
  * Drizzle ORM SQLite Schema — All tables for the Routa multi-agent system.
  *
  * Mirrors the Postgres schema (schema.ts) but uses SQLite-compatible types.
- * Used for desktop deployments (Tauri, Electron) where a local SQLite database
- * is preferred over a remote Postgres instance.
+ * Used by the local Node.js backend when SQLite is selected for development.
  *
  * Key differences from Postgres schema:
  * - Uses sqliteTable instead of pgTable

@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     const id = searchParams.get("id");
 
     if (!isPostgres()) {
-      // Fallback to file-based specialists for SQLite/local dev
+      // SQLite-backed local dev uses the file-based specialist source.
       const specialists = loadSpecialistsSync();
       if (id) {
         const specialist = specialists.find((s) => s.id === id);
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
   try {
     if (!isPostgres()) {
       return NextResponse.json(
-        { error: "Specialists API requires Postgres database" },
+        { error: "Specialist writes require Postgres; local SQLite uses bundled/file-based specialists" },
         { status: 501 }
       );
     }
@@ -167,7 +167,7 @@ export async function PUT(request: NextRequest) {
   try {
     if (!isPostgres()) {
       return NextResponse.json(
-        { error: "Specialists API requires Postgres database" },
+        { error: "Specialist writes require Postgres; local SQLite uses bundled/file-based specialists" },
         { status: 501 }
       );
     }
@@ -241,7 +241,7 @@ export async function DELETE(request: NextRequest) {
   try {
     if (!isPostgres()) {
       return NextResponse.json(
-        { error: "Specialists API requires Postgres database" },
+        { error: "Specialist writes require Postgres; local SQLite uses bundled/file-based specialists" },
         { status: 501 }
       );
     }
