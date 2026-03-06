@@ -2432,6 +2432,29 @@ paths:
                     items:
                       type: object
 
+  /api/sessions/{id}/disconnect:
+    post:
+      operationId: disconnectSession
+      summary: Disconnect and kill an active session process
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session disconnected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        "404":
+          description: Session not found
+
   # ── Background Tasks ──
   /api/background-tasks:
     get:
