@@ -10,6 +10,7 @@
 import React from "react";
 import { WorkspaceSwitcher } from "@/client/components/workspace-switcher";
 import { ProtocolBadge } from "@/app/protocol-badge";
+import { DockerStatusIndicator } from "@/client/components/docker-status-indicator";
 import type { WorkspaceData } from "@/client/hooks/use-workspaces";
 
 export interface AppHeaderProps {
@@ -134,6 +135,11 @@ export function AppHeader({
 
       {/* ── Spacer ── */}
       <div className="flex-1" />
+
+      {/* ── Docker Status ── */}
+      <div className="hidden lg:flex items-center mr-3">
+        <DockerStatusIndicator />
+      </div>
 
       {/* ── Protocol badges ── */}
       <div className={`hidden lg:flex items-center gap-2 ${isDashboard ? "mr-3" : ""}`}>
