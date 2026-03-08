@@ -71,13 +71,15 @@ async function analyzeIssue(issue: IssueData, dryRun: boolean): Promise<void> {
   // Load skill content
   const skillContent = existsSync(SKILL_PATH) ? readFileSync(SKILL_PATH, "utf-8") : "";
 
+  const hasBody = issue.body.trim().length > 0;
+
   const prompt = `Analyze GitHub issue #${issue.number} and provide a detailed analysis.
 
 ## Issue Title
 ${issue.title}
 
 ## Issue Body
-${issue.body}
+${hasBody ? issue.body : "(empty - user did not write a body)"}
 
 ## Current Labels
 ${issue.labels.length > 0 ? issue.labels.join(", ") : "(none)"}
@@ -85,16 +87,25 @@ ${issue.labels.length > 0 ? issue.labels.join(", ") : "(none)"}
 ## Instructions
 1. Analyze the codebase to understand the context and find relevant files
 2. Research potential solution approaches (2-3 approaches with trade-offs)
-3. ${dryRun ? "Output what you would comment (do NOT actually run gh commands)" : `Add a comment to the issue using: gh issue comment ${issue.number} --body "..."`}
-4. The comment should include:
+3. If the issue title is vague or can be improved, ${dryRun ? "output a better title suggestion" : `update it with a clear, action-oriented title that describes what needs to be done: gh issue edit ${issue.number} --title "ACTION: clear description"`}
+4. ${!hasBody
+    ? (dryRun
+        ? "Output the body content you would set (the user wrote no body, so update it directly)"
+        : `Since the issue body is empty, update it directly with a detailed description: gh issue edit ${issue.number} --body "CONTENT"`)
+    : (dryRun
+        ? "Output what you would comment (do NOT actually run gh commands)"
+        : `Add a comment to the issue using: gh issue comment ${issue.number} --body "CONTENT"`
+      )
+  }
+5. The ${!hasBody ? "body" : "comment"} should include:
    - Problem analysis
    - Relevant files in the codebase
    - 2-3 proposed approaches with trade-offs
    - Recommended approach
    - Effort estimate (Small/Medium/Large)
-5. ${dryRun ? "Suggest appropriate labels" : `Add appropriate labels using: gh issue edit ${issue.number} --add-label "enhancement" (or other relevant labels)`}
+6. ${dryRun ? "Suggest appropriate labels" : `Add appropriate labels using: gh issue edit ${issue.number} --add-label "enhancement" (or other relevant labels)`}
 
-Do NOT create a new issue - only analyze and comment on issue #${issue.number}.`;
+Do NOT create a new issue - only analyze and update issue #${issue.number}.`;
 
   if (dryRun) {
     console.log("   [DRY RUN] Would analyze with prompt:\n");
