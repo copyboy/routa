@@ -69,11 +69,15 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null); // For card detail view;
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Agent input state
   const [agentInput, setAgentInput] = useState("");
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentSessionId, setAgentSessionId] = useState<string | null>(null);
+
+  // Settings state - column automation rules
+  const [columnAutomation, setColumnAutomation] = useState<Record<string, { enabled: boolean; provider?: string; prompt?: string }>>({});
 
   // Handle agent input submission
   const handleAgentSubmit = useCallback(async () => {
@@ -298,72 +302,60 @@ User request: ${agentInput}`;
             </select>
           </div>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
-        >
-          Create issue
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#191c28]"
+            title="Board settings"
+          >
+            ⚙️ Settings
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
+          >
+            Create issue
+          </button>
+        </div>
       </div>
 
-      {/* Agent Input Box */}
+      {/* Agent Input Box - Compact inline style */}
       {onAgentPrompt && (
-        <div className="flex-shrink-0 rounded-2xl border border-gray-200/60 dark:border-[#1c1f2e] bg-white dark:bg-[#12141c] p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex-shrink-0">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-white text-sm font-medium">
-                🤖
-              </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <input
-                type="text"
-                value={agentInput}
-                onChange={(e) => setAgentInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void handleAgentSubmit();
-                  }
-                }}
-                placeholder="Ask the agent to create issues, move cards, or manage your board..."
-                disabled={agentLoading || !acp?.connected}
-                className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#0d1018] px-4 py-2.5 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400/50 disabled:opacity-50"
-              />
-            </div>
+        <div className="flex-shrink-0 flex items-center gap-2 max-w-2xl">
+          <div className="flex-shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-white text-xs">
+            🤖
+          </div>
+          <div className="flex-1 min-w-0 relative">
+            <input
+              type="text"
+              value={agentInput}
+              onChange={(e) => setAgentInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void handleAgentSubmit();
+                }
+              }}
+              placeholder={acp?.connected ? "Ask agent to create issues..." : "Connecting..."}
+              disabled={agentLoading || !acp?.connected}
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141c] px-3 py-1.5 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400/50 disabled:opacity-50 pr-16"
+            />
             <button
               onClick={() => void handleAgentSubmit()}
               disabled={!agentInput.trim() || agentLoading || !acp?.connected}
-              className="flex-shrink-0 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md bg-amber-500 px-2 py-1 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {agentLoading ? (
-                <span className="flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Processing...
-                </span>
-              ) : (
-                "Send"
-              )}
+              {agentLoading ? "..." : "Send"}
             </button>
           </div>
-          {!acp?.connected && (
-            <div className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-              Connecting to agent...
-            </div>
-          )}
           {agentSessionId && (
-            <div className="mt-2 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-              <span>Last session:</span>
-              <button
-                onClick={() => setActiveSessionId(agentSessionId)}
-                className="text-amber-600 dark:text-amber-400 hover:underline"
-              >
-                View response
-              </button>
-            </div>
+            <button
+              onClick={() => setActiveSessionId(agentSessionId)}
+              className="flex-shrink-0 text-xs text-amber-600 dark:text-amber-400 hover:underline"
+              title="View last agent response"
+            >
+              View
+            </button>
           )}
         </div>
       )}
@@ -776,6 +768,128 @@ User request: ${agentInput}`;
                   No session available for this task
                 </div>
               ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && board && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-[#12141c] p-6 shadow-xl max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Board Settings</h2>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Column Configuration */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Column Automation</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Configure automatic agent triggers when cards are moved to specific columns.
+              </p>
+
+              {board.columns
+                .slice()
+                .sort((a, b) => a.position - b.position)
+                .map((column) => {
+                  const automation = columnAutomation[column.id] ?? { enabled: false };
+                  return (
+                    <div
+                      key={column.id}
+                      className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                            {column.name}
+                          </span>
+                          <span className="text-xs text-gray-400">({column.id})</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={automation.enabled}
+                            onChange={(e) => {
+                              setColumnAutomation((prev) => ({
+                                ...prev,
+                                [column.id]: { ...automation, enabled: e.target.checked },
+                              }));
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-300 dark:peer-focus:ring-amber-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-amber-500"></div>
+                        </label>
+                      </div>
+
+                      {automation.enabled && (
+                        <div className="space-y-2 pl-2 border-l-2 border-amber-400">
+                          <div>
+                            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                              Provider
+                            </label>
+                            <select
+                              value={automation.provider ?? ""}
+                              onChange={(e) => {
+                                setColumnAutomation((prev) => ({
+                                  ...prev,
+                                  [column.id]: { ...automation, provider: e.target.value },
+                                }));
+                              }}
+                              className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0d1018] px-2 py-1.5 text-sm"
+                            >
+                              <option value="">Default provider</option>
+                              {providers.map((p) => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                              Auto-trigger prompt
+                            </label>
+                            <textarea
+                              value={automation.prompt ?? ""}
+                              onChange={(e) => {
+                                setColumnAutomation((prev) => ({
+                                  ...prev,
+                                  [column.id]: { ...automation, prompt: e.target.value },
+                                }));
+                              }}
+                              placeholder={`e.g., "Start working on this task" or "Review and provide feedback"`}
+                              rows={2}
+                              className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0d1018] px-2 py-1.5 text-sm resize-none"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setShowSettings(false)}
+                className="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#191c28]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  // TODO: Save settings to backend
+                  console.log("Saving column automation:", columnAutomation);
+                  setShowSettings(false);
+                }}
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
+              >
+                Save Settings
+              </button>
             </div>
           </div>
         </div>
