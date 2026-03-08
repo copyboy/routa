@@ -936,7 +936,7 @@ async fn execute_tool(
                 .map(|arr| {
                     arr.iter()
                         .filter_map(|v| v.as_str())
-                        .filter_map(|s| crate::events::AgentEventType::from_str(s))
+                        .filter_map(crate::events::AgentEventType::from_str)
                         .collect()
                 })
                 .unwrap_or_default();

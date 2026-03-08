@@ -726,6 +726,7 @@ impl RoutaOrchestrator {
 // ─── Helper Functions ─────────────────────────────────────────────────────
 
 /// Build the initial prompt for a delegated agent.
+#[allow(clippy::too_many_arguments)]
 fn build_delegation_prompt(
     specialist: &SpecialistConfig,
     agent_id: &str,

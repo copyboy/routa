@@ -129,6 +129,7 @@ impl Default for ClaudeCodeConfig {
 
 // ─── Process State ──────────────────────────────────────────────────────
 
+#[derive(Default)]
 struct ProcessState {
     tool_use_names: HashMap<String, String>,
     tool_use_inputs: HashMap<String, serde_json::Value>,
@@ -136,19 +137,6 @@ struct ProcessState {
     in_thinking: bool,
     in_text: bool,
     has_rendered_stream_content: bool,
-}
-
-impl Default for ProcessState {
-    fn default() -> Self {
-        Self {
-            tool_use_names: HashMap::new(),
-            tool_use_inputs: HashMap::new(),
-            rendered_tool_ids: HashSet::new(),
-            in_thinking: false,
-            in_text: false,
-            has_rendered_stream_content: false,
-        }
-    }
 }
 
 /// Claude Code process manager.
@@ -267,7 +255,7 @@ impl ClaudeCodeProcess {
             let mut agent_msg_buffer = String::new();
 
             while let Ok(Some(line)) = lines.next_line().await {
-                let line = clear_ansi(&line.trim().to_string());
+                let line = clear_ansi(line.trim());
                 if line.is_empty() || line.starts_with("[DEBUG]") || line.starts_with("[ERROR]") {
                     continue;
                 }

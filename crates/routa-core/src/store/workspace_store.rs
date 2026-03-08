@@ -157,8 +157,8 @@ fn row_to_workspace(row: &Row<'_>) -> Workspace {
         status: WorkspaceStatus::from_str(&row.get::<_, String>(2).unwrap_or_default()),
         metadata,
         created_at: chrono::DateTime::from_timestamp_millis(created_ms)
-            .unwrap_or_else(|| Utc::now()),
+            .unwrap_or_else(Utc::now),
         updated_at: chrono::DateTime::from_timestamp_millis(updated_ms)
-            .unwrap_or_else(|| Utc::now()),
+            .unwrap_or_else(Utc::now),
     }
 }

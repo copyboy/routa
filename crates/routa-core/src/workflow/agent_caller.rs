@@ -78,6 +78,12 @@ pub struct AcpAgentCaller {
     client: reqwest::Client,
 }
 
+impl Default for AcpAgentCaller {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AcpAgentCaller {
     pub fn new() -> Self {
         Self {

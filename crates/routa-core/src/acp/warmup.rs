@@ -110,10 +110,7 @@ impl AcpWarmupService {
     }
 
     pub async fn needs_warmup(&self, agent_id: &str) -> bool {
-        match self.states.read().await.get(agent_id).map(|s| &s.state) {
-            None | Some(WarmupState::Idle) | Some(WarmupState::Failed) => true,
-            _ => false,
-        }
+        matches!(self.states.read().await.get(agent_id).map(|s| &s.state), None | Some(WarmupState::Idle) | Some(WarmupState::Failed))
     }
 
     pub async fn get_status(&self, agent_id: &str) -> WarmupStatus {

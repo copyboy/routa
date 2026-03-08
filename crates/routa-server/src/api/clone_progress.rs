@@ -172,15 +172,15 @@ async fn clone_with_progress(
             let reader = tokio::io::BufReader::new(stderr);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
 
+            let phase_re = regex::Regex::new(
+                r"(Counting objects|Compressing objects|Receiving objects|Resolving deltas):\s+(\d+)%",
+            );
             while let Ok(Some(text)) = lines.next_line().await {
                 // Accumulate all stderr for error reporting
                 stderr_buf.push_str(&text);
                 stderr_buf.push('\n');
 
-                let phase_re = regex::Regex::new(
-                    r"(Counting objects|Compressing objects|Receiving objects|Resolving deltas):\s+(\d+)%",
-                );
-                if let Ok(re) = phase_re {
+                if let Ok(ref re) = phase_re {
                     if let Some(caps) = re.captures(&text) {
                         let phase_name = match caps.get(1).map(|m| m.as_str()) {
                             Some("Counting objects") => "counting",

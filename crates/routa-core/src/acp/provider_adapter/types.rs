@@ -91,6 +91,7 @@ impl ToolStatus {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "completed" => Self::Completed,
@@ -131,7 +132,7 @@ pub struct NormalizedMessage {
 
 /// Helper to check if rawInput is present and non-empty.
 pub fn has_input(raw_input: &Option<Value>) -> bool {
-    raw_input.as_ref().map_or(false, |v| {
+    raw_input.as_ref().is_some_and(|v| {
         if let Some(obj) = v.as_object() {
             !obj.is_empty()
         } else {

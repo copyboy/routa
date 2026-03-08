@@ -20,10 +20,13 @@ pub fn router() -> Router<AppState> {
     Router::new().route("/", get(acp_sse).post(acp_rpc))
 }
 
+/// Type alias for the SSE stream used in ACP responses.
+type AcpSseStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<Event, Infallible>> + Send>>;
+
 /// Response type that can be either JSON or SSE stream.
 enum AcpResponse {
     Json(Json<serde_json::Value>),
-    Sse(Sse<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<Event, Infallible>> + Send>>>),
+    Sse(Sse<AcpSseStream>),
 }
 
 impl IntoResponse for AcpResponse {

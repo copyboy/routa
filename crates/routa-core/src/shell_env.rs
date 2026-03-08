@@ -98,16 +98,15 @@ fn resolve_unix_shell_path() -> Option<String> {
 
 /// Well-known directories where user CLI tools may be installed.
 fn well_known_dirs(home: &Path) -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-
-    // Cross-platform: home-relative dirs
-    dirs.push(home.join(".local").join("bin"));
-    dirs.push(home.join(".cargo").join("bin"));
-    dirs.push(home.join(".opencode").join("bin"));
-    dirs.push(home.join(".bun").join("bin"));
-    dirs.push(home.join("bin"));
-    dirs.push(home.join("go").join("bin"));
-    dirs.push(home.join(".npm-global").join("bin"));
+    let mut dirs = vec![
+        home.join(".local").join("bin"),
+        home.join(".cargo").join("bin"),
+        home.join(".opencode").join("bin"),
+        home.join(".bun").join("bin"),
+        home.join("bin"),
+        home.join("go").join("bin"),
+        home.join(".npm-global").join("bin"),
+    ];
 
     #[cfg(target_os = "macos")]
     {

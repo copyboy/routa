@@ -15,6 +15,7 @@ use super::folder_slug::get_sessions_dir;
 use super::jsonl_writer::{JsonlWriter, read_jsonl_file, list_jsonl_files};
 
 /// Session metadata entry in JSONL file.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SessionJsonlEntry {

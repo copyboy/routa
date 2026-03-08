@@ -26,12 +26,14 @@ use crate::trace::{
 /// Callback type for session/update notifications from the agent.
 pub type NotificationSender = broadcast::Sender<serde_json::Value>;
 
+/// Type alias for the pending request map to avoid complex type repetition.
+type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>>;
+
 /// A managed ACP agent child process.
 pub struct AcpProcess {
     stdin: Arc<Mutex<ChildStdin>>,
     child: Arc<Mutex<Option<Child>>>,
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>>,
-    next_id: Arc<AtomicU64>,
+    pending: PendingMap,    next_id: Arc<AtomicU64>,
     alive: Arc<AtomicBool>,
     notification_tx: NotificationSender,
     display_name: String,
@@ -93,9 +95,7 @@ impl AcpProcess {
         let stderr = child.stderr.take();
 
         let alive = Arc::new(AtomicBool::new(true));
-        let pending: Arc<
-            Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>,
-        > = Arc::new(Mutex::new(HashMap::new()));
+        let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
         let stdin = Arc::new(Mutex::new(stdin));
 
         let name = display_name.to_string();
@@ -319,7 +319,7 @@ impl AcpProcess {
                                     let raw_input = update.get("rawInput").cloned();
 
                                     // Check if rawInput is empty or null
-                                    let has_input = raw_input.as_ref().map_or(false, |v| {
+                                    let has_input = raw_input.as_ref().is_some_and(|v| {
                                         if let Some(obj) = v.as_object() {
                                             !obj.is_empty()
                                         } else {
@@ -365,7 +365,7 @@ impl AcpProcess {
                                         .unwrap_or("completed");
 
                                     // Check if this update has rawInput and the tool_call wasn't traced yet
-                                    let has_input = raw_input.as_ref().map_or(false, |v| {
+                                    let has_input = raw_input.as_ref().is_some_and(|v| {
                                         if let Some(obj) = v.as_object() {
                                             !obj.is_empty()
                                         } else {

@@ -106,7 +106,7 @@ impl AcpBinaryManager {
         // Determine filename from URL or Content-Disposition
         let filename = url
             .split('/')
-            .last()
+            .next_back()
             .unwrap_or("archive")
             .split('?')
             .next()

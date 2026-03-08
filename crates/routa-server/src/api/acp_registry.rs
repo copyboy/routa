@@ -441,7 +441,6 @@ async fn get_runtime_status(
 
     // Check version for each runtime too
     let check_with_version = |rt: RuntimeType| {
-        let rm = rm;
         async move {
             let managed = rm.get_managed_runtime(&rt).await;
             let system  = rm.get_system_runtime(&rt);

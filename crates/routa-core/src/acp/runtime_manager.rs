@@ -393,7 +393,7 @@ impl AcpRuntimeManager {
     // ── Private helpers ──────────────────────────────────────────────────
 
     /// Determine the (base_name, version) pair for a RuntimeType.
-    fn base_and_version<'a>(&self, rt: &RuntimeType) -> (&'static str, &'static str) {
+    fn base_and_version(&self, rt: &RuntimeType) -> (&'static str, &'static str) {
         match rt {
             RuntimeType::Node | RuntimeType::Npx => ("node", DEFAULT_NODE_VERSION),
             RuntimeType::Uv | RuntimeType::Uvx => ("uv", DEFAULT_UV_VERSION),

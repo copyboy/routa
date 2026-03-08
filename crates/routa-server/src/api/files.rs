@@ -80,7 +80,7 @@ fn fuzzy_match(query: &str, target: &str) -> i32 {
 }
 
 fn should_ignore(name: &str) -> bool {
-    IGNORE_PATTERNS.iter().any(|p| name == *p)
+    IGNORE_PATTERNS.contains(&name)
 }
 
 fn walk_directory(dir: &Path, root: &Path, max_files: usize) -> Vec<String> {

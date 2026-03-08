@@ -198,7 +198,7 @@ pub fn get_branch_status(repo_path: &str, branch: &str) -> BranchStatus {
     {
         if o.status.success() {
             let text = String::from_utf8_lossy(&o.stdout);
-            let parts: Vec<&str> = text.trim().split_whitespace().collect();
+            let parts: Vec<&str> = text.split_whitespace().collect();
             if parts.len() == 2 {
                 result.ahead = parts[0].parse().unwrap_or(0);
                 result.behind = parts[1].parse().unwrap_or(0);
@@ -260,7 +260,7 @@ pub fn get_repo_status(repo_path: &str) -> RepoStatus {
     {
         if o.status.success() {
             let text = String::from_utf8_lossy(&o.stdout);
-            let parts: Vec<&str> = text.trim().split_whitespace().collect();
+            let parts: Vec<&str> = text.split_whitespace().collect();
             if parts.len() == 2 {
                 status.ahead = parts[0].parse().unwrap_or(0);
                 status.behind = parts[1].parse().unwrap_or(0);

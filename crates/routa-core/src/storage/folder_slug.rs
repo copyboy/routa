@@ -28,9 +28,9 @@ use std::path::PathBuf;
 /// ```
 pub fn to_folder_slug(absolute_path: &str) -> String {
     // Strip leading separators
-    let cleaned = absolute_path.trim_start_matches(|c| c == '/' || c == '\\');
+    let cleaned = absolute_path.trim_start_matches(['/', '\\']);
     // Strip trailing separators (avoids trailing hyphen in slug)
-    let cleaned = cleaned.trim_end_matches(|c: char| c == '/' || c == '\\');
+    let cleaned = cleaned.trim_end_matches(['/', '\\']);
     // Replace consecutive separators with a single hyphen
     let mut result = String::with_capacity(cleaned.len());
     let mut last_was_sep = false;

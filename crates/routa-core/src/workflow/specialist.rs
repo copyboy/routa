@@ -143,6 +143,12 @@ pub struct SpecialistLoader {
     pub specialists: HashMap<String, SpecialistDef>,
 }
 
+impl Default for SpecialistLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SpecialistLoader {
     pub fn new() -> Self {
         Self {

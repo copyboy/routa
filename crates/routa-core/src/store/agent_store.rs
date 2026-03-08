@@ -190,8 +190,8 @@ fn row_to_agent(row: &Row<'_>) -> Agent {
             .unwrap_or(AgentStatus::Pending),
         metadata,
         created_at: chrono::DateTime::from_timestamp_millis(created_ms)
-            .unwrap_or_else(|| Utc::now()),
+            .unwrap_or_else(Utc::now),
         updated_at: chrono::DateTime::from_timestamp_millis(updated_ms)
-            .unwrap_or_else(|| Utc::now()),
+            .unwrap_or_else(Utc::now),
     }
 }

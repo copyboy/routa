@@ -24,6 +24,7 @@ impl AgentRole {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "ROUTA" => Some(Self::Routa),
@@ -54,6 +55,7 @@ impl ModelTier {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "SMART" => Some(Self::Smart),
@@ -89,6 +91,7 @@ impl AgentStatus {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "PENDING" => Some(Self::Pending),

@@ -74,6 +74,12 @@ pub struct SkillRegistry {
     skills: RwLock<HashMap<String, SkillDefinition>>,
 }
 
+impl Default for SkillRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SkillRegistry {
     pub fn new() -> Self {
         Self {

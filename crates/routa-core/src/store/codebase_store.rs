@@ -159,8 +159,8 @@ fn row_to_codebase(row: &Row<'_>) -> Codebase {
         label: row.get(4).unwrap_or(None),
         is_default: is_default_int != 0,
         created_at: chrono::DateTime::from_timestamp_millis(created_ms)
-            .unwrap_or_else(|| Utc::now()),
+            .unwrap_or_else(Utc::now),
         updated_at: chrono::DateTime::from_timestamp_millis(updated_ms)
-            .unwrap_or_else(|| Utc::now()),
+            .unwrap_or_else(Utc::now),
     }
 }

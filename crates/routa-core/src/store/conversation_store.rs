@@ -134,7 +134,7 @@ fn row_to_message(row: &Row<'_>) -> Message {
         role: MessageRole::from_str(&row.get::<_, String>(2).unwrap_or_default())
             .unwrap_or(MessageRole::User),
         content: row.get(3).unwrap_or_default(),
-        timestamp: chrono::DateTime::from_timestamp_millis(ts_ms).unwrap_or_else(|| Utc::now()),
+        timestamp: chrono::DateTime::from_timestamp_millis(ts_ms).unwrap_or_else(Utc::now),
         tool_name: row.get(5).unwrap_or(None),
         tool_args: row.get(6).unwrap_or(None),
         turn: row.get(7).unwrap_or(None),

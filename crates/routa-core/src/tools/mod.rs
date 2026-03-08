@@ -410,8 +410,7 @@ impl AgentTools {
     }
 
     // ─── Tool 7: Create Task ────────────────────────────────────────────
-
-    pub async fn create_task(
+    #[allow(clippy::too_many_arguments)]    pub async fn create_task(
         &self,
         title: &str,
         objective: &str,
@@ -548,6 +547,7 @@ impl AgentTools {
 
     // ─── Tool 11: Subscribe to Events ───────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn subscribe_to_events(
         &self,
         agent_id: &str,
@@ -666,7 +666,7 @@ impl AgentTools {
         let last_response = last_messages
             .iter()
             .filter(|m| m.role == MessageRole::Assistant)
-            .last();
+            .next_back();
 
         let all_messages = self.conversation_store.get_conversation(agent_id).await?;
         let tool_call_count = all_messages

@@ -125,6 +125,12 @@ pub struct AcpManager {
     history: Arc<RwLock<HashMap<String, Vec<serde_json::Value>>>>,
 }
 
+impl Default for AcpManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AcpManager {
     pub fn new() -> Self {
         Self {
@@ -212,6 +218,7 @@ impl AcpManager {
     /// **Claude** uses stream-json protocol instead of ACP.
     ///
     /// Returns `(our_session_id, agent_session_id)`.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_session(
         &self,
         session_id: String,
@@ -592,8 +599,7 @@ pub async fn get_preset_by_id_with_registry(id: &str) -> Result<AcpPreset, Strin
     // Handle suffixed IDs (e.g., "auggie-registry")
     // This allows explicit selection of registry version when both exist
     const REGISTRY_SUFFIX: &str = "-registry";
-    if id.ends_with(REGISTRY_SUFFIX) {
-        let base_id = &id[..id.len() - REGISTRY_SUFFIX.len()];
+    if let Some(base_id) = id.strip_suffix(REGISTRY_SUFFIX) {
         let mut preset = get_registry_preset(base_id).await?;
         // Keep the suffixed ID in the returned preset for consistency
         preset.id = id.to_string();

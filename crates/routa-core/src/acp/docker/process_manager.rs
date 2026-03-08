@@ -403,6 +403,7 @@ impl DockerProcessManager {
 
         let result = tokio::time::timeout(
             Duration::from_secs(30),
+            #[allow(clippy::needless_borrows_for_generic_args)]
             Command::new(&args[0])
                 .args(&args[1..])
                 .stdout(Stdio::piped())

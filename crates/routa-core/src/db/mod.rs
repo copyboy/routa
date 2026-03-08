@@ -17,6 +17,14 @@ pub struct Database {
 }
 
 impl Database {
+    fn ignore_duplicate_column(result: Result<usize, rusqlite::Error>) -> Result<(), rusqlite::Error> {
+        match result {
+            Ok(_) => Ok(()),
+            Err(error) if error.to_string().to_ascii_lowercase().contains("duplicate column name") => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Open (or create) a SQLite database at the given path.
     pub fn open(db_path: &str) -> Result<Self, ServerError> {
         let path = Path::new(db_path);
@@ -166,6 +174,24 @@ impl Database {
                     verification_commands   TEXT,
                     assigned_to             TEXT,
                     status                  TEXT NOT NULL DEFAULT 'PENDING',
+                    board_id                TEXT,
+                    column_id               TEXT,
+                    position                INTEGER NOT NULL DEFAULT 0,
+                    priority                TEXT,
+                    labels                  TEXT NOT NULL DEFAULT '[]',
+                    assignee                TEXT,
+                    assigned_provider       TEXT,
+                    assigned_role           TEXT,
+                    assigned_specialist_id  TEXT,
+                    assigned_specialist_name TEXT,
+                    trigger_session_id      TEXT,
+                    github_id               TEXT,
+                    github_number           INTEGER,
+                    github_url              TEXT,
+                    github_repo             TEXT,
+                    github_state            TEXT,
+                    github_synced_at        INTEGER,
+                    last_sync_error         TEXT,
                     dependencies            TEXT NOT NULL DEFAULT '[]',
                     parallel_group          TEXT,
                     workspace_id            TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -176,6 +202,15 @@ impl Database {
                     version                 INTEGER NOT NULL DEFAULT 1,
                     created_at              INTEGER NOT NULL,
                     updated_at              INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS kanban_boards (
+                    id              TEXT PRIMARY KEY,
+                    workspace_id    TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                    name            TEXT NOT NULL,
+                    is_default      INTEGER NOT NULL DEFAULT 0,
+                    columns         TEXT NOT NULL DEFAULT '[]',
+                    created_at      INTEGER NOT NULL,
+                    updated_at      INTEGER NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS notes (
                     id                  TEXT NOT NULL,
@@ -229,6 +264,8 @@ impl Database {
 
                 CREATE INDEX IF NOT EXISTS idx_agents_workspace ON agents(workspace_id);
                 CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id);
+                CREATE INDEX IF NOT EXISTS idx_kanban_boards_workspace ON kanban_boards(workspace_id);
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_kanban_boards_default_workspace ON kanban_boards(workspace_id) WHERE is_default = 1;
                 CREATE INDEX IF NOT EXISTS idx_notes_workspace ON notes(workspace_id);
                 CREATE INDEX IF NOT EXISTS idx_messages_agent ON messages(agent_id);
 
@@ -280,11 +317,44 @@ impl Database {
     fn run_migrations(&self) -> Result<(), ServerError> {
         self.with_conn(|conn| {
             // Add session_id to tasks if it doesn't exist yet (ignore error if already present)
-            let _ = conn.execute("ALTER TABLE tasks ADD COLUMN session_id TEXT", []);
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN session_id TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN board_id TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN column_id TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN priority TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN assignee TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN assigned_provider TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN assigned_role TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN assigned_specialist_id TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN assigned_specialist_name TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN trigger_session_id TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN github_id TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN github_number INTEGER", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN github_url TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN github_repo TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN github_state TEXT", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN github_synced_at INTEGER", []))?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE tasks ADD COLUMN last_sync_error TEXT", []))?;
             // Add session_id to notes if it doesn't exist yet (ignore error if already present)
-            let _ = conn.execute("ALTER TABLE notes ADD COLUMN session_id TEXT", []);
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE notes ADD COLUMN session_id TEXT", []))?;
             // Add parent_session_id to acp_sessions for CRAFTER child session tracking
-            let _ = conn.execute("ALTER TABLE acp_sessions ADD COLUMN parent_session_id TEXT", []);
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE acp_sessions ADD COLUMN parent_session_id TEXT", []))?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS kanban_boards (
+                    id TEXT PRIMARY KEY,
+                    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    is_default INTEGER NOT NULL DEFAULT 0,
+                    columns TEXT NOT NULL DEFAULT '[]',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_kanban_boards_workspace ON kanban_boards(workspace_id);
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_kanban_boards_default_workspace ON kanban_boards(workspace_id) WHERE is_default = 1;"
+            )?;
+            Self::ignore_duplicate_column(conn.execute("ALTER TABLE kanban_boards ADD COLUMN columns TEXT NOT NULL DEFAULT '[]'", []))?;
+            let _ = conn.execute("UPDATE kanban_boards SET columns = columns_json WHERE (columns IS NULL OR columns = '[]') AND columns_json IS NOT NULL", []);
             // Create indexes for session_id columns
             conn.execute_batch(
                 "CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);

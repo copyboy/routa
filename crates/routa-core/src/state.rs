@@ -10,23 +10,15 @@ use crate::db::Database;
 use crate::events::EventBus;
 use crate::skills::SkillRegistry;
 use crate::store::{
-    AcpSessionStore, AgentStore, CodebaseStore, ConversationStore, NoteStore, ScheduleStore, TaskStore,
-    WorkspaceStore, WorktreeStore,
+    AcpSessionStore, AgentStore, CodebaseStore, ConversationStore, KanbanStore, NoteStore,
+    ScheduleStore, TaskStore, WorkspaceStore, WorktreeStore,
 };
 
 /// Docker state for managing Docker-based agent execution.
+#[derive(Default)]
 pub struct DockerState {
     pub detector: DockerDetector,
     pub process_manager: DockerProcessManager,
-}
-
-impl Default for DockerState {
-    fn default() -> Self {
-        Self {
-            detector: DockerDetector::new(),
-            process_manager: DockerProcessManager::new(),
-        }
-    }
 }
 
 /// Shared state accessible by all API handlers.
@@ -37,6 +29,7 @@ pub struct AppStateInner {
     pub worktree_store: WorktreeStore,
     pub agent_store: AgentStore,
     pub task_store: TaskStore,
+    pub kanban_store: KanbanStore,
     pub note_store: NoteStore,
     pub schedule_store: ScheduleStore,
     pub conversation_store: ConversationStore,
@@ -67,6 +60,7 @@ impl AppStateInner {
             worktree_store: WorktreeStore::new(db.clone()),
             agent_store: AgentStore::new(db.clone()),
             task_store: TaskStore::new(db.clone()),
+            kanban_store: KanbanStore::new(db.clone()),
             note_store: NoteStore::new(db.clone()),
             schedule_store: ScheduleStore::new(db.clone()),
             conversation_store: ConversationStore::new(db.clone()),
