@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createRoutaMcpServer } from "@/core/mcp/routa-mcp-server";
 import { executeMcpTool, getMcpToolDefinitions } from "@/core/mcp/mcp-tool-executor";
 import { ToolMode } from "@/core/mcp/routa-mcp-tool-manager";
+import { KanbanTools } from "@/core/tools/kanban-tools";
 import { setGlobalToolMode, getGlobalToolMode } from "@/core/mcp/tool-mode-config";
 
 /**
@@ -92,7 +93,9 @@ export async function POST(request: NextRequest) {
     }
 
     const { system } = createRoutaMcpServer({ workspaceId, toolMode });
-    const result = await executeMcpTool(system.tools, name, args, system.noteTools, system.workspaceTools);
+    const kanbanTools = new KanbanTools(system.kanbanBoardStore, system.taskStore);
+    kanbanTools.setEventBus(system.eventBus);
+    const result = await executeMcpTool(system.tools, name, args, system.noteTools, system.workspaceTools, kanbanTools);
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
