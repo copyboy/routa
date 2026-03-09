@@ -4,6 +4,7 @@ import { TaskPriority, TaskStatus, type Task } from "@/core/models/task";
 import { columnIdToTaskStatus, taskStatusToColumnId } from "@/core/models/kanban";
 import { updateGitHubIssue } from "@/core/kanban/github-issues";
 import { getInternalApiOrigin, triggerAssignedTaskAgent } from "@/core/kanban/agent-trigger";
+import type { ArtifactType } from "@/core/models/artifact";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +97,40 @@ export async function PATCH(
   if (body.verificationCommands !== undefined) nextTask.verificationCommands = body.verificationCommands;
   if (body.assignedTo !== undefined) nextTask.assignedTo = body.assignedTo;
   if (body.boardId !== undefined) nextTask.boardId = body.boardId;
+
+  // Check required artifacts before allowing column transition
+  if (body.columnId !== undefined && body.columnId !== existing.columnId) {
+    const boardId = body.boardId ?? existing.boardId;
+    if (boardId) {
+      const board = await system.kanbanBoardStore.get(boardId);
+      if (board) {
+        const targetColumn = board.columns.find((c) => c.id === body.columnId);
+        const requiredArtifacts = targetColumn?.automation?.requiredArtifacts;
+        if (requiredArtifacts && requiredArtifacts.length > 0 && system.artifactStore) {
+          const missingArtifacts: string[] = [];
+          for (const artifactType of requiredArtifacts) {
+            const artifacts = await system.artifactStore.listByTaskAndType(
+              taskId,
+              artifactType as ArtifactType
+            );
+            if (artifacts.length === 0) {
+              missingArtifacts.push(artifactType);
+            }
+          }
+          if (missingArtifacts.length > 0) {
+            return NextResponse.json(
+              {
+                error: `Cannot move task to "${targetColumn?.name ?? body.columnId}": missing required artifacts: ${missingArtifacts.join(", ")}. Please provide these artifacts before moving the task.`,
+                missingArtifacts,
+              },
+              { status: 400 }
+            );
+          }
+        }
+      }
+    }
+  }
+
   if (body.columnId !== undefined) nextTask.columnId = body.columnId;
   if (body.position !== undefined) nextTask.position = body.position;
   if (body.assignee !== undefined) nextTask.assignee = body.assignee;

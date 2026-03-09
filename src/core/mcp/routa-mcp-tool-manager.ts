@@ -110,6 +110,13 @@ export class RoutaMcpToolManager {
       this.registerListNotes(server);
       this.registerSetNoteContent(server);
       this.registerConvertTaskBlocks(server);
+      // Artifact tools (6) - critical for multi-agent coordination and desk check workflow
+      this.registerRequestArtifact(server);
+      this.registerProvideArtifact(server);
+      this.registerListArtifacts(server);
+      this.registerGetArtifact(server);
+      this.registerListPendingArtifactRequests(server);
+      this.registerCaptureScreenshot(server);
       return;
     }
 

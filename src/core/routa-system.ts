@@ -29,6 +29,7 @@ import { CRDTDocumentManager } from "./notes/crdt-document-manager";
 import { NoteEventBroadcaster, getNoteEventBroadcaster } from "./notes/note-event-broadcaster";
 import { WorkflowRunStore, InMemoryWorkflowRunStore } from "./workflows/workflow-store";
 import { InMemoryKanbanBoardStore, KanbanBoardStore } from "./store/kanban-board-store";
+import { InMemoryArtifactStore, ArtifactStore } from "./store/artifact-store";
 
 export interface RoutaSystem {
   agentStore: AgentStore;
@@ -43,6 +44,8 @@ export interface RoutaSystem {
   /** Workflow run store for multi-step workflow execution */
   workflowRunStore: WorkflowRunStore;
   kanbanBoardStore: KanbanBoardStore;
+  /** Artifact store for agent-to-agent communication */
+  artifactStore: ArtifactStore;
   eventBus: EventBus;
   tools: AgentTools;
   noteTools: NoteTools;
@@ -69,6 +72,7 @@ export function createInMemorySystem(): RoutaSystem {
   const scheduleStore = new InMemoryScheduleStore();
   const workflowRunStore = new InMemoryWorkflowRunStore();
   const kanbanBoardStore = new InMemoryKanbanBoardStore();
+  const artifactStore = new InMemoryArtifactStore();
 
   // CRDT-backed note store with event broadcasting
   const noteBroadcaster = getNoteEventBroadcaster();
@@ -84,6 +88,9 @@ export function createInMemorySystem(): RoutaSystem {
   workspaceTools.setWorkspaceStore(workspaceStore);
   workspaceTools.setEventBus(eventBus);
 
+  // Wire artifact store for artifact-related tools
+  tools.setArtifactStore(artifactStore);
+
   return {
     agentStore,
     conversationStore,
@@ -96,6 +103,7 @@ export function createInMemorySystem(): RoutaSystem {
     scheduleStore,
     workflowRunStore,
     kanbanBoardStore,
+    artifactStore,
     eventBus,
     tools,
     noteTools,
@@ -136,6 +144,8 @@ export function createPgSystem(): RoutaSystem {
   // TODO: Implement PgWorkflowRunStore for persistent workflow state
   const workflowRunStore = new InMemoryWorkflowRunStore();
   const kanbanBoardStore = new PgKanbanBoardStore(db);
+  // TODO: Implement PgArtifactStore for persistent artifact storage
+  const artifactStore = new InMemoryArtifactStore();
 
   // CRDT manager and broadcaster still used for real-time collab
   const noteBroadcaster = getNoteEventBroadcaster();
@@ -152,6 +162,9 @@ export function createPgSystem(): RoutaSystem {
   workspaceTools.setWorkspaceStore(workspaceStore);
   workspaceTools.setEventBus(eventBus);
 
+  // Wire artifact store for artifact-related tools
+  tools.setArtifactStore(artifactStore);
+
   return {
     agentStore,
     conversationStore,
@@ -164,6 +177,7 @@ export function createPgSystem(): RoutaSystem {
     scheduleStore,
     workflowRunStore,
     kanbanBoardStore,
+    artifactStore,
     eventBus,
     tools,
     noteTools,
@@ -198,6 +212,8 @@ export function createSqliteSystem(): RoutaSystem {
   let kanbanBoardStore: KanbanBoardStore;
   // TODO: Implement SqliteWorkflowRunStore for persistent workflow state
   const workflowRunStore = new InMemoryWorkflowRunStore();
+  // TODO: Implement SqliteArtifactStore for persistent artifact storage
+  const artifactStore = new InMemoryArtifactStore();
   // True when noteStore doesn't broadcast on save (SqliteNoteStore); NoteTools will broadcast.
   // False when CRDTNoteStore is used as fallback (it already broadcasts internally).
   let noteToolsBroadcast = false;
@@ -259,6 +275,9 @@ export function createSqliteSystem(): RoutaSystem {
   workspaceTools.setWorkspaceStore(workspaceStore);
   workspaceTools.setEventBus(eventBus);
 
+  // Wire artifact store for artifact-related tools
+  tools.setArtifactStore(artifactStore);
+
   return {
     agentStore,
     conversationStore,
@@ -271,6 +290,7 @@ export function createSqliteSystem(): RoutaSystem {
     scheduleStore,
     workflowRunStore,
     kanbanBoardStore,
+    artifactStore,
     eventBus,
     tools,
     noteTools,
