@@ -164,6 +164,7 @@ export class RoutaMcpToolManager {
     this.registerDeleteColumn(server);
     this.registerSearchCards(server);
     this.registerListCardsByColumn(server);
+    this.registerDecomposeTasks(server);
   }
 
   // ─── Task Tools ────────────────────────────────────────────────────
@@ -1112,6 +1113,35 @@ Note: taskId must be a UUID from create_task, not a task name.`,
           return this.toMcpResult({ success: false, error: "Kanban tools not available." });
         }
         const result = await this.kanbanTools.listCardsByColumn(params.columnId, params.boardId);
+        return this.toMcpResult(result);
+      }
+    );
+  }
+  private registerDecomposeTasks(server: McpServer) {
+    server.tool(
+      "decompose_tasks",
+      "Create multiple Kanban cards from a list of decomposed tasks. Use this to bulk-create cards from a task breakdown.",
+      {
+        boardId: z.string().describe("Board ID"),
+        workspaceId: z.string().describe("Workspace ID"),
+        tasks: z.array(z.object({
+          title: z.string().describe("Task title"),
+          description: z.string().optional().describe("Task description"),
+          priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("Task priority"),
+          labels: z.array(z.string()).optional().describe("Task labels"),
+        })).describe("Array of tasks to create"),
+        columnId: z.string().optional().default("backlog").describe("Target column ID (default: backlog)"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.decomposeTasks({
+          boardId: params.boardId,
+          workspaceId: params.workspaceId,
+          tasks: params.tasks,
+          columnId: params.columnId,
+        });
         return this.toMcpResult(result);
       }
     );

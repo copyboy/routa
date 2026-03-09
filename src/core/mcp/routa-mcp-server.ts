@@ -9,6 +9,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RoutaMcpToolManager, ToolMode } from "./routa-mcp-tool-manager";
 import { RoutaSystem, getRoutaSystem } from "../routa-system";
 import { initRoutaOrchestrator } from "../orchestration/orchestrator-singleton";
+import { KanbanTools } from "../tools/kanban-tools";
 
 export interface RoutaMcpServerResult {
   server: McpServer;
@@ -70,6 +71,11 @@ export function createRoutaMcpServer(
   // Wire in note tools and workspace tools
   toolManager.setNoteTools(routaSystem.noteTools);
   toolManager.setWorkspaceTools(routaSystem.workspaceTools);
+
+  // Wire in kanban tools with event bus for column transition events
+  const kanbanTools = new KanbanTools(routaSystem.kanbanBoardStore, routaSystem.taskStore);
+  kanbanTools.setEventBus(routaSystem.eventBus);
+  toolManager.setKanbanTools(kanbanTools);
 
   toolManager.registerTools(server);
 

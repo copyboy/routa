@@ -13,15 +13,24 @@
 import { v4 as uuidv4 } from "uuid";
 import { KanbanBoardStore } from "../store/kanban-board-store";
 import { TaskStore } from "../store/task-store";
-import { createKanbanBoard, KanbanColumn, KanbanBoard, columnIdToTaskStatus } from "../models/kanban";
+import { createKanbanBoard, KanbanColumn, columnIdToTaskStatus } from "../models/kanban";
 import { createTask, Task, TaskPriority } from "../models/task";
 import { ToolResult, successResult, errorResult } from "./tool-result";
+import { EventBus } from "../events/event-bus";
+import { emitColumnTransition } from "../kanban/column-transition";
 
 export class KanbanTools {
+  private eventBus?: EventBus;
+
   constructor(
     private kanbanBoardStore: KanbanBoardStore,
     private taskStore: TaskStore,
   ) {}
+
+  /** Set the event bus for emitting column transition events */
+  setEventBus(eventBus: EventBus): void {
+    this.eventBus = eventBus;
+  }
 
   // ─── Board Operations ───────────────────────────────────────────────────
 
@@ -160,12 +169,29 @@ export class KanbanTools {
       return errorResult(`Column not found: ${params.targetColumnId}`);
     }
 
+    const fromColumnId = task.columnId ?? "backlog";
+    const fromColumn = board.columns.find((c) => c.id === fromColumnId);
+
     task.columnId = params.targetColumnId;
     task.status = columnIdToTaskStatus(params.targetColumnId);
     task.position = params.position ?? task.position;
     task.updatedAt = new Date();
 
     await this.taskStore.save(task);
+
+    // Emit column transition event if column actually changed
+    if (this.eventBus && fromColumnId !== params.targetColumnId) {
+      emitColumnTransition(this.eventBus, {
+        cardId: task.id,
+        cardTitle: task.title,
+        boardId: task.boardId,
+        workspaceId: task.workspaceId,
+        fromColumnId,
+        toColumnId: params.targetColumnId,
+        fromColumnName: fromColumn?.name,
+        toColumnName: targetColumn.name,
+      });
+    }
 
     return successResult(this.taskToCard(task));
   }
@@ -339,6 +365,54 @@ export class KanbanTools {
   }
 
   // Helper to convert Task to Card format
+  /**
+   * Decompose a natural language input into multiple Kanban cards.
+   * Returns the created tasks as card objects.
+   */
+  async decomposeTasks(params: {
+    boardId: string;
+    workspaceId: string;
+    tasks: { title: string; description?: string; priority?: "low" | "medium" | "high" | "urgent"; labels?: string[] }[];
+    columnId?: string;
+  }): Promise<ToolResult> {
+    const board = await this.kanbanBoardStore.get(params.boardId);
+    if (!board) {
+      return errorResult(`Board not found: ${params.boardId}`);
+    }
+
+    const targetColumnId = params.columnId ?? "backlog";
+    const column = board.columns.find((c) => c.id === targetColumnId);
+    if (!column) {
+      return errorResult(`Column not found: ${targetColumnId}`);
+    }
+
+    const existingTasks = await this.taskStore.listByWorkspace(params.workspaceId);
+    const columnTasks = existingTasks.filter(
+      (t) => t.boardId === params.boardId && (t.columnId ?? "backlog") === targetColumnId,
+    );
+    let position = columnTasks.length;
+
+    const createdCards = [];
+    for (const item of params.tasks) {
+      const task = createTask({
+        id: uuidv4(),
+        title: item.title,
+        objective: item.description ?? "",
+        workspaceId: params.workspaceId,
+        boardId: params.boardId,
+        columnId: targetColumnId,
+        position: position++,
+        status: columnIdToTaskStatus(targetColumnId),
+        priority: item.priority as TaskPriority | undefined,
+        labels: item.labels,
+      });
+      await this.taskStore.save(task);
+      createdCards.push(this.taskToCard(task));
+    }
+
+    return successResult({ count: createdCards.length, cards: createdCards });
+  }
+
   private taskToCard(task: Task) {
     return {
       id: task.id,

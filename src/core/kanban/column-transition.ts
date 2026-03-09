@@ -7,7 +7,7 @@
  */
 
 import { EventBus, AgentEventType, AgentEvent } from "../events/event-bus";
-import type { KanbanBoard, KanbanColumnAutomation } from "../models/kanban";
+import type { KanbanColumnAutomation } from "../models/kanban";
 import type { KanbanBoardStore } from "../store/kanban-board-store";
 
 /** Data payload for COLUMN_TRANSITION events */
