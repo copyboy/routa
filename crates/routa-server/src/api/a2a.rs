@@ -228,9 +228,7 @@ async fn rpc_sse(
 // ─── /api/a2a/message ────────────────────────────────────────────────
 
 /// POST /api/a2a/message — Send a message via the A2A protocol
-async fn send_message(
-    Json(body): Json<serde_json::Value>,
-) -> Json<serde_json::Value> {
+async fn send_message(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
     let method = body
         .get("method")
         .and_then(|v| v.as_str())
@@ -299,8 +297,12 @@ async fn update_task(
         let task_status = crate::models::task::TaskStatus::from_str(status)
             .ok_or_else(|| ServerError::BadRequest(format!("Invalid status: {}", status)))?;
         state.task_store.update_status(&id, &task_status).await?;
-        Ok(Json(serde_json::json!({ "updated": true, "id": id, "status": status })))
+        Ok(Json(
+            serde_json::json!({ "updated": true, "id": id, "status": status }),
+        ))
     } else {
-        Ok(Json(serde_json::json!({ "updated": false, "id": id, "message": "No status change requested" })))
+        Ok(Json(
+            serde_json::json!({ "updated": false, "id": id, "message": "No status change requested" }),
+        ))
     }
 }

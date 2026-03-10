@@ -6,8 +6,8 @@
 //! - Setting executable permissions on Unix
 //! - Removing macOS quarantine attributes
 
-use std::path::{Path, PathBuf};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -56,7 +56,11 @@ impl AcpBinaryManager {
         // Check if already installed
         if install_dir.exists() {
             if let Some(exe) = self.find_executable(&install_dir, binary_info).await {
-                tracing::info!("[AcpBinaryManager] Agent {} already installed at {:?}", agent_id, exe);
+                tracing::info!(
+                    "[AcpBinaryManager] Agent {} already installed at {:?}",
+                    agent_id,
+                    exe
+                );
                 return Ok(exe);
             }
         }
@@ -70,7 +74,9 @@ impl AcpBinaryManager {
             .map_err(|e| format!("Failed to create install dir: {}", e))?;
 
         // Download the archive
-        let archive_path = self.download_archive(&binary_info.archive, &download_dir).await?;
+        let archive_path = self
+            .download_archive(&binary_info.archive, &download_dir)
+            .await?;
 
         // Extract the archive
         self.extract_archive(&archive_path, &install_dir).await?;
@@ -87,7 +93,12 @@ impl AcpBinaryManager {
         // Clean up download directory
         let _ = tokio::fs::remove_dir_all(&download_dir).await;
 
-        tracing::info!("[AcpBinaryManager] Installed {} v{} at {:?}", agent_id, version, exe_path);
+        tracing::info!(
+            "[AcpBinaryManager] Installed {} v{} at {:?}",
+            agent_id,
+            version,
+            exe_path
+        );
         Ok(exe_path)
     }
 
@@ -100,13 +111,16 @@ impl AcpBinaryManager {
             .map_err(|e| format!("Failed to download: {}", e))?;
 
         if !response.status().is_success() {
-            return Err(format!("Download failed with status: {}", response.status()));
+            return Err(format!(
+                "Download failed with status: {}",
+                response.status()
+            ));
         }
 
         // Determine filename from URL or Content-Disposition
         let filename = url
             .split('/')
-            .last()
+            .next_back()
             .unwrap_or("archive")
             .split('?')
             .next()
@@ -123,7 +137,11 @@ impl AcpBinaryManager {
             .await
             .map_err(|e| format!("Failed to write archive: {}", e))?;
 
-        tracing::info!("[AcpBinaryManager] Downloaded {} bytes to {:?}", bytes.len(), archive_path);
+        tracing::info!(
+            "[AcpBinaryManager] Downloaded {} bytes to {:?}",
+            bytes.len(),
+            archive_path
+        );
         Ok(archive_path)
     }
 
@@ -157,13 +175,14 @@ impl AcpBinaryManager {
     }
 
     fn extract_zip(archive: &Path, dest: &Path) -> Result<(), String> {
-        let file = std::fs::File::open(archive)
-            .map_err(|e| format!("Failed to open zip: {}", e))?;
-        let mut archive = zip::ZipArchive::new(file)
-            .map_err(|e| format!("Failed to read zip: {}", e))?;
+        let file =
+            std::fs::File::open(archive).map_err(|e| format!("Failed to open zip: {}", e))?;
+        let mut archive =
+            zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip: {}", e))?;
 
         for i in 0..archive.len() {
-            let mut file = archive.by_index(i)
+            let mut file = archive
+                .by_index(i)
                 .map_err(|e| format!("Failed to read zip entry: {}", e))?;
             let outpath = dest.join(file.mangled_name());
 
@@ -183,8 +202,8 @@ impl AcpBinaryManager {
     }
 
     fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), String> {
-        let file = std::fs::File::open(archive)
-            .map_err(|e| format!("Failed to open tar.gz: {}", e))?;
+        let file =
+            std::fs::File::open(archive).map_err(|e| format!("Failed to open tar.gz: {}", e))?;
         let gz = flate2::read::GzDecoder::new(file);
         let mut tar = tar::Archive::new(gz);
         tar.unpack(dest)
@@ -193,8 +212,8 @@ impl AcpBinaryManager {
     }
 
     fn extract_tar_bz2(archive: &Path, dest: &Path) -> Result<(), String> {
-        let file = std::fs::File::open(archive)
-            .map_err(|e| format!("Failed to open tar.bz2: {}", e))?;
+        let file =
+            std::fs::File::open(archive).map_err(|e| format!("Failed to open tar.bz2: {}", e))?;
         let bz2 = bzip2::read::BzDecoder::new(file);
         let mut tar = tar::Archive::new(bz2);
         tar.unpack(dest)
@@ -203,8 +222,8 @@ impl AcpBinaryManager {
     }
 
     fn extract_tar(archive: &Path, dest: &Path) -> Result<(), String> {
-        let file = std::fs::File::open(archive)
-            .map_err(|e| format!("Failed to open tar: {}", e))?;
+        let file =
+            std::fs::File::open(archive).map_err(|e| format!("Failed to open tar: {}", e))?;
         let mut tar = tar::Archive::new(file);
         tar.unpack(dest)
             .map_err(|e| format!("Failed to extract tar: {}", e))?;
@@ -212,7 +231,11 @@ impl AcpBinaryManager {
     }
 
     /// Find the executable in the install directory.
-    async fn find_executable(&self, install_dir: &Path, binary_info: &BinaryInfo) -> Option<PathBuf> {
+    async fn find_executable(
+        &self,
+        install_dir: &Path,
+        binary_info: &BinaryInfo,
+    ) -> Option<PathBuf> {
         // If cmd (executable name) is specified, look for it
         if let Some(cmd) = &binary_info.cmd {
             // cmd might be "./codex-acp" or "codex-acp", strip the "./" prefix

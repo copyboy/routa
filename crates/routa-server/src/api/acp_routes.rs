@@ -14,15 +14,20 @@ use tokio_stream::StreamExt as _;
 use crate::acp;
 use crate::error::ServerError;
 use crate::state::AppState;
+use routa_core::storage::{LocalSessionProvider, SessionRecord};
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/", get(acp_sse).post(acp_rpc))
 }
 
+/// Type alias for the SSE stream used in ACP responses.
+type AcpSseStream =
+    std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<Event, Infallible>> + Send>>;
+
 /// Response type that can be either JSON or SSE stream.
 enum AcpResponse {
     Json(Json<serde_json::Value>),
-    Sse(Sse<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<Event, Infallible>> + Send>>>),
+    Sse(Sse<AcpSseStream>),
 }
 
 impl IntoResponse for AcpResponse {
@@ -43,10 +48,7 @@ async fn acp_rpc(
     State(state): State<AppState>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<AcpResponse, ServerError> {
-    let method = body
-        .get("method")
-        .and_then(|m| m.as_str())
-        .unwrap_or("");
+    let method = body.get("method").and_then(|m| m.as_str()).unwrap_or("");
     let id = body.get("id").cloned().unwrap_or(serde_json::json!(null));
     let params = body.get("params").cloned().unwrap_or_default();
 
@@ -97,9 +99,10 @@ async fn acp_rpc(
             let npx_available = shell_env::which("npx").is_some();
             let uvx_available = shell_env::which("uv").is_some();
 
-            if let Ok(response) = reqwest::get(
-                "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
-            ).await {
+            if let Ok(response) =
+                reqwest::get("https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json")
+                    .await
+            {
                 if let Ok(registry) = response.json::<serde_json::Value>().await {
                     if let Some(agents) = registry.get("agents").and_then(|a| a.as_array()) {
                         for agent in agents {
@@ -108,19 +111,27 @@ async fn acp_rpc(
                                 continue;
                             }
 
-                            let name = agent.get("name").and_then(|v| v.as_str()).unwrap_or(agent_id);
-                            let desc = agent.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                            let name = agent
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(agent_id);
+                            let desc = agent
+                                .get("description")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
                             let dist = agent.get("distribution");
 
                             let (command, status) = if let Some(dist) = dist {
                                 if dist.get("npx").is_some() && npx_available {
-                                    let pkg = dist.get("npx")
+                                    let pkg = dist
+                                        .get("npx")
                                         .and_then(|v| v.get("package"))
                                         .and_then(|v| v.as_str())
                                         .unwrap_or(agent_id);
                                     (format!("npx {}", pkg), "available")
                                 } else if dist.get("uvx").is_some() && uvx_available {
-                                    let pkg = dist.get("uvx")
+                                    let pkg = dist
+                                        .get("uvx")
                                         .and_then(|v| v.get("package"))
                                         .and_then(|v| v.as_str())
                                         .unwrap_or(agent_id);
@@ -128,7 +139,8 @@ async fn acp_rpc(
                                 } else if dist.get("binary").is_some() {
                                     (agent_id.to_string(), "unavailable")
                                 } else if dist.get("npx").is_some() {
-                                    let pkg = dist.get("npx")
+                                    let pkg = dist
+                                        .get("npx")
                                         .and_then(|v| v.get("package"))
                                         .and_then(|v| v.as_str())
                                         .unwrap_or(agent_id);
@@ -143,7 +155,10 @@ async fn acp_rpc(
                             // If this agent ID conflicts with a built-in preset, use a suffixed ID
                             // to allow both versions to coexist in the UI
                             let (provider_id, provider_name) = if static_ids.contains(agent_id) {
-                                (format!("{}-registry", agent_id), format!("{} (Registry)", name))
+                                (
+                                    format!("{}-registry", agent_id),
+                                    format!("{} (Registry)", name),
+                                )
                             } else {
                                 (agent_id.to_string(), name.to_string())
                             };
@@ -184,10 +199,15 @@ async fn acp_rpc(
         }
 
         "session/new" => {
-            let cwd = params
+            let mut cwd = params
                 .get("cwd")
                 .and_then(|v| v.as_str())
                 .unwrap_or(".")
+                .to_string();
+            let workspace_id = params
+                .get("workspaceId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("default")
                 .to_string();
             let provider = params
                 .get("provider")
@@ -201,14 +221,65 @@ async fn acp_rpc(
                 .get("model")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
+            let parent_session_id = params
+                .get("parentSessionId")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let worktree_id = params
+                .get("worktreeId")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
             let session_id = uuid::Uuid::new_v4().to_string();
 
+            // If worktreeId is provided, validate and override cwd with worktree path
+            // Session assignment is deferred until create_session succeeds
+            let mut validated_worktree_id: Option<String> = None;
+            if let Some(ref wt_id) = worktree_id {
+                match state.worktree_store.get(wt_id).await {
+                    Ok(Some(wt)) if wt.status == "active" && wt.workspace_id == workspace_id => {
+                        if wt.session_id.is_some() {
+                            return Ok(AcpResponse::Json(Json(serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "error": {
+                                    "code": -32602,
+                                    "message": "Worktree is already assigned to another session"
+                                }
+                            }))));
+                        }
+                        cwd = wt.worktree_path.clone();
+                        validated_worktree_id = Some(wt_id.clone());
+                    }
+                    Ok(Some(_)) => {
+                        return Ok(AcpResponse::Json(Json(serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": {
+                                "code": -32602,
+                                "message": "Worktree is not active or does not belong to this workspace"
+                            }
+                        }))));
+                    }
+                    _ => {
+                        return Ok(AcpResponse::Json(Json(serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": {
+                                "code": -32602,
+                                "message": "Worktree not found"
+                            }
+                        }))));
+                    }
+                }
+            }
+
             tracing::info!(
-                "[ACP Route] Creating session: provider={:?}, cwd={}, role={:?}",
+                "[ACP Route] Creating session: provider={:?}, cwd={}, role={:?}, parent={:?}",
                 provider,
                 cwd,
-                role
+                role,
+                parent_session_id
             );
 
             // Spawn agent process, initialize protocol, create agent session
@@ -216,15 +287,56 @@ async fn acp_rpc(
                 .acp_manager
                 .create_session(
                     session_id.clone(),
-                    cwd,
-                    "default".to_string(),
+                    cwd.clone(),
+                    workspace_id.clone(),
                     provider.clone(),
                     role.clone(),
                     model.clone(),
+                    parent_session_id.clone(),
                 )
                 .await
             {
                 Ok((_our_sid, _agent_sid)) => {
+                    // Assign worktree session now that creation succeeded
+                    if let Some(ref wt_id) = validated_worktree_id {
+                        if let Err(e) = state
+                            .worktree_store
+                            .assign_session(wt_id, Some(&session_id))
+                            .await
+                        {
+                            tracing::warn!("[ACP Route] Failed to assign worktree session: {}", e);
+                        }
+                    }
+
+                    // Persist the session to the database immediately so it survives restarts
+                    if let Err(e) = state
+                        .acp_session_store
+                        .create(
+                            &session_id,
+                            &cwd,
+                            &workspace_id,
+                            provider.as_deref(),
+                            role.as_deref(),
+                            parent_session_id.as_deref(),
+                        )
+                        .await
+                    {
+                        tracing::warn!("[ACP Route] Failed to persist session to DB: {}", e);
+                    } else {
+                        tracing::info!("[ACP Route] Session {} persisted to DB", session_id);
+                    }
+
+                    // Also persist to local JSONL file for file-level persistence
+                    persist_session_to_jsonl(
+                        &session_id,
+                        &cwd,
+                        &workspace_id,
+                        provider.as_deref(),
+                        role.as_deref(),
+                        parent_session_id.as_deref(),
+                    )
+                    .await;
+
                     Ok(AcpResponse::Json(Json(serde_json::json!({
                         "jsonrpc": "2.0",
                         "id": id,
@@ -314,11 +426,12 @@ async fn acp_rpc(
                     .acp_manager
                     .create_session(
                         session_id.clone(),
-                        cwd,
-                        workspace_id,
+                        cwd.clone(),
+                        workspace_id.clone(),
                         provider.clone(),
-                        role,
+                        role.clone(),
                         None, // model
+                        None, // parent_session_id
                     )
                     .await
                 {
@@ -329,6 +442,35 @@ async fn acp_rpc(
                             provider.as_deref().unwrap_or("opencode"),
                             agent_sid
                         );
+                        // Persist auto-created session to DB
+                        if let Err(e) = state
+                            .acp_session_store
+                            .create(
+                                &session_id,
+                                &cwd,
+                                &workspace_id,
+                                provider.as_deref(),
+                                role.as_deref(),
+                                None,
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                "[ACP Route] Failed to persist auto-created session: {}",
+                                e
+                            );
+                        }
+
+                        // Also persist to local JSONL file
+                        persist_session_to_jsonl(
+                            &session_id,
+                            &cwd,
+                            &workspace_id,
+                            provider.as_deref(),
+                            role.as_deref(),
+                            None,
+                        )
+                        .await;
                     }
                     Err(e) => {
                         tracing::error!("[ACP Route] Failed to auto-create session: {}", e);
@@ -380,6 +522,7 @@ async fn acp_rpc(
 
                 let stream: SseStream = if let Some(mut rx) = rx {
                     let session_id_clone = session_id.clone();
+                    let state_clone = state.clone();
                     Box::pin(async_stream::stream! {
                         // Stream notifications until turn_complete or disconnect
                         loop {
@@ -415,6 +558,11 @@ async fn acp_rpc(
                                 }
                             }
                         }
+                        // Persist history and mark first_prompt_sent after turn completes
+                        let _ = state_clone.acp_session_store.set_first_prompt_sent(&session_id_clone).await;
+                        if let Some(history) = state_clone.acp_manager.get_session_history(&session_id_clone).await {
+                            let _ = state_clone.acp_session_store.save_history(&session_id_clone, &history).await;
+                        }
                     })
                 } else {
                     // No broadcast channel - return empty stream with error
@@ -441,11 +589,25 @@ async fn acp_rpc(
 
             // For ACP providers, use the traditional JSON response
             match state.acp_manager.prompt(&session_id, &prompt_text).await {
-                Ok(result) => Ok(AcpResponse::Json(Json(serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": result,
-                })))),
+                Ok(result) => {
+                    // Persist history and mark first_prompt_sent after turn completes
+                    let _ = state
+                        .acp_session_store
+                        .set_first_prompt_sent(&session_id)
+                        .await;
+                    if let Some(history) = state.acp_manager.get_session_history(&session_id).await
+                    {
+                        let _ = state
+                            .acp_session_store
+                            .save_history(&session_id, &history)
+                            .await;
+                    }
+                    Ok(AcpResponse::Json(Json(serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": result,
+                    }))))
+                }
                 Err(e) => {
                     tracing::error!("[ACP Route] Prompt failed: {}", e);
                     Ok(AcpResponse::Json(Json(serde_json::json!({
@@ -538,7 +700,7 @@ async fn acp_sse(
         "params": {
             "sessionId": session_id,
             "update": {
-                "sessionUpdate": "agent_thought_chunk",
+                "sessionUpdate": "acp_status",
                 "content": { "type": "text", "text": "Connected to ACP session." }
             }
         }
@@ -558,9 +720,7 @@ async fn acp_sse(
         std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<Event, Infallible>> + Send>>;
 
     // Subscribe to agent notifications for this session
-    let stream: SseStream = if let Some(mut rx) =
-        state.acp_manager.subscribe(&session_id).await
-    {
+    let stream: SseStream = if let Some(mut rx) = state.acp_manager.subscribe(&session_id).await {
         let notifications = async_stream::stream! {
             while let Ok(msg) = rx.recv().await {
                 yield Ok::<_, Infallible>(
@@ -576,4 +736,35 @@ async fn acp_sse(
     };
 
     Sse::new(stream)
+}
+
+/// Persist a session to local JSONL file (best-effort, non-blocking).
+async fn persist_session_to_jsonl(
+    session_id: &str,
+    cwd: &str,
+    workspace_id: &str,
+    provider: Option<&str>,
+    role: Option<&str>,
+    parent_session_id: Option<&str>,
+) {
+    let now = chrono::Utc::now().to_rfc3339();
+    let record = SessionRecord {
+        id: session_id.to_string(),
+        name: None,
+        cwd: cwd.to_string(),
+        branch: None,
+        workspace_id: workspace_id.to_string(),
+        routa_agent_id: None,
+        provider: provider.map(|s| s.to_string()),
+        role: role.map(|s| s.to_string()),
+        mode_id: None,
+        model: None,
+        parent_session_id: parent_session_id.map(|s| s.to_string()),
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    let local = LocalSessionProvider::new(cwd);
+    if let Err(e) = local.save(&record).await {
+        tracing::warn!("[ACP Route] Failed to persist session to JSONL: {}", e);
+    }
 }

@@ -6,8 +6,8 @@ use axum::{
 use serde::Deserialize;
 
 use crate::error::ServerError;
-use routa_core::trace::{TraceQuery, TraceReader};
 use crate::state::AppState;
+use routa_core::trace::{TraceQuery, TraceReader};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -38,7 +38,9 @@ async fn query_traces(
     let reader = TraceReader::new(&cwd);
     let query = params.to_trace_query();
 
-    let traces = reader.query(&query).await
+    let traces = reader
+        .query(&query)
+        .await
         .map_err(|e| ServerError::Internal(format!("Failed to query traces: {}", e)))?;
 
     Ok(Json(serde_json::json!({
@@ -55,7 +57,9 @@ async fn get_trace_stats(
         .map_err(|e| ServerError::Internal(format!("Failed to get cwd: {}", e)))?;
 
     let reader = TraceReader::new(&cwd);
-    let stats = reader.stats().await
+    let stats = reader
+        .stats()
+        .await
         .map_err(|e| ServerError::Internal(format!("Failed to get trace stats: {}", e)))?;
 
     Ok(Json(serde_json::json!({ "stats": stats })))
@@ -70,7 +74,9 @@ async fn get_trace_by_id(
         .map_err(|e| ServerError::Internal(format!("Failed to get cwd: {}", e)))?;
 
     let reader = TraceReader::new(&cwd);
-    let trace = reader.get_by_id(&id).await
+    let trace = reader
+        .get_by_id(&id)
+        .await
         .map_err(|e| ServerError::Internal(format!("Failed to get trace: {}", e)))?;
 
     match trace {
@@ -90,7 +96,9 @@ async fn export_traces(
     let reader = TraceReader::new(&cwd);
     let query = params.to_trace_query();
 
-    let traces_json = reader.export(&query).await
+    let traces_json = reader
+        .export(&query)
+        .await
         .map_err(|e| ServerError::Internal(format!("Failed to export traces: {}", e)))?;
 
     Ok(Json(serde_json::json!({

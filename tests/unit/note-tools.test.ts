@@ -158,6 +158,44 @@ runTest("Non-spec note does not auto-convert @@@task blocks by default", async (
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Test 4: Duplicate tasks are not created when calling setNoteContent twice
+// ─────────────────────────────────────────────────────────────────────────────
+runTest("setNoteContent skips duplicate tasks on repeated calls", async () => {
+  const { noteTools, taskStore } = createTestNoteTools();
+  const sessionId = "test-session-1";
+
+  // First call: should create 1 task
+  const result1 = await noteTools.setNoteContent({
+    noteId: SPEC_NOTE_ID,
+    workspaceId: WORKSPACE_ID,
+    content: CONTENT_WITH_TASK_BLOCKS,
+    sessionId,
+  });
+  assert(result1.success, `First call failed: ${result1.error}`);
+  const data1 = result1.data as Record<string, unknown>;
+  assert(data1.tasksCreated === 1, `Expected 1 task created on first call, got ${data1.tasksCreated}`);
+
+  // Second call with same content: should skip the duplicate
+  const result2 = await noteTools.setNoteContent({
+    noteId: SPEC_NOTE_ID,
+    workspaceId: WORKSPACE_ID,
+    content: CONTENT_WITH_TASK_BLOCKS,
+    sessionId,
+  });
+  assert(result2.success, `Second call failed: ${result2.error}`);
+  const data2 = result2.data as Record<string, unknown>;
+  // No new tasks should be created
+  assert(
+    data2.tasksCreated === undefined || data2.tasksCreated === 0,
+    `Expected 0 tasks created on second call, got ${data2.tasksCreated}`
+  );
+
+  // Verify only 1 task exists in store (not 2)
+  const storedTasks = await taskStore.listByWorkspace(WORKSPACE_ID);
+  assert(storedTasks.length === 1, `Expected 1 task in store, got ${storedTasks.length}`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Run and report
 // ─────────────────────────────────────────────────────────────────────────────
 setTimeout(() => {

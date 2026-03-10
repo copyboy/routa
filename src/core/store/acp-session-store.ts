@@ -18,6 +18,8 @@ export interface AcpSession {
   /** User-editable display name */
   name?: string;
   cwd: string;
+  /** Git branch the session is scoped to (optional) */
+  branch?: string;
   workspaceId: string;
   routaAgentId?: string;
   provider?: string;
@@ -29,6 +31,8 @@ export interface AcpSession {
   messageHistory: AcpSessionNotification[];
   createdAt: Date;
   updatedAt: Date;
+  /** Parent session ID for child (CRAFTER/GATE) sessions */
+  parentSessionId?: string;
 }
 
 export interface AcpSessionStore {

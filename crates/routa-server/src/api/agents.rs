@@ -99,10 +99,7 @@ async fn create_agent(
 ) -> Result<Json<CreateAgentResponse>, ServerError> {
     let role = AgentRole::from_str(&body.role)
         .ok_or_else(|| ServerError::BadRequest(format!("Invalid role: {}", body.role)))?;
-    let model_tier = body
-        .model_tier
-        .as_deref()
-        .and_then(ModelTier::from_str);
+    let model_tier = body.model_tier.as_deref().and_then(ModelTier::from_str);
     let workspace_id = body.workspace_id.unwrap_or_else(|| "default".to_string());
 
     state.workspace_store.ensure_default().await?;

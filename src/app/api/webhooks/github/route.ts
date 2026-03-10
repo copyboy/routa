@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
       eventType,
       signature,
       rawBody,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       payload: payload as any,
       webhookStore,
       backgroundTaskStore: system.backgroundTaskStore,

@@ -15,6 +15,8 @@ use routa_core::orchestration::{OrchestratorConfig, RoutaOrchestrator, Specialis
 use routa_core::rpc::RpcRouter;
 use routa_core::state::AppState;
 
+use super::tui::TuiRenderer;
+
 /// Run the full Routa coordinator flow for a user prompt.
 pub async fn run(
     state: &AppState,
@@ -48,19 +50,20 @@ pub async fn run(
                     "jsonrpc": "2.0",
                     "id": 2,
                     "method": "workspaces.create",
-                    "params": { 
-                        "title": workspace_id 
+                    "params": {
+                        "title": workspace_id
                     }
                 }))
                 .await;
-            
+
             if let Some(err) = create_resp.get("error") {
-                let err_msg = err.get("message")
+                let err_msg = err
+                    .get("message")
                     .and_then(|m| m.as_str())
                     .unwrap_or("Unknown error");
                 return Err(format!("Failed to create workspace: {}", err_msg));
             }
-            
+
             // Get the created workspace ID
             let created_ws_id = create_resp
                 .get("result")
@@ -69,7 +72,7 @@ pub async fn run(
                 .and_then(|id| id.as_str())
                 .ok_or("Failed to get created workspace ID")?
                 .to_string();
-            
+
             println!("Created workspace: {}", created_ws_id);
             created_ws_id
         } else {
@@ -107,8 +110,8 @@ pub async fn run(
         .to_string();
 
     // ── 3. Build coordinator prompt ─────────────────────────────────────
-    let specialist = SpecialistConfig::by_role(&AgentRole::Routa)
-        .unwrap_or_else(SpecialistConfig::crafter);
+    let specialist =
+        SpecialistConfig::by_role(&AgentRole::Routa).unwrap_or_else(SpecialistConfig::crafter);
 
     let coordinator_prompt = format!(
         "{}\n\n---\n\n\
@@ -143,6 +146,7 @@ pub async fn run(
             Some(provider.to_string()),
             Some("ROUTA".to_string()),
             None,
+            None, // branch
         )
         .await;
 
@@ -186,6 +190,7 @@ pub async fn run(
         .map_err(|e| format!("Failed to send prompt: {}", e))?;
 
     // ── 8. Stream updates until completion ──────────────────────────────
+    let mut renderer = TuiRenderer::new();
     let mut idle_count = 0u32;
     let max_idle = 600; // 10 minutes at 1s intervals
 
@@ -193,26 +198,22 @@ pub async fn run(
         match tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv()).await {
             Ok(Ok(update)) => {
                 idle_count = 0;
-                handle_session_update(&update);
+                renderer.handle_update(&update);
             }
             Ok(Err(_)) => {
-                // Channel closed — agent process ended
-                println!();
+                renderer.finish();
                 println!("═══ Coordinator session ended ═══");
                 break;
             }
             Err(_) => {
-                // Timeout — check if agent is still alive
                 idle_count += 1;
                 if idle_count >= max_idle {
-                    println!();
+                    renderer.finish();
                     println!("⏰ Timeout: no activity for {} seconds", max_idle);
                     break;
                 }
-
-                // Check if the process is still running
                 if !state.acp_manager.is_alive(&session_id).await {
-                    println!();
+                    renderer.finish();
                     println!("═══ Coordinator process exited ═══");
                     break;
                 }
@@ -231,103 +232,10 @@ pub async fn run(
     Ok(())
 }
 
-/// Handle a session/update notification and print to terminal.
-fn handle_session_update(update: &serde_json::Value) {
-    let params = match update.get("params") {
-        Some(p) => p,
-        None => return,
-    };
 
-    let inner = match params.get("update") {
-        Some(u) => u,
-        None => return,
-    };
-
-    let session_update = inner
-        .get("sessionUpdate")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    match session_update {
-        "agent_message" => {
-            let text = inner
-                .get("content")
-                .and_then(|c| c.get("text"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("");
-            if !text.is_empty() {
-                println!("🤖 {}", text);
-            }
-        }
-        "agent_message_chunk" => {
-            let text = inner
-                .get("content")
-                .and_then(|c| c.get("text"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("");
-            if !text.is_empty() {
-                print!("{}", text);
-                use std::io::Write;
-                std::io::stdout().flush().ok();
-            }
-        }
-        "agent_thought_chunk" => {
-            let text = inner
-                .get("content")
-                .and_then(|c| c.get("text"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("");
-            if !text.is_empty() {
-                print!("\x1b[2m{}\x1b[0m", text); // dim
-                use std::io::Write;
-                std::io::stdout().flush().ok();
-            }
-        }
-        "tool_call" => {
-            let kind = inner
-                .get("kind")
-                .or_else(|| inner.get("title"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let status = inner
-                .get("status")
-                .and_then(|v| v.as_str())
-                .unwrap_or("running");
-            println!();
-            println!("  🔧 {} [{}]", kind, status);
-        }
-        "tool_call_update" => {
-            let kind = inner
-                .get("kind")
-                .or_else(|| inner.get("title"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let status = inner
-                .get("status")
-                .and_then(|v| v.as_str())
-                .unwrap_or("running");
-            if status == "completed" || status == "failed" {
-                let icon = if status == "completed" { "✅" } else { "❌" };
-                println!("  {} {} [{}]", icon, kind, status);
-            }
-        }
-        "process_output" => {
-            let data = inner
-                .get("data")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if !data.is_empty() {
-                eprint!("\x1b[90m{}\x1b[0m", data); // gray
-            }
-        }
-        _ => {
-            tracing::debug!("Unhandled session update: {}", session_update);
-        }
-    }
-}
 
 /// Print a summary of agents and tasks after the session completes.
-async fn print_session_summary(router: &RpcRouter, workspace_id: &str) {
+pub(crate) async fn print_session_summary(router: &RpcRouter, workspace_id: &str) {
     println!("╔══════════════════════════════════════════════════════════╗");
     println!("║  Session Summary                                        ║");
     println!("╚══════════════════════════════════════════════════════════╝");
@@ -394,7 +302,7 @@ async fn print_session_summary(router: &RpcRouter, workspace_id: &str) {
     println!();
 }
 
-fn truncate_path(path: &str, max_len: usize) -> String {
+pub(crate) fn truncate_path(path: &str, max_len: usize) -> String {
     if path.len() <= max_len {
         path.to_string()
     } else {

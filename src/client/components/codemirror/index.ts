@@ -2,4 +2,4 @@
  * CodeMirror components for code display with syntax highlighting
  */
 
-export { CodeViewer, default } from "./code-viewer";
+export { CodeViewer, CodeEditor, default } from "./code-viewer";

@@ -13,12 +13,16 @@ describe("BackgroundTask Dependency Checking", () => {
 
   const createTask = (overrides: Partial<BackgroundTask> = {}): BackgroundTask => ({
     id: `task-${Math.random().toString(36).slice(2)}`,
+    title: "Test Task",
     workspaceId: "ws-1",
     agentId: "agent-1",
     status: "PENDING",
     priority: "NORMAL",
     prompt: "Test prompt",
+    triggeredBy: "user",
     triggerSource: "workflow",
+    attempts: 0,
+    maxAttempts: 1,
     createdAt: new Date(),
     updatedAt: new Date(),
     dependsOnTaskIds: [],

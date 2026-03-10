@@ -443,6 +443,7 @@ interface ProviderItem {
   status?: "available" | "unavailable" | "checking";
   /** Source of the provider: "static" for builtin, "registry" for ACP registry */
   source?: "static" | "registry";
+  unavailableReason?: string;
 }
 
 interface SessionItem {
@@ -478,6 +479,10 @@ interface TiptapInputProps {
   pendingSkill?: string | null;
   /** Called after pendingSkill has been inserted so the parent can clear it */
   onSkillInserted?: () => void;
+  /** When set, replaces the editor content with this plain text (e.g. to restore input after error) */
+  prefillText?: string | null;
+  /** Called after prefillText has been consumed so the parent can clear it */
+  onPrefillConsumed?: () => void;
 }
 
 export function TiptapInput({
@@ -500,6 +505,8 @@ export function TiptapInput({
   onFetchModels,
   pendingSkill,
   onSkillInserted,
+  prefillText,
+  onPrefillConsumed,
 }: TiptapInputProps) {
   const [providerDropdownOpen, setProviderDropdownOpen] = useState(false);
   const providerDropdownRef = useRef<HTMLDivElement>(null);
@@ -515,7 +522,7 @@ export function TiptapInput({
   const [modelLoading, setModelLoading] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const modelBtnRef = useRef<HTMLButtonElement>(null);
-  const [modelDropdownPos, setModelDropdownPos] = useState<{ left: number; bottom: number } | null>(null);
+  const [modelDropdownPos, setModelDropdownPos] = useState<{ left: number; bottom?: number; top?: number; maxHeight: number } | null>(null);
   const [modelFilter, setModelFilter] = useState("");
 
   // Keep mode chips aligned with the current session mode when switching sessions.
@@ -701,6 +708,14 @@ export function TiptapInput({
       .run();
     onSkillInserted?.();
   }, [pendingSkill, editor]);
+
+  // Restore prefill text (e.g. after a session error) into the editor
+  useEffect(() => {
+    if (!prefillText || !editor) return;
+    editor.commands.setContent(prefillText);
+    editor.commands.focus("end");
+    onPrefillConsumed?.();
+  }, [prefillText, editor, onPrefillConsumed]);
   const handleSend = useCallback(() => {
     if (!editor || disabled || loading) return;
 
@@ -955,14 +970,20 @@ export function TiptapInput({
                     <div className="px-3 py-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                       Built-in - Not Installed ({builtinUnavailable.length})
                     </div>
-                    {builtinUnavailable.map((p) => (
+                    {builtinUnavailable.map((p) => {
+                      const isDockerProvider = p.id === "docker-opencode";
+                      const isDisabled = isDockerProvider;
+                      return (
                       <button
                         key={p.id}
                         type="button"
                         onClick={() => {
+                          if (isDisabled) return;
                           onProviderChange?.(p.id);
                           setProviderDropdownOpen(false);
                         }}
+                        disabled={isDisabled}
+                        title={p.unavailableReason ?? p.description}
                         className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-xs transition-colors opacity-60 ${
                           p.id === selectedProvider
                             ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300"
@@ -973,7 +994,8 @@ export function TiptapInput({
                         <span className="font-medium truncate flex-1">{p.name}</span>
                         <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate max-w-[140px]">{p.command}</span>
                       </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
@@ -1041,7 +1063,15 @@ export function TiptapInput({
                 onClick={async () => {
                   if (!modelDropdownOpen && modelBtnRef.current) {
                     const rect = modelBtnRef.current.getBoundingClientRect();
-                    setModelDropdownPos({ left: rect.left, bottom: window.innerHeight - rect.top + 4 });
+                    const spaceAbove = rect.top - 8;
+                    const spaceBelow = window.innerHeight - rect.bottom - 8;
+                    if (spaceAbove >= spaceBelow) {
+                      // open upward, cap height to available space
+                      setModelDropdownPos({ left: rect.left, bottom: window.innerHeight - rect.top + 4, maxHeight: Math.min(spaceAbove, 280) });
+                    } else {
+                      // open downward
+                      setModelDropdownPos({ left: rect.left, top: rect.bottom + 4, maxHeight: Math.min(spaceBelow, 280) });
+                    }
                   }
                   if (!modelDropdownOpen && availableModels.length === 0) {
                     setModelLoading(true);
@@ -1072,7 +1102,7 @@ export function TiptapInput({
               {modelDropdownOpen && modelDropdownPos && (
                 <div
                   className="fixed w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e2130] shadow-xl z-[9999] flex flex-col"
-                  style={{ left: modelDropdownPos.left, bottom: modelDropdownPos.bottom, maxHeight: "320px" }}
+                  style={{ left: modelDropdownPos.left, bottom: modelDropdownPos.bottom, top: modelDropdownPos.top, maxHeight: `${modelDropdownPos.maxHeight}px` }}
                 >
                   {/* Search */}
                   <div className="p-2 border-b border-gray-100 dark:border-gray-800">

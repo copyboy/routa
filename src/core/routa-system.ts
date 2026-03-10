@@ -5,7 +5,7 @@
  * Supports three storage modes:
  *   1. InMemory (no database) — for quick dev / tests
  *   2. Postgres (DATABASE_URL set) — Neon Serverless via Drizzle ORM (Web/Vercel)
- *   3. SQLite (ROUTA_DB_DRIVER=sqlite or desktop) — local file via better-sqlite3 (Tauri/Electron)
+ *   3. SQLite (ROUTA_DB_DRIVER=sqlite or local Node dev) — local file via better-sqlite3
  *
  * Workspace is a first-class citizen: every agent/task/note belongs
  * to a workspace.
@@ -17,6 +17,7 @@ import { InMemoryTaskStore, TaskStore } from "./store/task-store";
 import { NoteStore } from "./store/note-store";
 import { WorkspaceStore, InMemoryWorkspaceStore } from "./db/pg-workspace-store";
 import { CodebaseStore, InMemoryCodebaseStore } from "./db/pg-codebase-store";
+import { WorktreeStore, InMemoryWorktreeStore } from "./db/pg-worktree-store";
 import { BackgroundTaskStore, InMemoryBackgroundTaskStore } from "./store/background-task-store";
 import { ScheduleStore, InMemoryScheduleStore } from "./store/schedule-store";
 import { EventBus } from "./events/event-bus";
@@ -27,6 +28,8 @@ import { CRDTNoteStore } from "./notes/crdt-note-store";
 import { CRDTDocumentManager } from "./notes/crdt-document-manager";
 import { NoteEventBroadcaster, getNoteEventBroadcaster } from "./notes/note-event-broadcaster";
 import { WorkflowRunStore, InMemoryWorkflowRunStore } from "./workflows/workflow-store";
+import { InMemoryKanbanBoardStore, KanbanBoardStore } from "./store/kanban-board-store";
+import { InMemoryArtifactStore, ArtifactStore } from "./store/artifact-store";
 
 export interface RoutaSystem {
   agentStore: AgentStore;
@@ -35,10 +38,14 @@ export interface RoutaSystem {
   noteStore: NoteStore;
   workspaceStore: WorkspaceStore;
   codebaseStore: CodebaseStore;
+  worktreeStore: WorktreeStore;
   backgroundTaskStore: BackgroundTaskStore;
   scheduleStore: ScheduleStore;
   /** Workflow run store for multi-step workflow execution */
   workflowRunStore: WorkflowRunStore;
+  kanbanBoardStore: KanbanBoardStore;
+  /** Artifact store for agent-to-agent communication */
+  artifactStore: ArtifactStore;
   eventBus: EventBus;
   tools: AgentTools;
   noteTools: NoteTools;
@@ -60,9 +67,12 @@ export function createInMemorySystem(): RoutaSystem {
   const taskStore = new InMemoryTaskStore();
   const workspaceStore = new InMemoryWorkspaceStore();
   const codebaseStore = new InMemoryCodebaseStore();
+  const worktreeStore = new InMemoryWorktreeStore();
   const backgroundTaskStore = new InMemoryBackgroundTaskStore();
   const scheduleStore = new InMemoryScheduleStore();
   const workflowRunStore = new InMemoryWorkflowRunStore();
+  const kanbanBoardStore = new InMemoryKanbanBoardStore();
+  const artifactStore = new InMemoryArtifactStore();
 
   // CRDT-backed note store with event broadcasting
   const noteBroadcaster = getNoteEventBroadcaster();
@@ -78,6 +88,9 @@ export function createInMemorySystem(): RoutaSystem {
   workspaceTools.setWorkspaceStore(workspaceStore);
   workspaceTools.setEventBus(eventBus);
 
+  // Wire artifact store for artifact-related tools
+  tools.setArtifactStore(artifactStore);
+
   return {
     agentStore,
     conversationStore,
@@ -85,9 +98,12 @@ export function createInMemorySystem(): RoutaSystem {
     noteStore,
     workspaceStore,
     codebaseStore,
+    worktreeStore,
     backgroundTaskStore,
     scheduleStore,
     workflowRunStore,
+    kanbanBoardStore,
+    artifactStore,
     eventBus,
     tools,
     noteTools,
@@ -112,6 +128,8 @@ export function createPgSystem(): RoutaSystem {
   const { PgCodebaseStore } = require("./db/pg-codebase-store") as typeof import("./db/pg-codebase-store");
   const { PgBackgroundTaskStore } = require("./db/pg-background-task-store") as typeof import("./db/pg-background-task-store");
   const { PgScheduleStore } = require("./db/pg-schedule-store") as typeof import("./db/pg-schedule-store");
+  const { PgWorktreeStore } = require("./db/pg-worktree-store") as typeof import("./db/pg-worktree-store");
+  const { PgKanbanBoardStore } = require("./db/pg-kanban-board-store") as typeof import("./db/pg-kanban-board-store");
 
   const db = getPostgresDatabase();
   const agentStore = new PgAgentStore(db);
@@ -120,10 +138,14 @@ export function createPgSystem(): RoutaSystem {
   const noteStore = new PgNoteStore(db);
   const workspaceStore = new PgWorkspaceStore(db);
   const codebaseStore = new PgCodebaseStore(db);
+  const worktreeStore = new PgWorktreeStore(db);
   const backgroundTaskStore = new PgBackgroundTaskStore(db);
   const scheduleStore = new PgScheduleStore(db);
   // TODO: Implement PgWorkflowRunStore for persistent workflow state
   const workflowRunStore = new InMemoryWorkflowRunStore();
+  const kanbanBoardStore = new PgKanbanBoardStore(db);
+  // TODO: Implement PgArtifactStore for persistent artifact storage
+  const artifactStore = new InMemoryArtifactStore();
 
   // CRDT manager and broadcaster still used for real-time collab
   const noteBroadcaster = getNoteEventBroadcaster();
@@ -140,6 +162,9 @@ export function createPgSystem(): RoutaSystem {
   workspaceTools.setWorkspaceStore(workspaceStore);
   workspaceTools.setEventBus(eventBus);
 
+  // Wire artifact store for artifact-related tools
+  tools.setArtifactStore(artifactStore);
+
   return {
     agentStore,
     conversationStore,
@@ -147,9 +172,12 @@ export function createPgSystem(): RoutaSystem {
     noteStore,
     workspaceStore,
     codebaseStore,
+    worktreeStore,
     backgroundTaskStore,
     scheduleStore,
     workflowRunStore,
+    kanbanBoardStore,
+    artifactStore,
     eventBus,
     tools,
     noteTools,
@@ -162,7 +190,7 @@ export function createPgSystem(): RoutaSystem {
 
 /**
  * Create a SQLite-backed RoutaSystem.
- * Used for desktop deployments (Tauri, Electron).
+ * Used by the local Node.js backend during development.
  *
  * NOTE: sqlite.ts and sqlite-stores.ts are loaded via dynamic require
  * to prevent webpack from bundling better-sqlite3 in web builds.
@@ -178,20 +206,22 @@ export function createSqliteSystem(): RoutaSystem {
   let noteStore: NoteStore;
   let workspaceStore: WorkspaceStore;
   let codebaseStore: CodebaseStore;
+  let worktreeStore: WorktreeStore;
   let backgroundTaskStore: BackgroundTaskStore;
   let scheduleStore: ScheduleStore;
+  let kanbanBoardStore: KanbanBoardStore;
   // TODO: Implement SqliteWorkflowRunStore for persistent workflow state
   const workflowRunStore = new InMemoryWorkflowRunStore();
+  // TODO: Implement SqliteArtifactStore for persistent artifact storage
+  const artifactStore = new InMemoryArtifactStore();
   // True when noteStore doesn't broadcast on save (SqliteNoteStore); NoteTools will broadcast.
   // False when CRDTNoteStore is used as fallback (it already broadcasts internally).
   let noteToolsBroadcast = false;
 
   try {
-    // Use indirect require to prevent webpack from statically analyzing these imports.
-    // These modules depend on better-sqlite3 which is only available on desktop.
-    // eslint-disable-next-line no-eval
-    const dynamicRequire = eval("require") as NodeRequire;
-    const { getSqliteDatabase } = dynamicRequire("./db/sqlite");
+    // better-sqlite3 is listed in serverExternalPackages (next.config.ts),
+    // so webpack leaves the native addon as a runtime require.
+    const { getSqliteDatabase } = require("./db/sqlite") as typeof import("./db/sqlite");
     const {
       SqliteAgentStore,
       SqliteConversationStore,
@@ -199,9 +229,11 @@ export function createSqliteSystem(): RoutaSystem {
       SqliteNoteStore,
       SqliteWorkspaceStore,
       SqliteCodebaseStore,
+      SqliteWorktreeStore,
       SqliteBackgroundTaskStore,
       SqliteScheduleStore,
-    } = dynamicRequire("./db/sqlite-stores");
+      SqliteKanbanBoardStore,
+    } = require("./db/sqlite-stores") as typeof import("./db/sqlite-stores");
 
     const db = getSqliteDatabase();
     agentStore = new SqliteAgentStore(db);
@@ -210,11 +242,13 @@ export function createSqliteSystem(): RoutaSystem {
     noteStore = new SqliteNoteStore(db);
     workspaceStore = new SqliteWorkspaceStore(db);
     codebaseStore = new SqliteCodebaseStore(db);
+    worktreeStore = new SqliteWorktreeStore(db);
     backgroundTaskStore = new SqliteBackgroundTaskStore(db);
     scheduleStore = new SqliteScheduleStore(db);
+    kanbanBoardStore = new SqliteKanbanBoardStore(db);
     noteToolsBroadcast = true; // SqliteNoteStore doesn't broadcast — NoteTools must
   } catch (err) {
-    // Standalone desktop bundles may not include sqlite dynamic modules.
+    // Some builds may not include sqlite native modules.
     // Keep app usable by falling back to in-memory stores.
     console.warn(
       "[RoutaSystem] SQLite modules unavailable, falling back to in-memory stores:",
@@ -226,8 +260,10 @@ export function createSqliteSystem(): RoutaSystem {
     noteStore = new CRDTNoteStore(noteBroadcaster, crdtManager);
     workspaceStore = new InMemoryWorkspaceStore();
     codebaseStore = new InMemoryCodebaseStore();
+    worktreeStore = new InMemoryWorktreeStore();
     backgroundTaskStore = new InMemoryBackgroundTaskStore();
     scheduleStore = new InMemoryScheduleStore();
+    kanbanBoardStore = new InMemoryKanbanBoardStore();
   }
 
   const eventBus = new EventBus();
@@ -239,6 +275,9 @@ export function createSqliteSystem(): RoutaSystem {
   workspaceTools.setWorkspaceStore(workspaceStore);
   workspaceTools.setEventBus(eventBus);
 
+  // Wire artifact store for artifact-related tools
+  tools.setArtifactStore(artifactStore);
+
   return {
     agentStore,
     conversationStore,
@@ -246,9 +285,12 @@ export function createSqliteSystem(): RoutaSystem {
     noteStore,
     workspaceStore,
     codebaseStore,
+    worktreeStore,
     backgroundTaskStore,
     scheduleStore,
     workflowRunStore,
+    kanbanBoardStore,
+    artifactStore,
     eventBus,
     tools,
     noteTools,
@@ -276,7 +318,7 @@ export function getRoutaSystem(): RoutaSystem {
         g[GLOBAL_KEY] = createPgSystem();
         break;
       case "sqlite":
-        console.log("[RoutaSystem] Initializing with SQLite stores (desktop)");
+        console.log("[RoutaSystem] Initializing with SQLite stores (local Node.js)");
         g[GLOBAL_KEY] = createSqliteSystem();
         break;
       default:

@@ -3,6 +3,7 @@
  *
  * Records traces from normalized session updates.
  * Handles deferred input patterns using a pending tool calls buffer.
+ * Also saves fine-grained tool call context files for debugging.
  */
 
 import {
@@ -14,6 +15,7 @@ import {
   extractFilesFromToolCall,
   getVcsContextLight,
 } from "@/core/trace";
+import { ToolCallContextWriter } from "@/core/storage/tool-call-context-writer";
 import type { NormalizedSessionUpdate, NormalizedToolCall } from "./types";
 
 /**
@@ -32,6 +34,7 @@ interface PendingToolCall {
 /**
  * TraceRecorder handles recording traces from normalized session updates.
  * It manages pending tool calls for providers that send input in updates.
+ * Also saves fine-grained tool call context files for debugging.
  */
 export class TraceRecorder {
   /** Buffer for pending tool calls awaiting input */
@@ -40,6 +43,20 @@ export class TraceRecorder {
   private messageBuffer = new Map<string, string>();
   /** Buffer for accumulating thought chunks */
   private thoughtBuffer = new Map<string, string>();
+  /** Per-cwd context writers */
+  private contextWriters = new Map<string, ToolCallContextWriter>();
+
+  /**
+   * Get or create a ToolCallContextWriter for the given cwd.
+   */
+  private getContextWriter(cwd: string): ToolCallContextWriter {
+    let writer = this.contextWriters.get(cwd);
+    if (!writer) {
+      writer = new ToolCallContextWriter(cwd);
+      this.contextWriters.set(cwd, writer);
+    }
+    return writer;
+  }
 
   /**
    * Record a trace from a normalized session update.
@@ -221,6 +238,18 @@ export class TraceRecorder {
     }
 
     recordTrace(cwd, trace);
+
+    // Save fine-grained tool call context file
+    this.getContextWriter(cwd).writeContext({
+      toolName: toolCall.name,
+      toolCallId: toolCall.toolCallId,
+      sessionId,
+      provider,
+      status: "running",
+      input: toolCall.input,
+    }).catch((err) => {
+      console.error("[TraceRecorder] Failed to write tool call context:", err);
+    });
   }
 
   private recordToolResultTrace(
@@ -237,6 +266,20 @@ export class TraceRecorder {
       output: toolCall.output as string | undefined,
     });
     recordTrace(cwd, trace);
+
+    // Save fine-grained tool call context file with result
+    const status = toolCall.status === "completed" ? "completed" : "failed";
+    this.getContextWriter(cwd).writeContext({
+      toolName: toolCall.name,
+      toolCallId: toolCall.toolCallId,
+      sessionId,
+      provider,
+      status,
+      input: toolCall.input,
+      output: toolCall.output,
+    }).catch((err) => {
+      console.error("[TraceRecorder] Failed to write tool result context:", err);
+    });
   }
 
   private recordAgentMessageTrace(

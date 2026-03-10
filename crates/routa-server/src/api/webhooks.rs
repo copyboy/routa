@@ -8,11 +8,7 @@
 //! GET/POST/DELETE     /api/webhooks/register     - Register / unregister webhooks
 //! GET                 /api/webhooks/webhook-logs - List webhook delivery logs
 
-use axum::{
-    extract::Query,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::Query, routing::get, Json, Router};
 use serde::Deserialize;
 
 use crate::state::AppState;
@@ -26,7 +22,10 @@ pub fn router() -> Router<AppState> {
                 .put(update_config)
                 .delete(delete_config),
         )
-        .route("/github", get(list_github_webhooks).post(handle_github_event))
+        .route(
+            "/github",
+            get(list_github_webhooks).post(handle_github_event),
+        )
         .route(
             "/register",
             get(list_registrations)
@@ -40,6 +39,7 @@ pub fn router() -> Router<AppState> {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct WebhookQuery {
     workspace_id: Option<String>,
     limit: Option<usize>,

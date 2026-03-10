@@ -13,6 +13,7 @@
 export type ProviderType =
   | "claude"      // Claude Code - uses stream-json protocol
   | "opencode"    // OpenCode - standard ACP with deferred rawInput
+  | "docker-opencode" // OpenCode over Docker container HTTP bridge
   | "kimi"        // Kimi - standard ACP
   | "gemini"      // Gemini - standard ACP
   | "copilot"     // GitHub Copilot - standard ACP

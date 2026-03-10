@@ -3,18 +3,18 @@
 //! Normalizes messages from different ACP providers (Claude Code, OpenCode, Kimi, etc.)
 //! to a unified internal format for consistent trace recording.
 
-mod types;
 mod trace_recorder;
+mod types;
 
-pub use types::*;
 pub use trace_recorder::TraceRecorder;
+pub use types::*;
 
 /// Get the appropriate adapter behavior for a provider.
 pub fn get_provider_behavior(provider: &str) -> ProviderBehavior {
     match provider.to_lowercase().as_str() {
         "claude" | "claude-code" | "claudecode" | "claude-code-sdk" => ProviderBehavior {
             provider_type: ProviderType::Claude,
-            immediate_tool_input: true,  // Claude sends input with tool_call
+            immediate_tool_input: true, // Claude sends input with tool_call
             streaming: true,
         },
         "opencode" | "open-code" | "opencode-sdk" => ProviderBehavior {
@@ -39,4 +39,3 @@ pub fn get_provider_behavior(provider: &str) -> ProviderBehavior {
         },
     }
 }
-

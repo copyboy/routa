@@ -8,6 +8,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { AgentTools } from "../tools/agent-tools";
+import { KanbanTools } from "../tools/kanban-tools";
 import { NoteTools } from "../tools/note-tools";
 import { WorkspaceTools } from "../tools/workspace-tools";
 import { ToolResult } from "../tools/tool-result";
@@ -24,6 +25,7 @@ export class RoutaMcpToolManager {
   private orchestrator?: RoutaOrchestrator;
   private noteTools?: NoteTools;
   private workspaceTools?: WorkspaceTools;
+  private kanbanTools?: KanbanTools;
   private toolMode: ToolMode = "essential";
   private sessionId?: string;
 
@@ -70,6 +72,13 @@ export class RoutaMcpToolManager {
   }
 
   /**
+   * Set the kanban tools for board and card management.
+   */
+  setKanbanTools(kanbanTools: KanbanTools): void {
+    this.kanbanTools = kanbanTools;
+  }
+
+  /**
    * Set the session ID for scoping notes to a specific session.
    */
   setSessionId(sessionId: string): void {
@@ -84,6 +93,8 @@ export class RoutaMcpToolManager {
   registerTools(server: McpServer): void {
     if (this.toolMode === "essential") {
       // Essential mode: 12 core coordination tools
+      // Task tools (1) - needed so delegate_task_to_agent has a taskId to work with
+      this.registerCreateTask(server);
       // Agent tools (7)
       this.registerListAgents(server);
       this.registerReadAgentConversation(server);
@@ -99,6 +110,13 @@ export class RoutaMcpToolManager {
       this.registerListNotes(server);
       this.registerSetNoteContent(server);
       this.registerConvertTaskBlocks(server);
+      // Artifact tools (6) - critical for multi-agent coordination and desk check workflow
+      this.registerRequestArtifact(server);
+      this.registerProvideArtifact(server);
+      this.registerListArtifacts(server);
+      this.registerGetArtifact(server);
+      this.registerListPendingArtifactRequests(server);
+      this.registerCaptureScreenshot(server);
       return;
     }
 
@@ -141,6 +159,26 @@ export class RoutaMcpToolManager {
     this.registerListWorkspaces(server);
     this.registerCreateWorkspace(server);
     this.registerListSpecialists(server);
+    // Kanban tools
+    this.registerCreateBoard(server);
+    this.registerListBoards(server);
+    this.registerGetBoard(server);
+    this.registerCreateCard(server);
+    this.registerMoveCard(server);
+    this.registerUpdateCard(server);
+    this.registerDeleteCard(server);
+    this.registerCreateColumn(server);
+    this.registerDeleteColumn(server);
+    this.registerSearchCards(server);
+    this.registerListCardsByColumn(server);
+    this.registerDecomposeTasks(server);
+    // Artifact tools
+    this.registerRequestArtifact(server);
+    this.registerProvideArtifact(server);
+    this.registerListArtifacts(server);
+    this.registerGetArtifact(server);
+    this.registerListPendingArtifactRequests(server);
+    this.registerCaptureScreenshot(server);
   }
 
   // ─── Task Tools ────────────────────────────────────────────────────
@@ -845,6 +883,408 @@ Note: taskId must be a UUID from create_task, not a task name.`,
           return this.toMcpResult({ success: false, error: "Workspace tools not available." });
         }
         const result = await this.workspaceTools.listSpecialists();
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  // ─── Kanban Tools ───────────────────────────────────────────────────────
+
+  private registerCreateBoard(server: McpServer) {
+    server.tool(
+      "create_board",
+      "Create a new Kanban board",
+      {
+        name: z.string().describe("Board name"),
+        columns: z.array(z.string()).optional().describe("Default column names"),
+        workspaceId: z.string().optional().describe("Workspace ID (uses default if omitted)"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.createBoard({
+          workspaceId: params.workspaceId ?? this.workspaceId,
+          name: params.name,
+          columns: params.columns,
+        });
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerListBoards(server: McpServer) {
+    server.tool(
+      "list_boards",
+      "List all Kanban boards",
+      {
+        workspaceId: z.string().optional().describe("Workspace ID (uses default if omitted)"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.listBoards(params.workspaceId ?? this.workspaceId);
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerGetBoard(server: McpServer) {
+    server.tool(
+      "get_board",
+      "Get a board with all columns and cards",
+      {
+        boardId: z.string().describe("Board ID"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.getBoard(params.boardId);
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerCreateCard(server: McpServer) {
+    server.tool(
+      "create_card",
+      "Create a new card in a column",
+      {
+        boardId: z.string().describe("Board ID"),
+        columnId: z.string().describe("Column ID"),
+        title: z.string().describe("Card title"),
+        description: z.string().optional().describe("Card description"),
+        priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("Card priority"),
+        labels: z.array(z.string()).optional().describe("Card labels"),
+        workspaceId: z.string().optional().describe("Workspace ID (uses default if omitted)"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.createCard({
+          boardId: params.boardId,
+          columnId: params.columnId,
+          title: params.title,
+          description: params.description,
+          priority: params.priority,
+          labels: params.labels,
+          workspaceId: params.workspaceId ?? this.workspaceId,
+        });
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerMoveCard(server: McpServer) {
+    server.tool(
+      "move_card",
+      "Move a card to a different column or position",
+      {
+        cardId: z.string().describe("Card ID"),
+        targetColumnId: z.string().describe("Target column ID"),
+        position: z.number().optional().describe("Position in the column"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.moveCard({
+          cardId: params.cardId,
+          targetColumnId: params.targetColumnId,
+          position: params.position,
+        });
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerUpdateCard(server: McpServer) {
+    server.tool(
+      "update_card",
+      "Update card fields (title, description, priority, labels)",
+      {
+        cardId: z.string().describe("Card ID"),
+        title: z.string().optional().describe("New title"),
+        description: z.string().optional().describe("New description"),
+        priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("New priority"),
+        labels: z.array(z.string()).optional().describe("New labels"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.updateCard({
+          cardId: params.cardId,
+          title: params.title,
+          description: params.description,
+          priority: params.priority,
+          labels: params.labels,
+        });
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerDeleteCard(server: McpServer) {
+    server.tool(
+      "delete_card",
+      "Delete a card from the board",
+      {
+        cardId: z.string().describe("Card ID"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.deleteCard(params.cardId);
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerCreateColumn(server: McpServer) {
+    server.tool(
+      "create_column",
+      "Create a new column in a board",
+      {
+        boardId: z.string().describe("Board ID"),
+        name: z.string().describe("Column name"),
+        color: z.string().optional().describe("Column color"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.createColumn({
+          boardId: params.boardId,
+          name: params.name,
+          color: params.color,
+        });
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerDeleteColumn(server: McpServer) {
+    server.tool(
+      "delete_column",
+      "Delete a column (and optionally its cards)",
+      {
+        columnId: z.string().describe("Column ID"),
+        boardId: z.string().describe("Board ID"),
+        deleteCards: z.boolean().optional().describe("Whether to delete cards in the column"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.deleteColumn({
+          columnId: params.columnId,
+          boardId: params.boardId,
+          deleteCards: params.deleteCards,
+        });
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerSearchCards(server: McpServer) {
+    server.tool(
+      "search_cards",
+      "Search cards across boards by title, labels, or assignee",
+      {
+        query: z.string().describe("Search query"),
+        boardId: z.string().optional().describe("Limit search to a specific board"),
+        workspaceId: z.string().optional().describe("Workspace ID (uses default if omitted)"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.searchCards({
+          query: params.query,
+          boardId: params.boardId,
+          workspaceId: params.workspaceId ?? this.workspaceId,
+        });
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerListCardsByColumn(server: McpServer) {
+    server.tool(
+      "list_cards_by_column",
+      "List all cards in a specific column",
+      {
+        columnId: z.string().describe("Column ID"),
+        boardId: z.string().describe("Board ID"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.listCardsByColumn(params.columnId, params.boardId);
+        return this.toMcpResult(result);
+      }
+    );
+  }
+  private registerDecomposeTasks(server: McpServer) {
+    server.tool(
+      "decompose_tasks",
+      "Create multiple Kanban cards from a list of decomposed tasks. Use this to bulk-create cards from a task breakdown.",
+      {
+        boardId: z.string().describe("Board ID"),
+        workspaceId: z.string().describe("Workspace ID"),
+        tasks: z.array(z.object({
+          title: z.string().describe("Task title"),
+          description: z.string().optional().describe("Task description"),
+          priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("Task priority"),
+          labels: z.array(z.string()).optional().describe("Task labels"),
+        })).describe("Array of tasks to create"),
+        columnId: z.string().optional().default("backlog").describe("Target column ID (default: backlog)"),
+      },
+      async (params) => {
+        if (!this.kanbanTools) {
+          return this.toMcpResult({ success: false, error: "Kanban tools not available." });
+        }
+        const result = await this.kanbanTools.decomposeTasks({
+          boardId: params.boardId,
+          workspaceId: params.workspaceId,
+          tasks: params.tasks,
+          columnId: params.columnId,
+        });
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  // ─── Artifact Tools ───────────────────────────────────────────────────
+
+  private registerRequestArtifact(server: McpServer) {
+    server.tool(
+      "request_artifact",
+      `Request an artifact from another agent (e.g., screenshot, test results).
+Used by verification agents to request evidence from implementation agents.`,
+      {
+        fromAgentId: z.string().describe("ID of the requesting agent"),
+        toAgentId: z.string().describe("ID of the agent to provide the artifact"),
+        artifactType: z.enum(["screenshot", "test_results", "code_diff", "logs"]).describe("Type of artifact"),
+        taskId: z.string().describe("Task ID this artifact is for"),
+        context: z.string().optional().describe("Context or instructions for the request"),
+      },
+      async (params) => {
+        const result = await this.tools.requestArtifact({
+          ...params,
+          workspaceId: this.workspaceId,
+        });
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerProvideArtifact(server: McpServer) {
+    server.tool(
+      "provide_artifact",
+      `Provide an artifact (screenshot, test results, etc.) for a task.
+Can be in response to a request or proactively provided.`,
+      {
+        agentId: z.string().describe("ID of the providing agent"),
+        type: z.enum(["screenshot", "test_results", "code_diff", "logs"]).describe("Type of artifact"),
+        taskId: z.string().describe("Task ID this artifact is for"),
+        content: z.string().describe("Artifact content (base64 for images, text for others)"),
+        context: z.string().optional().describe("Description or context"),
+        requestId: z.string().optional().describe("Request ID if fulfilling a request"),
+        metadata: z.record(z.string(), z.string()).optional().describe("Additional metadata"),
+      },
+      async (params) => {
+        const result = await this.tools.provideArtifact({
+          agentId: params.agentId,
+          type: params.type as "screenshot" | "test_results" | "code_diff" | "logs",
+          taskId: params.taskId,
+          workspaceId: this.workspaceId,
+          content: params.content,
+          context: params.context,
+          requestId: params.requestId,
+          metadata: params.metadata,
+        });
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerListArtifacts(server: McpServer) {
+    server.tool(
+      "list_artifacts",
+      "List artifacts for a task",
+      {
+        taskId: z.string().describe("Task ID to list artifacts for"),
+        type: z.enum(["screenshot", "test_results", "code_diff", "logs"]).optional().describe("Filter by type"),
+      },
+      async (params) => {
+        const result = await this.tools.listArtifacts({
+          taskId: params.taskId,
+          type: params.type as "screenshot" | "test_results" | "code_diff" | "logs" | undefined,
+        });
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerGetArtifact(server: McpServer) {
+    server.tool(
+      "get_artifact",
+      "Get a specific artifact by ID",
+      {
+        artifactId: z.string().describe("Artifact ID"),
+      },
+      async (params) => {
+        const result = await this.tools.getArtifact(params.artifactId);
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerListPendingArtifactRequests(server: McpServer) {
+    server.tool(
+      "list_pending_artifact_requests",
+      "List pending artifact requests for an agent",
+      {
+        agentId: z.string().describe("Agent ID to list pending requests for"),
+      },
+      async (params) => {
+        const result = await this.tools.listPendingArtifactRequests(params.agentId);
+        return this.toMcpResult(result);
+      }
+    );
+  }
+
+  private registerCaptureScreenshot(server: McpServer) {
+    server.tool(
+      "capture_screenshot",
+      "Capture a screenshot using agent-browser and store it as an artifact",
+      {
+        agentId: z.string().describe("ID of the agent capturing the screenshot"),
+        taskId: z.string().describe("Task ID this screenshot is for"),
+        url: z.string().optional().describe("URL to navigate to before capturing"),
+        fullPage: z.boolean().optional().describe("Capture full page (default: false)"),
+        annotate: z.boolean().optional().describe("Annotate interactive elements (default: false)"),
+        context: z.string().optional().describe("Description or context for this screenshot"),
+        outputPath: z.string().optional().describe("Path to save screenshot (optional)"),
+      },
+      async (params) => {
+        const result = await this.tools.captureScreenshot({
+          agentId: params.agentId,
+          taskId: params.taskId,
+          workspaceId: this.workspaceId,
+          url: params.url,
+          fullPage: params.fullPage,
+          annotate: params.annotate,
+          context: params.context,
+          outputPath: params.outputPath,
+        });
         return this.toMcpResult(result);
       }
     );

@@ -29,6 +29,7 @@ import { v4 as uuidv4 } from "uuid";
 import { isServerlessEnvironment } from "@/core/acp/api-based-providers";
 import { shouldUseOpencodeAdapter, isOpencodeServerConfigured } from "@/core/acp/opencode-sdk-adapter";
 import type { OpencodeSdkAdapter } from "@/core/acp/opencode-sdk-adapter";
+import { getDockerDetector, DEFAULT_DOCKER_AGENT_IMAGE } from "@/core/acp/docker";
 import { isClaudeCodeSdkConfigured } from "@/core/acp/claude-code-sdk-adapter";
 import type { AgentInstanceConfig } from "@/core/acp/agent-instance-factory";
 import { initRoutaOrchestrator, getRoutaOrchestrator } from "@/core/orchestration/orchestrator-singleton";
@@ -48,8 +49,30 @@ import {
 import { persistSessionToDb, renameSessionInDb, saveHistoryToDb } from "@/core/acp/session-db-persister";
 import { resolveSkillContent } from "@/core/skills/skill-resolver";
 import type { SessionUpdateNotification } from "@/core/acp/http-session-store";
+import { SessionWriteBuffer } from "@/core/acp/session-write-buffer";
 
 export const dynamic = "force-dynamic";
+
+// ─── Session write buffer singleton ─────────────────────────────────────
+// Batches and debounces history writes to reduce I/O during streaming.
+let _writeBuffer: SessionWriteBuffer | null = null;
+function getSessionWriteBuffer(): SessionWriteBuffer {
+  if (!_writeBuffer) {
+    _writeBuffer = new SessionWriteBuffer({
+      persistFn: saveHistoryToDb,
+    });
+  }
+  return _writeBuffer;
+}
+
+function persistSessionHistorySnapshot(
+  sessionId: string,
+  store: ReturnType<typeof getHttpSessionStore>
+): Promise<void> {
+  const buffer = getSessionWriteBuffer();
+  buffer.replace(sessionId, store.getConsolidatedHistory(sessionId));
+  return buffer.flush(sessionId);
+}
 
 // ─── Idempotency cache for session/new requests ─────────────────────────
 // Prevents duplicate session creation when user clicks multiple times
@@ -65,6 +88,10 @@ interface IdempotencyEntry {
 const idempotencyCache = new Map<string, IdempotencyEntry>();
 const IDEMPOTENCY_TTL_MS = 30_000; // 30 seconds
 
+// ─── Pending ACP creations ──────────────────────────────────────────────
+// Tracks sessions whose ACP process is being created in the background.
+// session/prompt checks this to wait for creation instead of auto-creating.
+const pendingAcpCreations = new Map<string, Promise<void>>();
 function cleanupIdempotencyCache() {
   const now = Date.now();
   for (const [key, entry] of idempotencyCache.entries()) {
@@ -210,7 +237,10 @@ export async function POST(request: NextRequest) {
     // Supports idempotencyKey to prevent duplicate session creation.
     if (method === "session/new") {
       const p = (params ?? {}) as Record<string, unknown>;
-      const cwd = (p.cwd as string | undefined) ?? process.cwd();
+      let cwd = (p.cwd as string | undefined) ?? process.cwd();
+      const branch = (p.branch as string | undefined) || undefined;
+      const name = (p.name as string | undefined)?.trim() || undefined;
+      const worktreeId = (p.worktreeId as string | undefined) || undefined;
 
       // Determine default provider based on environment
       const defaultProvider = isServerlessEnvironment() ? "claude-code-sdk" : "opencode";
@@ -218,12 +248,34 @@ export async function POST(request: NextRequest) {
 
       const modeId = (p.modeId as string | undefined) ?? (p.mode as string | undefined);
       const role = (p.role as string | undefined)?.toUpperCase();
+      const parentSessionId = (p.parentSessionId as string | undefined) || undefined;
       const model = (p.model as string | undefined);
       const specialistId = (p.specialistId as string | undefined);
       const baseUrl = (p.baseUrl as string | undefined);
       const apiKey = (p.apiKey as string | undefined);
       const workspaceId = (p.workspaceId as string) || "default";
       const idempotencyKey = p.idempotencyKey as string | undefined;
+      // Inline custom provider config (command + args passed directly from client)
+      const customCommand = (p.customCommand as string | undefined);
+      const customArgs = Array.isArray(p.customArgs) ? (p.customArgs as string[]) : undefined;
+      // Docker OpenCode: auth.json content to mount into container
+      const authJson = (p.authJson as string | undefined);
+
+      // ── Validate custom provider inputs ────────────────────────────────
+      // Security: Validate customCommand is a non-empty string
+      if (customCommand !== undefined && (typeof customCommand !== "string" || !customCommand.trim())) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32602,
+          message: "customCommand must be a non-empty string",
+        });
+      }
+      // Security: Validate customArgs is an array of strings (if provided)
+      if (customArgs !== undefined && !customArgs.every((arg) => typeof arg === "string")) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32602,
+          message: "customArgs must be an array of strings",
+        });
+      }
 
       // ── Idempotency check ──────────────────────────────────────────────
       // If client provides an idempotencyKey, check if we've already created
@@ -261,198 +313,74 @@ export async function POST(request: NextRequest) {
       const isClaudeCodeSdk = provider === "claude-code-sdk";
       // opencode-sdk is the SDK-based adapter for connecting to remote OpenCode server
       const isOpencodeSdk = provider === "opencode-sdk";
+      const isDockerOpenCode = provider === "docker-opencode";
 
-      let acpSessionId: string;
-
-      if (isOpencodeSdk) {
-        // ── OpenCode SDK: remote server or direct API mode ──────────────
-        if (!isOpencodeServerConfigured()) {
+      // ── Early validation (fail fast before async work) ─────────────
+      if (isOpencodeSdk && !isOpencodeServerConfigured()) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32002,
+          message: "OpenCode SDK not configured. Set OPENCODE_SERVER_URL or OPENCODE_API_KEY (or ANTHROPIC_AUTH_TOKEN) environment variable.",
+        });
+      }
+      if (isClaudeCodeSdk && !isClaudeCodeSdkConfigured()) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32002,
+          message: "Claude Code SDK not configured. Set ANTHROPIC_AUTH_TOKEN environment variable.",
+        });
+      }
+      if (isDockerOpenCode) {
+        const dockerStatus = await getDockerDetector().checkAvailability();
+        if (!dockerStatus.available) {
           return jsonrpcResponse(id ?? null, null, {
-            code: -32002,
-            message: "OpenCode SDK not configured. Set OPENCODE_SERVER_URL or OPENCODE_API_KEY (or ANTHROPIC_AUTH_TOKEN) environment variable.",
+            code: -32003,
+            message: dockerStatus.error
+              ? `Docker unavailable: ${dockerStatus.error}`
+              : "Docker daemon is unavailable. Please start Docker or Colima first.",
           });
         }
-
-        acpSessionId = await manager.createOpencodeSdkSession(
-          sessionId,
-          forwardSessionUpdate
-        );
-      } else if (isClaudeCodeSdk) {
-        // ── Claude Code SDK: direct API calls (for serverless environments) ──
-        if (!isClaudeCodeSdkConfigured()) {
-          return jsonrpcResponse(id ?? null, null, {
-            code: -32002,
-            message: "Claude Code SDK not configured. Set ANTHROPIC_AUTH_TOKEN environment variable.",
-          });
-        }
-
-        // Always use SDK adapter for claude-code-sdk provider
-        // Build AgentInstanceConfig from session params for model resolution
-        const instanceConfig: AgentInstanceConfig = {
-          model,
-          provider: "claude-code-sdk",
-          specialistId,
-          role,
-          baseUrl,
-          apiKey,
-        };
-        acpSessionId = await manager.createClaudeCodeSdkSession(
-          sessionId,
-          cwd,
-          forwardSessionUpdate,
-          instanceConfig,
-        );
-      } else if (isClaudeCode) {
-        // ── Claude Code: stream-json protocol with MCP (CLI process) ───
-        const mcpConfigs = await buildMcpConfigForClaude(workspaceId);
-
-        acpSessionId = await manager.createClaudeSession(
-          sessionId,
-          cwd,
-          forwardSessionUpdate,
-          mcpConfigs,
-          modeId,
-          role, // Pass role so ROUTA gets bypassPermissions
-        );
-      } else {
-        // ── Standard ACP agent ───────────────────────────────────────
-        // Build extra args: pass -m <model> if a model was specified
-        const extraArgs: string[] = [];
-        if (model && model.trim()) {
-          extraArgs.push("-m", model.trim());
-        }
-
-        acpSessionId = await manager.createSession(
-          sessionId,
-          cwd,
-          forwardSessionUpdate,
-          provider,
-          modeId,
-          extraArgs.length > 0 ? extraArgs : undefined,
-          undefined, // extraEnv
-          workspaceId,
-        );
       }
 
-      // ── Register with orchestrator if role is ROUTA ──────────────
-      let routaAgentId: string | undefined;
-
-      if (role === "ROUTA") {
-        // Initialize orchestrator
-        // Detect actual server port for MCP URL generation
-        const serverPort = process.env.PORT ?? "3000";
-        const orchestrator = initRoutaOrchestrator({
-          defaultCrafterProvider: crafterProvider,
-          defaultGateProvider: gateProvider,
-          defaultCwd: cwd,
-          serverPort,
-        });
-
-        // Create a ROUTA agent record
+      // ── Register session in memory immediately (UI can navigate now) ──
+      // If worktreeId provided, validate and override cwd with the worktree path
+      // Session assignment is deferred until session creation succeeds
+      let validatedWorktreeId: string | undefined;
+      if (worktreeId) {
         const system = getRoutaSystem();
-        const agentResult = await system.tools.createAgent({
-          name: `routa-coordinator-${sessionId.slice(0, 8)}`,
-          role: AgentRole.ROUTA,
-          workspaceId: (p.workspaceId as string) || "default",
-        });
-
-        if (agentResult.success && agentResult.data) {
-          routaAgentId = (agentResult.data as { agentId: string }).agentId;
-          orchestrator.registerAgentSession(routaAgentId, sessionId);
-
-          // Set up notification handler for child agent updates
-          orchestrator.setNotificationHandler((targetSessionId, data) => {
-            store.pushNotification({
-              ...data as Record<string, unknown>,
-              sessionId: targetSessionId,
-            } as never);
+        const worktree = await system.worktreeStore.get(worktreeId);
+        if (!worktree || worktree.status !== "active" || worktree.workspaceId !== workspaceId) {
+          return jsonrpcResponse(id ?? null, null, {
+            code: -32602,
+            message: worktree
+              ? "Worktree is not active or does not belong to this workspace"
+              : "Worktree not found",
           });
-
-          // Set up session registration handler to add child sessions to sidebar
-          orchestrator.setSessionRegistrationHandler((childSession) => {
-            store.upsertSession({
-              sessionId: childSession.sessionId,
-              name: childSession.name,
-              cwd: childSession.cwd,
-              workspaceId: childSession.workspaceId,
-              routaAgentId: childSession.routaAgentId,
-              provider: childSession.provider,
-              role: childSession.role,
-              parentSessionId: childSession.parentSessionId,
-              createdAt: new Date().toISOString(),
-            });
-            console.log(
-              `[ACP Route] Child session registered: ${childSession.sessionId} (parent: ${childSession.parentSessionId})`
-            );
-          });
-
-          console.log(
-            `[ACP Route] ROUTA coordinator agent created: ${routaAgentId}`
-          );
         }
+        if (worktree.sessionId) {
+          return jsonrpcResponse(id ?? null, null, {
+            code: -32602,
+            message: "Worktree is already assigned to another session",
+          });
+        }
+        cwd = worktree.worktreePath;
+        validatedWorktreeId = worktreeId;
       }
 
-      // Load specialist system prompt if specialistId was provided
-      let specialistSystemPrompt: string | undefined;
-      if (specialistId) {
-        let specialist: { systemPrompt?: string; roleReminder?: string } | null | undefined;
-        if (isPostgres()) {
-          // Direct DB query — avoids module-level cache issues
-          try {
-            const db = getDatabase();
-            const specStore = new PostgresSpecialistStore(db);
-            specialist = await specStore.get(specialistId.toLowerCase());
-          } catch (err) {
-            console.warn(`[ACP Route] DB specialist lookup failed, trying cache:`, err);
-            specialist = loadSpecialistsSync().find(s => s.id === specialistId.toLowerCase());
-          }
-        } else {
-          // SQLite mode: only bundled specialists available in cache
-          specialist = loadSpecialistsSync().find(s => s.id === specialistId.toLowerCase());
-        }
-        if (specialist?.systemPrompt) {
-          let prompt = specialist.systemPrompt;
-          if (specialist.roleReminder) {
-            prompt += `\n\n---\n**Reminder:** ${specialist.roleReminder}`;
-          }
-          specialistSystemPrompt = prompt;
-          console.log(`[ACP Route] Loaded specialist systemPrompt for ${specialistId} (length: ${prompt.length})`);
-        } else {
-          console.warn(`[ACP Route] Specialist not found or has no systemPrompt: ${specialistId}`);
-        }
-      }
-
-      // Persist session for UI listing
       const now = new Date();
       store.upsertSession({
         sessionId,
+        name,
         cwd,
+        branch,
         workspaceId,
-        routaAgentId: routaAgentId ?? acpSessionId,
         provider,
         role: role ?? "CRAFTER",
+        parentSessionId,
         modeId,
         model,
         specialistId: specialistId ?? undefined,
-        specialistSystemPrompt,
+        acpStatus: "connecting",
         createdAt: now.toISOString(),
       });
-
-      // Also persist to database (SQLite in dev, Postgres in serverless)
-      await persistSessionToDb({
-        id: sessionId,
-        cwd,
-        workspaceId,
-        routaAgentId: routaAgentId ?? acpSessionId,
-        provider,
-        role: role ?? "CRAFTER",
-        modeId,
-        model,
-      });
-
-      console.log(
-        `[ACP Route] Session created: ${sessionId} (provider: ${provider}, agent session: ${acpSessionId}, role: ${role ?? "CRAFTER"})`
-      );
 
       // ── Cache for idempotency ─────────────────────────────────────────
       if (idempotencyKey) {
@@ -491,13 +419,248 @@ export async function POST(request: NextRequest) {
           );
       recordTrace(cwd, sessionStartTrace);
 
-      return jsonrpcResponse(id ?? null, {
+      // ── Return immediately — ACP creation happens in background ────
+      // The client navigates to the session page and listens for
+      // `acp_status` SSE events to know when the agent is ready.
+      const responsePayload = {
         sessionId,
         provider,
         role: role ?? "CRAFTER",
         model,
-        routaAgentId,
-      });
+        acpStatus: "connecting" as const,
+      };
+
+      // ── Background: spawn ACP process + orchestrator + DB persist ──
+      const creationPromise = (async () => {
+        try {
+          let acpSessionId: string;
+
+          if (isOpencodeSdk) {
+            acpSessionId = await manager.createOpencodeSdkSession(
+              sessionId,
+              forwardSessionUpdate
+            );
+          } else if (isDockerOpenCode) {
+            // Build extra env so opencode inside the container picks up API credentials.
+            // Priority: explicit apiKey from request → host environment variables.
+            const dockerExtraEnv: Record<string, string> = {};
+            if (apiKey) {
+              // Inject under both common variable names so opencode auto-detects it
+              // regardless of which one it checks for Claude/Anthropic models.
+              dockerExtraEnv["ANTHROPIC_API_KEY"] = apiKey;
+              dockerExtraEnv["ANTHROPIC_AUTH_TOKEN"] = apiKey;
+            }
+            if (model) {
+              dockerExtraEnv["OPENCODE_MODEL"] = model;
+            }
+            acpSessionId = await manager.createDockerSession(
+              sessionId,
+              cwd,
+              forwardSessionUpdate,
+              process.env.ROUTA_DOCKER_OPENCODE_IMAGE ?? DEFAULT_DOCKER_AGENT_IMAGE,
+              Object.keys(dockerExtraEnv).length > 0 ? dockerExtraEnv : undefined,
+              authJson,
+            );
+          } else if (isClaudeCodeSdk) {
+            const instanceConfig: AgentInstanceConfig = {
+              model,
+              provider: "claude-code-sdk",
+              specialistId,
+              role,
+              baseUrl,
+              apiKey,
+            };
+            acpSessionId = await manager.createClaudeCodeSdkSession(
+              sessionId,
+              cwd,
+              forwardSessionUpdate,
+              instanceConfig,
+            );
+          } else if (isClaudeCode) {
+            const mcpConfigs = await buildMcpConfigForClaude(workspaceId, sessionId);
+            acpSessionId = await manager.createClaudeSession(
+              sessionId,
+              cwd,
+              forwardSessionUpdate,
+              mcpConfigs,
+              modeId,
+              role,
+            );
+          } else if (customCommand) {
+            console.log(`[ACP Route] Using custom provider: ${provider}`);
+            acpSessionId = await manager.createSessionFromInline(
+              sessionId,
+              customCommand,
+              customArgs ?? [],
+              cwd,
+              provider,
+              forwardSessionUpdate,
+            );
+          } else {
+            const extraArgs: string[] = [];
+            if (model && model.trim()) {
+              extraArgs.push("-m", model.trim());
+            }
+            acpSessionId = await manager.createSession(
+              sessionId,
+              cwd,
+              forwardSessionUpdate,
+              provider,
+              modeId,
+              extraArgs.length > 0 ? extraArgs : undefined,
+              undefined,
+              workspaceId,
+            );
+          }
+
+          // ── Register with orchestrator if role is ROUTA ──────────────
+          let routaAgentId: string | undefined;
+
+          if (role === "ROUTA") {
+            const serverPort = process.env.PORT ?? "3000";
+            const orchestrator = initRoutaOrchestrator({
+              defaultCrafterProvider: crafterProvider,
+              defaultGateProvider: gateProvider,
+              defaultCwd: cwd,
+              serverPort,
+            });
+
+            const system = getRoutaSystem();
+            const agentResult = await system.tools.createAgent({
+              name: `routa-coordinator-${sessionId.slice(0, 8)}`,
+              role: AgentRole.ROUTA,
+              workspaceId: (p.workspaceId as string) || "default",
+            });
+
+            if (agentResult.success && agentResult.data) {
+              routaAgentId = (agentResult.data as { agentId: string }).agentId;
+              orchestrator.registerAgentSession(routaAgentId, sessionId);
+
+              orchestrator.setNotificationHandler((targetSessionId, data) => {
+                store.pushNotification({
+                  ...data as Record<string, unknown>,
+                  sessionId: targetSessionId,
+                } as never);
+              });
+
+              orchestrator.setSessionRegistrationHandler((childSession) => {
+                store.upsertSession({
+                  sessionId: childSession.sessionId,
+                  name: childSession.name,
+                  cwd: childSession.cwd,
+                  workspaceId: childSession.workspaceId,
+                  routaAgentId: childSession.routaAgentId,
+                  provider: childSession.provider,
+                  role: childSession.role,
+                  parentSessionId: childSession.parentSessionId,
+                  createdAt: new Date().toISOString(),
+                });
+                persistSessionToDb({
+                  id: childSession.sessionId,
+                  name: childSession.name,
+                  cwd: childSession.cwd,
+                  workspaceId: childSession.workspaceId,
+                  routaAgentId: childSession.routaAgentId ?? "",
+                  provider: childSession.provider ?? "",
+                  role: childSession.role ?? "CRAFTER",
+                  parentSessionId: childSession.parentSessionId,
+                }).catch((err: unknown) =>
+                  console.error(`[ACP Route] Failed to persist child session ${childSession.sessionId}:`, err)
+                );
+              });
+
+              console.log(`[ACP Route] ROUTA coordinator agent created: ${routaAgentId}`);
+            }
+          }
+
+          // ── Load specialist system prompt ──────────────────────────────
+          let specialistSystemPrompt: string | undefined;
+          if (specialistId) {
+            let specialist: { systemPrompt?: string; roleReminder?: string } | null | undefined;
+            if (isPostgres()) {
+              try {
+                const db = getDatabase();
+                const specStore = new PostgresSpecialistStore(db);
+                specialist = await specStore.get(specialistId.toLowerCase());
+              } catch (err) {
+                console.warn(`[ACP Route] DB specialist lookup failed, trying cache:`, err);
+                specialist = loadSpecialistsSync().find(s => s.id === specialistId.toLowerCase());
+              }
+            } else {
+              specialist = loadSpecialistsSync().find(s => s.id === specialistId.toLowerCase());
+            }
+            if (specialist?.systemPrompt) {
+              let prompt = specialist.systemPrompt;
+              if (specialist.roleReminder) {
+                prompt += `\n\n---\n**Reminder:** ${specialist.roleReminder}`;
+              }
+              specialistSystemPrompt = prompt;
+            }
+          }
+
+          // ── Update session record with ACP details ─────────────────────
+          store.upsertSession({
+            sessionId,
+            name,
+            cwd,
+            branch,
+            workspaceId,
+            routaAgentId: routaAgentId ?? acpSessionId,
+            provider,
+            role: role ?? "CRAFTER",
+            parentSessionId,
+            modeId,
+            model,
+            specialistId: specialistId ?? undefined,
+            specialistSystemPrompt,
+            acpStatus: "ready",
+            createdAt: now.toISOString(),
+          });
+
+          // Notify client that ACP is ready
+          store.updateSessionAcpStatus(sessionId, "ready");
+
+          // Assign worktree session now that ACP creation succeeded
+          if (validatedWorktreeId) {
+            const system = getRoutaSystem();
+            await system.worktreeStore.assignSession(validatedWorktreeId, sessionId);
+          }
+
+          // ── Persist to DB (fire-and-forget) ────────────────────────────
+          persistSessionToDb({
+            id: sessionId,
+            name,
+            cwd,
+            branch,
+            workspaceId,
+            routaAgentId: routaAgentId ?? acpSessionId,
+            provider,
+            role: role ?? "CRAFTER",
+            parentSessionId,
+            modeId,
+            model,
+          }).catch((err) =>
+            console.error(`[ACP Route] Background DB persist failed for ${sessionId}:`, err)
+          );
+
+          console.log(
+            `[ACP Route] Session ready: ${sessionId} (provider: ${provider}, agent session: ${acpSessionId}, role: ${role ?? "CRAFTER"})`
+          );
+        } catch (err) {
+          console.error(`[ACP Route] Background ACP creation failed for ${sessionId}:`, err);
+          store.updateSessionAcpStatus(
+            sessionId,
+            "error",
+            err instanceof Error ? err.message : "ACP process creation failed",
+          );
+        } finally {
+          pendingAcpCreations.delete(sessionId);
+        }
+      })();
+
+      pendingAcpCreations.set(sessionId, creationPromise);
+
+      return jsonrpcResponse(id ?? null, responsePayload);
     }
 
     // ── session/prompt ─────────────────────────────────────────────────
@@ -545,11 +708,21 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // ── Wait for pending ACP creation if in progress ──────────────────
+      // If session/new spawned a background ACP creation, wait for it
+      // instead of auto-creating a duplicate process.
+      const pendingCreation = pendingAcpCreations.get(sessionId);
+      if (pendingCreation) {
+        console.log(`[ACP Route] Waiting for pending ACP creation for session ${sessionId}...`);
+        await pendingCreation;
+      }
+
       // ── Auto-create session if it doesn't exist ────────────────────────
       // Check if session exists in any of the process managers
       const sessionExists =
         manager.getProcess(sessionId) !== undefined ||
         manager.getClaudeProcess(sessionId) !== undefined ||
+        manager.isDockerAdapterSession(sessionId) ||
         manager.isClaudeCodeSdkSession(sessionId) ||
         manager.isOpencodeAdapterSession(sessionId) ||
         (await manager.isClaudeCodeSdkSessionAsync(sessionId)) ||
@@ -560,16 +733,19 @@ export async function POST(request: NextRequest) {
 
         // Use default settings for auto-created session
         const cwd = (p.cwd as string | undefined) ?? process.cwd();
+        const storedSession = store.getSession(sessionId);
         const defaultProvider = isServerlessEnvironment() ? "claude-code-sdk" : "opencode";
-        const provider = (p.provider as string | undefined) ?? defaultProvider;
-        const workspaceId = (p.workspaceId as string) || "default";
-        const role = "CRAFTER"; // Default role for auto-created sessions
+        // Prefer the provider stored in the session record (handles restarts for claude sessions)
+        const provider = (p.provider as string | undefined) ?? storedSession?.provider ?? defaultProvider;
+        const workspaceId = (p.workspaceId as string) || storedSession?.workspaceId || "default";
+        const role = storedSession?.role ?? "CRAFTER"; // Prefer stored role for restarts
 
         try {
           const preset = getPresetById(provider);
           const isClaudeCode = preset?.nonStandardApi === true || provider === "claude";
           const isClaudeCodeSdk = provider === "claude-code-sdk";
           const isOpencodeSdk = provider === "opencode-sdk";
+          const isDockerOpenCode = provider === "docker-opencode";
 
           let acpSessionId: string;
 
@@ -585,6 +761,27 @@ export async function POST(request: NextRequest) {
             acpSessionId = await manager.createOpencodeSdkSession(
               sessionId,
               forwardSessionUpdate
+            );
+          } else if (isDockerOpenCode) {
+            const dockerStatus = await getDockerDetector().checkAvailability();
+            if (!dockerStatus.available) {
+              return jsonrpcResponse(id ?? null, null, {
+                code: -32003,
+                message: dockerStatus.error
+                  ? `Cannot auto-create Docker session: ${dockerStatus.error}`
+                  : "Cannot auto-create Docker session: Docker daemon unavailable.",
+              });
+            }
+
+            // Try to get authJson from params for auto-created sessions
+            const authJson = (p.authJson as string | undefined);
+            acpSessionId = await manager.createDockerSession(
+              sessionId,
+              cwd,
+              forwardSessionUpdate,
+              process.env.ROUTA_DOCKER_OPENCODE_IMAGE ?? DEFAULT_DOCKER_AGENT_IMAGE,
+              undefined, // extraEnv
+              authJson,
             );
           } else if (isClaudeCodeSdk) {
             // Claude Code SDK session
@@ -604,7 +801,7 @@ export async function POST(request: NextRequest) {
             );
           } else if (isClaudeCode) {
             // Claude Code CLI session
-            const mcpConfigs = await buildMcpConfigForClaude(workspaceId);
+            const mcpConfigs = await buildMcpConfigForClaude(workspaceId, sessionId);
             acpSessionId = await manager.createClaudeSession(
               sessionId,
               cwd,
@@ -754,12 +951,12 @@ export async function POST(request: NextRequest) {
               }
               store.flushAgentBuffer(sessionId);
               store.exitStreamingMode(sessionId);
-              await saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+              await persistSessionHistorySnapshot(sessionId, store);
               controller.close();
             } catch (err) {
               store.flushAgentBuffer(sessionId);
               store.exitStreamingMode(sessionId);
-              await saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+              await persistSessionHistorySnapshot(sessionId, store);
               const errorNotification = {
                 jsonrpc: "2.0",
                 method: "session/update",
@@ -767,6 +964,69 @@ export async function POST(request: NextRequest) {
                   sessionId,
                   type: "error",
                   error: { message: err instanceof Error ? err.message : "OpenCode SDK prompt failed" },
+                },
+              };
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorNotification)}\n\n`));
+              controller.close();
+            }
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+          },
+        });
+      }
+
+      // ── Docker OpenCode session ─────────────────────────────────────
+      if (manager.isDockerAdapterSession(sessionId)) {
+        const dockerAdapter = manager.getDockerAdapter(sessionId);
+        if (!dockerAdapter) {
+          return jsonrpcResponse(id ?? null, null, {
+            code: -32000,
+            message: `No Docker OpenCode adapter for session: ${sessionId}`,
+          });
+        }
+
+        if (!dockerAdapter.alive) {
+          return jsonrpcResponse(id ?? null, null, {
+            code: -32000,
+            message: "Docker OpenCode adapter is not connected",
+          });
+        }
+
+        store.enterStreamingMode(sessionId);
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          async start(controller) {
+            try {
+              for await (const event of dockerAdapter.promptStream(
+                promptText,
+                sessionId,
+                skillContent,
+                sessionRecord?.workspaceId ?? undefined,
+              )) {
+                controller.enqueue(encoder.encode(event));
+              }
+              store.flushAgentBuffer(sessionId);
+              store.exitStreamingMode(sessionId);
+              await persistSessionHistorySnapshot(sessionId, store);
+              controller.close();
+            } catch (err) {
+              store.flushAgentBuffer(sessionId);
+              store.exitStreamingMode(sessionId);
+              await persistSessionHistorySnapshot(sessionId, store);
+              const errorNotification = {
+                jsonrpc: "2.0",
+                method: "session/update",
+                params: {
+                  sessionId,
+                  type: "error",
+                  error: { message: err instanceof Error ? err.message : "Docker OpenCode prompt failed" },
                 },
               };
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorNotification)}\n\n`));
@@ -824,12 +1084,12 @@ export async function POST(request: NextRequest) {
               }
               store.flushAgentBuffer(sessionId);
               store.exitStreamingMode(sessionId);
-              await saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+              await persistSessionHistorySnapshot(sessionId, store);
               controller.close();
             } catch (err) {
               store.flushAgentBuffer(sessionId);
               store.exitStreamingMode(sessionId);
-              await saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+              await persistSessionHistorySnapshot(sessionId, store);
               // Send error event before closing
               const errorNotification = {
                 jsonrpc: "2.0",
@@ -867,20 +1127,67 @@ export async function POST(request: NextRequest) {
         }
 
         if (!claudeProc.alive) {
-          return jsonrpcResponse(id ?? null, null, {
-            code: -32000,
-            message: "Claude Code process is not running",
-          });
+          console.warn(`[ACP Route] Claude Code process for session ${sessionId} is dead — attempting restart`);
+          // Clean up the dead process registration and restart
+          manager.killSession(sessionId);
+          const sessionRecord = store.getSession(sessionId);
+          if (!sessionRecord) {
+            return jsonrpcResponse(id ?? null, null, {
+              code: -32000,
+              message: `Session ${sessionId} not found in store — cannot restart`,
+            });
+          }
+          const restartCwd = sessionRecord.cwd ?? process.cwd();
+          const restartWorkspaceId = sessionRecord.workspaceId ?? "default";
+          const restartRole = sessionRecord.role ?? "CRAFTER";
+          try {
+            const mcpConfigs = await buildMcpConfigForClaude(restartWorkspaceId, sessionId);
+            await manager.createClaudeSession(
+              sessionId,
+              restartCwd,
+              forwardSessionUpdate,
+              mcpConfigs,
+              undefined,
+              restartRole,
+            );
+            console.log(`[ACP Route] Restarted Claude Code process for session ${sessionId}`);
+          } catch (restartErr) {
+            return jsonrpcResponse(id ?? null, null, {
+              code: -32000,
+              message: `Failed to restart Claude Code process: ${restartErr instanceof Error ? restartErr.message : String(restartErr)}`,
+            });
+          }
+          // Replace reference with newly started process
+          const restarted = manager.getClaudeProcess(sessionId);
+          if (!restarted) {
+            return jsonrpcResponse(id ?? null, null, {
+              code: -32000,
+              message: "Claude Code process restart failed unexpectedly",
+            });
+          }
+          try {
+            const result = await restarted.prompt(sessionId, promptText);
+            store.flushAgentBuffer(sessionId);
+            void persistSessionHistorySnapshot(sessionId, store);
+            return jsonrpcResponse(id ?? null, result);
+          } catch (err) {
+            store.flushAgentBuffer(sessionId);
+            void persistSessionHistorySnapshot(sessionId, store);
+            return jsonrpcResponse(id ?? null, null, {
+              code: -32000,
+              message: err instanceof Error ? err.message : "Claude Code prompt failed after restart",
+            });
+          }
         }
 
         try {
           const result = await claudeProc.prompt(sessionId, promptText);
           store.flushAgentBuffer(sessionId);
-          void saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+          void persistSessionHistorySnapshot(sessionId, store);
           return jsonrpcResponse(id ?? null, result);
         } catch (err) {
           store.flushAgentBuffer(sessionId);
-          void saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+          void persistSessionHistorySnapshot(sessionId, store);
           return jsonrpcResponse(id ?? null, null, {
             code: -32000,
             message: err instanceof Error ? err.message : "Claude Code prompt failed",
@@ -910,16 +1217,44 @@ export async function POST(request: NextRequest) {
       try {
         const result = await proc.prompt(acpSessionId, promptText);
         store.flushAgentBuffer(sessionId);
-        void saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+        void persistSessionHistorySnapshot(sessionId, store);
         return jsonrpcResponse(id ?? null, result);
       } catch (err) {
         store.flushAgentBuffer(sessionId);
-        void saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+        void persistSessionHistorySnapshot(sessionId, store);
         return jsonrpcResponse(id ?? null, null, {
           code: -32000,
           message: err instanceof Error ? err.message : "Prompt failed",
         });
       }
+    }
+
+    // ── session/cancel ─────────────────────────────────────────────────
+    if (method === "session/respond_user_input") {
+      const p = (params ?? {}) as Record<string, unknown>;
+      const sessionId = p.sessionId as string | undefined;
+      const toolCallId = p.toolCallId as string | undefined;
+      const response = (typeof p.response === "object" && p.response !== null)
+        ? p.response as Record<string, unknown>
+        : undefined;
+
+      if (!sessionId || !toolCallId || !response) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32602,
+          message: "Missing sessionId, toolCallId, or response",
+        });
+      }
+
+      const manager = getAcpProcessManager();
+      const handled = manager.respondToClaudeCodeSdkUserInput(sessionId, toolCallId, response);
+      if (!handled) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32000,
+          message: "No pending AskUserQuestion request found for this session",
+        });
+      }
+
+      return jsonrpcResponse(id ?? null, { ok: true });
     }
 
     // ── session/cancel ─────────────────────────────────────────────────
@@ -936,6 +1271,13 @@ export async function POST(request: NextRequest) {
           const opcAdapter = manager.getOpencodeAdapter(sessionId);
           if (opcAdapter) {
             opcAdapter.cancel();
+          }
+        }
+        // Check if Docker OpenCode session
+        else if (manager.isDockerAdapterSession(sessionId)) {
+          const dockerAdapter = manager.getDockerAdapter(sessionId);
+          if (dockerAdapter) {
+            dockerAdapter.cancel();
           }
         }
         // Check if Claude Code SDK session
@@ -1318,11 +1660,11 @@ function jsonrpcResponse(
  * Claude Code accepts --mcp-config with an inline JSON object.
  * We reuse the shared provider setup path to avoid config drift.
  */
-async function buildMcpConfigForClaude(workspaceId?: string): Promise<string[]> {
+async function buildMcpConfigForClaude(workspaceId?: string, sessionId?: string): Promise<string[]> {
   // Keep Claude MCP setup consistent with all other providers.
-  // Pass workspace ID so it's embedded in the MCP endpoint URL (?wsId=...)
-  // allowing the MCP server to bind the session to the correct workspace.
-  const config = workspaceId ? getDefaultRoutaMcpConfig(workspaceId) : undefined;
+  // Pass workspace ID and session ID so they're embedded in the MCP endpoint URL
+  // (?wsId=...&sid=...) allowing the MCP server to scope notes to the correct session.
+  const config = workspaceId ? getDefaultRoutaMcpConfig(workspaceId, sessionId) : undefined;
   const result = await ensureMcpForProvider("claude", config);
   console.log(`[ACP Route] MCP config for Claude Code: ${result.summary}`);
   return result.mcpConfigs;

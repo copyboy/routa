@@ -1,5 +1,5 @@
 /**
- * SQLite Store Implementations — for desktop platforms (Tauri / Electron).
+ * SQLite Store Implementations — for the local Node.js backend.
  *
  * Mirrors the Pg store implementations but uses the SQLite schema.
  * All stores implement the same interfaces as their Pg counterparts.
@@ -13,6 +13,7 @@ import type { Agent, AgentRole, AgentStatus } from "../models/agent";
 import type { Task, TaskStatus } from "../models/task";
 import type { Message, MessageRole } from "../models/message";
 import type { Note, NoteType, NoteMetadata } from "../models/note";
+import type { KanbanBoard } from "../models/kanban";
 import { createSpecNote, SPEC_NOTE_ID } from "../models/note";
 import type { WorkspaceStore } from "./pg-workspace-store";
 import type { AgentStore } from "../store/agent-store";
@@ -20,6 +21,7 @@ import type { TaskStore } from "../store/task-store";
 import type { ConversationStore } from "../store/conversation-store";
 import type { NoteStore } from "../store/note-store";
 import type { AcpSessionStore, AcpSession, AcpSessionNotification } from "../store/acp-session-store";
+import type { KanbanBoardStore } from "../store/kanban-board-store";
 
 type SqliteDb = BetterSQLite3Database<typeof sqliteSchema>;
 
@@ -208,6 +210,101 @@ export class SqliteCodebaseStore implements CodebaseStore {
   }
 }
 
+// ─── SQLite Worktree Store ─────────────────────────────────────────────
+
+import type { Worktree, WorktreeStatus } from "../models/worktree";
+import type { WorktreeStore } from "./pg-worktree-store";
+
+export class SqliteWorktreeStore implements WorktreeStore {
+  constructor(private db: SqliteDb) {}
+
+  async add(worktree: Worktree): Promise<void> {
+    await this.db.insert(sqliteSchema.worktrees).values({
+      id: worktree.id,
+      codebaseId: worktree.codebaseId,
+      workspaceId: worktree.workspaceId,
+      worktreePath: worktree.worktreePath,
+      branch: worktree.branch,
+      baseBranch: worktree.baseBranch,
+      status: worktree.status,
+      sessionId: worktree.sessionId ?? null,
+      label: worktree.label ?? null,
+      errorMessage: worktree.errorMessage ?? null,
+      createdAt: worktree.createdAt,
+      updatedAt: worktree.updatedAt,
+    });
+  }
+
+  async get(worktreeId: string): Promise<Worktree | undefined> {
+    const rows = await this.db
+      .select()
+      .from(sqliteSchema.worktrees)
+      .where(eq(sqliteSchema.worktrees.id, worktreeId))
+      .limit(1);
+    return rows[0] ? this.toModel(rows[0]) : undefined;
+  }
+
+  async listByCodebase(codebaseId: string): Promise<Worktree[]> {
+    const rows = await this.db
+      .select()
+      .from(sqliteSchema.worktrees)
+      .where(eq(sqliteSchema.worktrees.codebaseId, codebaseId));
+    return rows.map(this.toModel);
+  }
+
+  async listByWorkspace(workspaceId: string): Promise<Worktree[]> {
+    const rows = await this.db
+      .select()
+      .from(sqliteSchema.worktrees)
+      .where(eq(sqliteSchema.worktrees.workspaceId, workspaceId));
+    return rows.map(this.toModel);
+  }
+
+  async updateStatus(worktreeId: string, status: WorktreeStatus, errorMessage?: string): Promise<void> {
+    await this.db
+      .update(sqliteSchema.worktrees)
+      .set({ status, errorMessage: errorMessage ?? null, updatedAt: new Date() })
+      .where(eq(sqliteSchema.worktrees.id, worktreeId));
+  }
+
+  async assignSession(worktreeId: string, sessionId: string | null): Promise<void> {
+    await this.db
+      .update(sqliteSchema.worktrees)
+      .set({ sessionId, updatedAt: new Date() })
+      .where(eq(sqliteSchema.worktrees.id, worktreeId));
+  }
+
+  async remove(worktreeId: string): Promise<void> {
+    await this.db.delete(sqliteSchema.worktrees).where(eq(sqliteSchema.worktrees.id, worktreeId));
+  }
+
+  async findByBranch(codebaseId: string, branch: string): Promise<Worktree | undefined> {
+    const rows = await this.db
+      .select()
+      .from(sqliteSchema.worktrees)
+      .where(and(eq(sqliteSchema.worktrees.codebaseId, codebaseId), eq(sqliteSchema.worktrees.branch, branch)))
+      .limit(1);
+    return rows[0] ? this.toModel(rows[0]) : undefined;
+  }
+
+  private toModel(row: typeof sqliteSchema.worktrees.$inferSelect): Worktree {
+    return {
+      id: row.id,
+      codebaseId: row.codebaseId,
+      workspaceId: row.workspaceId,
+      worktreePath: row.worktreePath,
+      branch: row.branch,
+      baseBranch: row.baseBranch,
+      status: row.status as WorktreeStatus,
+      sessionId: row.sessionId ?? undefined,
+      label: row.label ?? undefined,
+      errorMessage: row.errorMessage ?? undefined,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+}
+
 // ─── SQLite Agent Store ─────────────────────────────────────────────────
 
 export class SqliteAgentStore implements AgentStore {
@@ -340,9 +437,28 @@ export class SqliteTaskStore implements TaskStore {
         verificationCommands: task.verificationCommands,
         assignedTo: task.assignedTo,
         status: task.status,
+        boardId: task.boardId,
+        columnId: task.columnId,
+        position: task.position,
+        priority: task.priority,
+        labels: task.labels,
+        assignee: task.assignee,
+        assignedProvider: task.assignedProvider,
+        assignedRole: task.assignedRole,
+        assignedSpecialistId: task.assignedSpecialistId,
+        assignedSpecialistName: task.assignedSpecialistName,
+        triggerSessionId: task.triggerSessionId,
+        githubId: task.githubId,
+        githubNumber: task.githubNumber,
+        githubUrl: task.githubUrl,
+        githubRepo: task.githubRepo,
+        githubState: task.githubState,
+        githubSyncedAt: task.githubSyncedAt,
+        lastSyncError: task.lastSyncError,
         dependencies: task.dependencies,
         parallelGroup: task.parallelGroup,
         workspaceId: task.workspaceId,
+        sessionId: task.sessionId,
         completionSummary: task.completionSummary,
         verificationVerdict: task.verificationVerdict,
         verificationReport: task.verificationReport,
@@ -360,8 +476,27 @@ export class SqliteTaskStore implements TaskStore {
           verificationCommands: task.verificationCommands,
           assignedTo: task.assignedTo,
           status: task.status,
+          boardId: task.boardId,
+          columnId: task.columnId,
+          position: task.position,
+          priority: task.priority,
+          labels: task.labels,
+          assignee: task.assignee,
+          assignedProvider: task.assignedProvider,
+          assignedRole: task.assignedRole,
+          assignedSpecialistId: task.assignedSpecialistId,
+          assignedSpecialistName: task.assignedSpecialistName,
+          triggerSessionId: task.triggerSessionId,
+          githubId: task.githubId,
+          githubNumber: task.githubNumber,
+          githubUrl: task.githubUrl,
+          githubRepo: task.githubRepo,
+          githubState: task.githubState,
+          githubSyncedAt: task.githubSyncedAt,
+          lastSyncError: task.lastSyncError,
           dependencies: task.dependencies,
           parallelGroup: task.parallelGroup,
+          sessionId: task.sessionId,
           completionSummary: task.completionSummary,
           verificationVerdict: task.verificationVerdict,
           verificationReport: task.verificationReport,
@@ -481,14 +616,107 @@ export class SqliteTaskStore implements TaskStore {
       verificationCommands: (row.verificationCommands as string[]) ?? undefined,
       assignedTo: row.assignedTo ?? undefined,
       status: row.status as TaskStatus,
+      boardId: row.boardId ?? undefined,
+      columnId: row.columnId ?? undefined,
+      position: row.position,
+      priority: row.priority as import("../models/task").TaskPriority | undefined,
+      labels: (row.labels as string[]) ?? [],
+      assignee: row.assignee ?? undefined,
+      assignedProvider: row.assignedProvider ?? undefined,
+      assignedRole: row.assignedRole ?? undefined,
+      assignedSpecialistId: row.assignedSpecialistId ?? undefined,
+      assignedSpecialistName: row.assignedSpecialistName ?? undefined,
+      triggerSessionId: row.triggerSessionId ?? undefined,
+      githubId: row.githubId ?? undefined,
+      githubNumber: row.githubNumber ?? undefined,
+      githubUrl: row.githubUrl ?? undefined,
+      githubRepo: row.githubRepo ?? undefined,
+      githubState: row.githubState ?? undefined,
+      githubSyncedAt: row.githubSyncedAt ?? undefined,
+      lastSyncError: row.lastSyncError ?? undefined,
       dependencies: (row.dependencies as string[]) ?? [],
       parallelGroup: row.parallelGroup ?? undefined,
       workspaceId: row.workspaceId,
+      sessionId: row.sessionId ?? undefined,
       completionSummary: row.completionSummary ?? undefined,
       verificationVerdict: row.verificationVerdict as
         | import("../models/task").VerificationVerdict
         | undefined,
       verificationReport: row.verificationReport ?? undefined,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+}
+
+export class SqliteKanbanBoardStore implements KanbanBoardStore {
+  constructor(private db: SqliteDb) {}
+
+  async save(board: KanbanBoard): Promise<void> {
+    await this.db
+      .insert(sqliteSchema.kanbanBoards)
+      .values({
+        id: board.id,
+        workspaceId: board.workspaceId,
+        name: board.name,
+        isDefault: board.isDefault,
+        columns: board.columns,
+        createdAt: board.createdAt,
+        updatedAt: board.updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: sqliteSchema.kanbanBoards.id,
+        set: {
+          name: board.name,
+          isDefault: board.isDefault,
+          columns: board.columns,
+          updatedAt: new Date(),
+        },
+      });
+  }
+
+  async get(boardId: string): Promise<KanbanBoard | undefined> {
+    const rows = await this.db.select().from(sqliteSchema.kanbanBoards).where(eq(sqliteSchema.kanbanBoards.id, boardId)).limit(1);
+    return rows[0] ? this.toModel(rows[0]) : undefined;
+  }
+
+  async listByWorkspace(workspaceId: string): Promise<KanbanBoard[]> {
+    const rows = await this.db.select().from(sqliteSchema.kanbanBoards).where(eq(sqliteSchema.kanbanBoards.workspaceId, workspaceId));
+    return rows.map((row) => this.toModel(row));
+  }
+
+  async getDefault(workspaceId: string): Promise<KanbanBoard | undefined> {
+    const rows = await this.db
+      .select()
+      .from(sqliteSchema.kanbanBoards)
+      .where(and(eq(sqliteSchema.kanbanBoards.workspaceId, workspaceId), eq(sqliteSchema.kanbanBoards.isDefault, true)))
+      .limit(1);
+    return rows[0] ? this.toModel(rows[0]) : undefined;
+  }
+
+  async setDefault(workspaceId: string, boardId: string): Promise<void> {
+    await this.db
+      .update(sqliteSchema.kanbanBoards)
+      .set({ isDefault: false, updatedAt: new Date() })
+      .where(eq(sqliteSchema.kanbanBoards.workspaceId, workspaceId));
+
+    await this.db
+      .update(sqliteSchema.kanbanBoards)
+      .set({ isDefault: true, updatedAt: new Date() })
+      .where(and(eq(sqliteSchema.kanbanBoards.workspaceId, workspaceId), eq(sqliteSchema.kanbanBoards.id, boardId)));
+  }
+
+  async delete(boardId: string): Promise<void> {
+    await this.db.delete(sqliteSchema.kanbanBoards).where(eq(sqliteSchema.kanbanBoards.id, boardId));
+  }
+
+  private toModel(row: typeof sqliteSchema.kanbanBoards.$inferSelect): KanbanBoard {
+    return {
+      id: row.id,
+      workspaceId: row.workspaceId,
+      name: row.name,
+      isDefault: row.isDefault,
+      columns: row.columns,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
@@ -721,6 +949,7 @@ export class SqliteAcpSessionStore implements AcpSessionStore {
         id: session.id,
         name: session.name,
         cwd: session.cwd,
+        branch: session.branch,
         workspaceId: session.workspaceId,
         routaAgentId: session.routaAgentId,
         provider: session.provider,
@@ -728,6 +957,7 @@ export class SqliteAcpSessionStore implements AcpSessionStore {
         modeId: session.modeId,
         firstPromptSent: session.firstPromptSent ?? false,
         messageHistory: session.messageHistory,
+        parentSessionId: session.parentSessionId,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
       })
@@ -807,6 +1037,7 @@ export class SqliteAcpSessionStore implements AcpSessionStore {
       id: row.id,
       name: row.name ?? undefined,
       cwd: row.cwd,
+      branch: (row as unknown as { branch?: string | null }).branch ?? undefined,
       workspaceId: row.workspaceId,
       routaAgentId: row.routaAgentId ?? undefined,
       provider: row.provider ?? undefined,
@@ -814,6 +1045,7 @@ export class SqliteAcpSessionStore implements AcpSessionStore {
       modeId: row.modeId ?? undefined,
       firstPromptSent: row.firstPromptSent ?? false,
       messageHistory: row.messageHistory ?? [],
+      parentSessionId: row.parentSessionId ?? undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

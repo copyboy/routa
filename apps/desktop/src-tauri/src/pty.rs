@@ -133,8 +133,7 @@ impl PtyManager {
             .get_mut(session_id)
             .ok_or_else(|| format!("PTY session not found: {}", session_id))?;
 
-        write!(session.writer, "{}", data)
-            .map_err(|e| format!("Failed to write to PTY: {}", e))?;
+        write!(session.writer, "{}", data).map_err(|e| format!("Failed to write to PTY: {}", e))?;
 
         session
             .writer
@@ -151,9 +150,10 @@ impl PtyManager {
             .get_mut(session_id)
             .ok_or_else(|| format!("PTY session not found: {}", session_id))?;
 
-        let data = session.reader.fill_buf().map_err(|e| {
-            format!("Failed to read from PTY: {}", e)
-        })?;
+        let data = session
+            .reader
+            .fill_buf()
+            .map_err(|e| format!("Failed to read from PTY: {}", e))?;
 
         if data.is_empty() {
             return Ok(None);
@@ -286,10 +286,7 @@ pub async fn pty_resize(
 
 /// Kill/close a PTY session.
 #[tauri::command]
-pub async fn pty_kill(
-    state: State<'_, PtyState>,
-    session_id: String,
-) -> Result<(), String> {
+pub async fn pty_kill(state: State<'_, PtyState>, session_id: String) -> Result<(), String> {
     let mut manager = state.manager.lock().await;
     manager.kill(&session_id)
 }
@@ -313,15 +310,19 @@ mod tests {
 
         // Create a simple echo session
         let result = manager.create(
-            None,        // default shell
-            None,        // no args
-            None,        // current dir
-            None,        // no env
-            24,          // rows
-            80,          // cols
+            None, // default shell
+            None, // no args
+            None, // current dir
+            None, // no env
+            24,   // rows
+            80,   // cols
         );
 
-        assert!(result.is_ok(), "Failed to create PTY session: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to create PTY session: {:?}",
+            result.err()
+        );
         let session_id = result.unwrap();
         assert!(!session_id.is_empty(), "Session ID should not be empty");
 
@@ -419,7 +420,10 @@ mod tests {
         let mut manager = PtyManager::new();
 
         let result = manager.read("nonexistent-session-id");
-        assert!(result.is_err(), "Should fail to read from nonexistent session");
+        assert!(
+            result.is_err(),
+            "Should fail to read from nonexistent session"
+        );
     }
 
     #[test]
@@ -430,7 +434,11 @@ mod tests {
 
         // Resize the terminal
         let resize_result = manager.resize(&session_id, 48, 120);
-        assert!(resize_result.is_ok(), "Failed to resize PTY: {:?}", resize_result.err());
+        assert!(
+            resize_result.is_ok(),
+            "Failed to resize PTY: {:?}",
+            resize_result.err()
+        );
 
         // Clean up
         let _ = manager.kill(&session_id);
@@ -440,14 +448,16 @@ mod tests {
     fn test_pty_session_info() {
         let mut manager = PtyManager::new();
 
-        let session_id = manager.create(
-            Some("/bin/sh".to_string()),
-            None,
-            Some("/tmp".to_string()),
-            None,
-            30,
-            100,
-        ).unwrap();
+        let session_id = manager
+            .create(
+                Some("/bin/sh".to_string()),
+                None,
+                Some("/tmp".to_string()),
+                None,
+                30,
+                100,
+            )
+            .unwrap();
 
         let sessions = manager.list();
         assert_eq!(sessions.len(), 1);
@@ -461,4 +471,3 @@ mod tests {
         let _ = manager.kill(&session_id);
     }
 }
-

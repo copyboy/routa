@@ -8,6 +8,7 @@
 //! POST   /api/background-tasks              - Enqueue a new task
 //! POST   /api/background-tasks/process      - Process the next pending task
 //! GET    /api/background-tasks/{id}         - Get a task by ID
+//! PATCH  /api/background-tasks/{id}         - Update a task (PENDING only)
 //! DELETE /api/background-tasks/{id}         - Cancel / delete a task
 //! POST   /api/background-tasks/{id}/retry   - Retry a failed task
 
@@ -24,12 +25,16 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_tasks).post(create_task))
         .route("/process", axum::routing::post(process_task))
-        .route("/{id}", get(get_task).delete(delete_task))
+        .route(
+            "/{id}",
+            get(get_task).patch(update_task).delete(delete_task),
+        )
         .route("/{id}/retry", axum::routing::post(retry_task))
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct ListQuery {
     workspace_id: Option<String>,
     status: Option<String>,
@@ -67,6 +72,18 @@ async fn process_task() -> Json<serde_json::Value> {
 
 /// GET /api/background-tasks/{id} — Get a task by ID
 async fn get_task(Path(id): Path<String>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "error": format!("Background task {} not found", id),
+        "code": "NOT_FOUND"
+    }))
+}
+
+/// PATCH /api/background-tasks/{id} — Update a task (PENDING only)
+async fn update_task(
+    Path(id): Path<String>,
+    Json(_body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    // Desktop mode: return error as tasks are ephemeral
     Json(serde_json::json!({
         "error": format!("Background task {} not found", id),
         "code": "NOT_FOUND"

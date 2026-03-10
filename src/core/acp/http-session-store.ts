@@ -20,11 +20,15 @@ import type { WorkspaceAgentEvent } from "./agent-event-bridge";
 import type { NormalizedSessionUpdate } from "./provider-adapter/types";
 import { getRoutaSystem } from "../routa-system";
 
+export type AcpSessionStatus = "connecting" | "ready" | "error";
+
 export interface RoutaSessionRecord {
   sessionId: string;
   /** User-editable display name */
   name?: string;
   cwd: string;
+  /** Git branch the session is scoped to (optional) */
+  branch?: string;
   workspaceId: string;
   routaAgentId?: string;
   provider?: string;
@@ -41,6 +45,10 @@ export interface RoutaSessionRecord {
   specialistId?: string;
   /** Pre-built system prompt header for the specialist (systemPrompt + roleReminder) */
   specialistSystemPrompt?: string;
+  /** ACP process lifecycle status: connecting → ready | error */
+  acpStatus?: AcpSessionStatus;
+  /** Error message when acpStatus is "error" */
+  acpError?: string;
 }
 
 type Controller = ReadableStreamDefaultController<Uint8Array>;
@@ -301,6 +309,30 @@ class HttpSessionStore {
     });
   }
 
+  /**
+   * Update the ACP process lifecycle status for a session.
+   * Sends an SSE notification so the client can react (e.g. show spinner → ready).
+   */
+  updateSessionAcpStatus(sessionId: string, status: AcpSessionStatus, error?: string) {
+    const existing = this.sessions.get(sessionId);
+    if (!existing) return;
+    this.sessions.set(sessionId, {
+      ...existing,
+      acpStatus: status,
+      acpError: error,
+    });
+
+    // Push a synthetic notification so the client knows the status changed
+    this.pushNotification({
+      sessionId,
+      update: {
+        sessionUpdate: "acp_status",
+        status,
+        error,
+      },
+    } as SessionUpdateNotification);
+  }
+
   attachSse(sessionId: string, controller: Controller) {
     this.sseControllers.set(sessionId, controller);
     this.flushPending(sessionId);
@@ -363,11 +395,20 @@ class HttpSessionStore {
   pushNotification(notification: SessionUpdateNotification) {
     const sessionId = notification.sessionId;
 
-    // Always store in history for session switching
-    const history = this.messageHistory.get(sessionId) ?? [];
-    history.push(notification);
-    this.messageHistory.set(sessionId, history);
-    this.limitHistorySize(sessionId); // Apply memory limit
+    // Child agent notifications (with childAgentId) are forwarded to the parent
+    // session's SSE for real-time CRAFTER progress but should NOT be stored in
+    // the parent's messageHistory — they would flood out the ROUTA coordinator's
+    // own messages due to the 500-entry limit.  Child agent messages are already
+    // persisted in their own child session's history.
+    const isChildAgentNotification = !!(notification as Record<string, unknown>).childAgentId;
+
+    if (!isChildAgentNotification) {
+      // Only store non-child-agent notifications in history
+      const history = this.messageHistory.get(sessionId) ?? [];
+      history.push(notification);
+      this.messageHistory.set(sessionId, history);
+      this.limitHistorySize(sessionId); // Apply memory limit
+    }
 
     // ── Notify AG-UI interceptors (protocol bridging) ──
     const interceptors = this.notificationInterceptors.get(sessionId);
@@ -412,7 +453,12 @@ class HttpSessionStore {
 
     // Skip SSE push while a prompt stream is actively delivering events via
     // its own HTTP response body — prevents each event being dispatched twice.
-    if (this.streamingSessionIds.has(sessionId)) {
+    // Exception: child agent notifications (with childAgentId) are NOT part of
+    // the prompt response stream — they arrive only via pushNotification(), so
+    // they must always be forwarded to the SSE controller to enable real-time
+    // CRAFTER progress in the UI.
+    const isChildAgentUpdate = !!(notification as Record<string, unknown>).childAgentId;
+    if (this.streamingSessionIds.has(sessionId) && !isChildAgentUpdate) {
       return;
     }
 
@@ -462,7 +508,7 @@ class HttpSessionStore {
       params: {
         sessionId,
         update: {
-          sessionUpdate: "agent_thought_chunk",
+          sessionUpdate: "acp_status",
           content: { type: "text", text: "Connected to ACP session." },
         },
       },
@@ -581,8 +627,9 @@ class HttpSessionStore {
 
       // Only remove if stale AND not actively used
       if (isStale && !hasActiveSse && !isStreaming) {
-        // Protect child sessions whose parent is still active
         const session = this.sessions.get(sessionId);
+
+        // Protect child sessions whose parent is still active
         const isChildSession = !!session?.parentSessionId;
         const parentStillActive = isChildSession && this.sessions.has(session!.parentSessionId!);
         if (parentStillActive) {
@@ -590,6 +637,14 @@ class HttpSessionStore {
           this.lastAccessTime.set(sessionId, now);
           continue;
         }
+
+        // Protect ROUTA orchestrator sessions — they are long-running and must not
+        // be evicted while child CRAFTERs / GATEs could still be running.
+        if (session?.role === "ROUTA") {
+          this.lastAccessTime.set(sessionId, now);
+          continue;
+        }
+
         this.deleteSession(sessionId);
         this.lastAccessTime.delete(sessionId);
         removedCount++;
@@ -668,11 +723,13 @@ class HttpSessionStore {
           sessionId: s.id,
           name: s.name,
           cwd: s.cwd,
+          branch: s.branch,
           workspaceId: s.workspaceId,
           routaAgentId: s.routaAgentId,
           provider: s.provider,
           role: s.role,
           modeId: s.modeId,
+          parentSessionId: s.parentSessionId,
           createdAt: s.createdAt?.toISOString() ?? new Date().toISOString(),
         });
       }

@@ -17,20 +17,23 @@ use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
-use tokio::sync::{broadcast, Mutex, oneshot};
+use tokio::sync::{broadcast, oneshot, Mutex};
 
 use crate::trace::{
-    TraceRecord, TraceWriter, TraceEventType, Contributor, TraceConversation, TraceTool,
+    Contributor, TraceConversation, TraceEventType, TraceRecord, TraceTool, TraceWriter,
 };
 
 /// Callback type for session/update notifications from the agent.
 pub type NotificationSender = broadcast::Sender<serde_json::Value>;
 
+/// Type alias for the pending request map to avoid complex type repetition.
+type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>>;
+
 /// A managed ACP agent child process.
 pub struct AcpProcess {
     stdin: Arc<Mutex<ChildStdin>>,
     child: Arc<Mutex<Option<Child>>>,
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>>,
+    pending: PendingMap,
     next_id: Arc<AtomicU64>,
     alive: Arc<AtomicBool>,
     notification_tx: NotificationSender,
@@ -63,8 +66,8 @@ impl AcpProcess {
 
         // Resolve the actual binary path using the full shell PATH
         // (macOS GUI apps have a minimal PATH that won't find user CLI tools)
-        let resolved_command = crate::shell_env::which(command)
-            .unwrap_or_else(|| command.to_string());
+        let resolved_command =
+            crate::shell_env::which(command).unwrap_or_else(|| command.to_string());
 
         let mut child = tokio::process::Command::new(&resolved_command)
             .args(args)
@@ -93,9 +96,7 @@ impl AcpProcess {
         let stderr = child.stderr.take();
 
         let alive = Arc::new(AtomicBool::new(true));
-        let pending: Arc<
-            Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>,
-        > = Arc::new(Mutex::new(HashMap::new()));
+        let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
         let stdin = Arc::new(Mutex::new(stdin));
 
         let name = display_name.to_string();
@@ -149,7 +150,8 @@ impl AcpProcess {
             // Buffer for accumulating agent thought chunks
             let mut agent_thought_buffer = String::new();
             // Buffer for pending tool calls awaiting rawInput (OpenCode sends empty rawInput initially)
-            let mut pending_tool_calls: std::collections::HashMap<String, (String, bool)> = std::collections::HashMap::new();
+            let mut pending_tool_calls: std::collections::HashMap<String, (String, bool)> =
+                std::collections::HashMap::new();
 
             while let Ok(Some(line)) = lines.next_line().await {
                 let line = line.trim().to_string();
@@ -174,14 +176,10 @@ impl AcpProcess {
                     }
                 };
 
-                let has_id = msg.get("id").is_some()
-                    && !msg.get("id").unwrap().is_null();
+                let has_id = msg.get("id").is_some() && !msg.get("id").unwrap().is_null();
                 let has_result = msg.get("result").is_some();
                 let has_error = msg.get("error").is_some();
-                let has_method = msg
-                    .get("method")
-                    .and_then(|m| m.as_str())
-                    .is_some();
+                let has_method = msg.get("method").and_then(|m| m.as_str()).is_some();
 
                 if has_id && (has_result || has_error) {
                     // Response to a pending request
@@ -189,14 +187,10 @@ impl AcpProcess {
                     let mut map = pending_clone.lock().await;
                     if let Some(tx) = map.remove(&id) {
                         if has_error {
-                            let err_msg = msg["error"]["message"]
-                                .as_str()
-                                .unwrap_or("unknown error");
+                            let err_msg =
+                                msg["error"]["message"].as_str().unwrap_or("unknown error");
                             let err_code = msg["error"]["code"].as_i64().unwrap_or(0);
-                            let _ = tx.send(Err(format!(
-                                "ACP Error [{}]: {}",
-                                err_code, err_msg
-                            )));
+                            let _ = tx.send(Err(format!("ACP Error [{}]: {}", err_code, err_msg)));
                         } else {
                             let _ = tx.send(Ok(msg["result"].clone()));
                         }
@@ -228,22 +222,23 @@ impl AcpProcess {
                     let mut rewritten = msg.clone();
                     if let Some(params) = rewritten.get_mut("params") {
                         if params.get("sessionId").is_some() {
-                            params["sessionId"] =
-                                serde_json::Value::String(our_sid.clone());
+                            params["sessionId"] = serde_json::Value::String(our_sid.clone());
                         }
                     }
 
                     // ── Trace: various event types ─────────────────────────────
                     if let Some(params) = msg.get("params") {
                         if let Some(update) = params.get("update") {
-                            let session_update = update.get("sessionUpdate")
+                            let session_update = update
+                                .get("sessionUpdate")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("");
 
                             match session_update {
                                 "agent_thought_chunk" => {
                                     // Accumulate thought chunks
-                                    let text = update.get("content")
+                                    let text = update
+                                        .get("content")
                                         .and_then(|c| c.get("text"))
                                         .and_then(|t| t.as_str())
                                         .unwrap_or("");
@@ -254,10 +249,15 @@ impl AcpProcess {
                                             &our_sid,
                                             TraceEventType::AgentThought,
                                             Contributor::new(&provider_clone, None),
-                                        ).with_conversation(TraceConversation {
+                                        )
+                                        .with_conversation(TraceConversation {
                                             turn: None,
                                             role: Some("assistant".to_string()),
-                                            content_preview: Some(agent_thought_buffer[..agent_thought_buffer.len().min(200)].to_string()),
+                                            content_preview: Some(
+                                                agent_thought_buffer
+                                                    [..agent_thought_buffer.len().min(200)]
+                                                    .to_string(),
+                                            ),
                                             full_content: Some(agent_thought_buffer.clone()),
                                         });
                                         let writer = TraceWriter::new(&cwd_clone);
@@ -267,7 +267,8 @@ impl AcpProcess {
                                 }
                                 "agent_message_chunk" => {
                                     // Accumulate message chunks
-                                    let text = update.get("content")
+                                    let text = update
+                                        .get("content")
                                         .and_then(|c| c.get("text"))
                                         .and_then(|t| t.as_str())
                                         .unwrap_or("");
@@ -278,10 +279,14 @@ impl AcpProcess {
                                             &our_sid,
                                             TraceEventType::AgentMessage,
                                             Contributor::new(&provider_clone, None),
-                                        ).with_conversation(TraceConversation {
+                                        )
+                                        .with_conversation(TraceConversation {
                                             turn: None,
                                             role: Some("assistant".to_string()),
-                                            content_preview: Some(agent_msg_buffer[..agent_msg_buffer.len().min(200)].to_string()),
+                                            content_preview: Some(
+                                                agent_msg_buffer[..agent_msg_buffer.len().min(200)]
+                                                    .to_string(),
+                                            ),
                                             full_content: Some(agent_msg_buffer.clone()),
                                         });
                                         let writer = TraceWriter::new(&cwd_clone);
@@ -291,7 +296,8 @@ impl AcpProcess {
                                 }
                                 "agent_message" => {
                                     // Full message - trace immediately
-                                    let text = update.get("content")
+                                    let text = update
+                                        .get("content")
                                         .and_then(|c| c.get("text"))
                                         .and_then(|t| t.as_str())
                                         .unwrap_or("");
@@ -299,10 +305,13 @@ impl AcpProcess {
                                         &our_sid,
                                         TraceEventType::AgentMessage,
                                         Contributor::new(&provider_clone, None),
-                                    ).with_conversation(TraceConversation {
+                                    )
+                                    .with_conversation(TraceConversation {
                                         turn: None,
                                         role: Some("assistant".to_string()),
-                                        content_preview: Some(text[..text.len().min(200)].to_string()),
+                                        content_preview: Some(
+                                            text[..text.len().min(200)].to_string(),
+                                        ),
                                         full_content: Some(text.to_string()),
                                     });
                                     let writer = TraceWriter::new(&cwd_clone);
@@ -310,16 +319,17 @@ impl AcpProcess {
                                 }
                                 "tool_call" => {
                                     // Tool call - OpenCode may send rawInput as empty initially
-                                    let tool_call_id = update.get("toolCallId")
-                                        .and_then(|v| v.as_str());
-                                    let kind = update.get("kind")
+                                    let tool_call_id =
+                                        update.get("toolCallId").and_then(|v| v.as_str());
+                                    let kind = update
+                                        .get("kind")
                                         .and_then(|v| v.as_str())
                                         .or_else(|| update.get("title").and_then(|v| v.as_str()))
                                         .unwrap_or("unknown");
                                     let raw_input = update.get("rawInput").cloned();
 
                                     // Check if rawInput is empty or null
-                                    let has_input = raw_input.as_ref().map_or(false, |v| {
+                                    let has_input = raw_input.as_ref().is_some_and(|v| {
                                         if let Some(obj) = v.as_object() {
                                             !obj.is_empty()
                                         } else {
@@ -333,7 +343,8 @@ impl AcpProcess {
                                             &our_sid,
                                             TraceEventType::ToolCall,
                                             Contributor::new(&provider_clone, None),
-                                        ).with_tool(TraceTool {
+                                        )
+                                        .with_tool(TraceTool {
                                             name: kind.to_string(),
                                             tool_call_id: tool_call_id.map(|s| s.to_string()),
                                             status: Some("running".to_string()),
@@ -344,28 +355,32 @@ impl AcpProcess {
                                         let _ = writer.append_safe(&record).await;
                                     } else if let Some(id) = tool_call_id {
                                         // OpenCode behavior: rawInput is empty, wait for tool_call_update
-                                        pending_tool_calls.insert(id.to_string(), (kind.to_string(), false));
+                                        pending_tool_calls
+                                            .insert(id.to_string(), (kind.to_string(), false));
                                     }
                                 }
                                 "tool_call_update" => {
                                     // Tool update - may contain rawInput (OpenCode) or just rawOutput (completion)
-                                    let tool_call_id = update.get("toolCallId")
-                                        .and_then(|v| v.as_str());
-                                    let kind = update.get("kind")
+                                    let tool_call_id =
+                                        update.get("toolCallId").and_then(|v| v.as_str());
+                                    let kind = update
+                                        .get("kind")
                                         .and_then(|v| v.as_str())
                                         .or_else(|| update.get("title").and_then(|v| v.as_str()))
                                         .unwrap_or("unknown");
                                     let raw_input = update.get("rawInput").cloned();
-                                    let raw_output = update.get("rawOutput")
+                                    let raw_output = update
+                                        .get("rawOutput")
                                         .and_then(|v| v.as_str())
                                         .map(|s| serde_json::Value::String(s.to_string()))
                                         .or_else(|| update.get("rawOutput").cloned());
-                                    let status = update.get("status")
+                                    let status = update
+                                        .get("status")
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("completed");
 
                                     // Check if this update has rawInput and the tool_call wasn't traced yet
-                                    let has_input = raw_input.as_ref().map_or(false, |v| {
+                                    let has_input = raw_input.as_ref().is_some_and(|v| {
                                         if let Some(obj) = v.as_object() {
                                             !obj.is_empty()
                                         } else {
@@ -374,14 +389,17 @@ impl AcpProcess {
                                     });
 
                                     if let Some(id) = tool_call_id {
-                                        if let Some((stored_kind, traced)) = pending_tool_calls.get_mut(id) {
+                                        if let Some((stored_kind, traced)) =
+                                            pending_tool_calls.get_mut(id)
+                                        {
                                             if has_input && !*traced {
                                                 // Record the tool_call trace now with actual input
                                                 let record = TraceRecord::new(
                                                     &our_sid,
                                                     TraceEventType::ToolCall,
                                                     Contributor::new(&provider_clone, None),
-                                                ).with_tool(TraceTool {
+                                                )
+                                                .with_tool(TraceTool {
                                                     name: stored_kind.clone(),
                                                     tool_call_id: Some(id.to_string()),
                                                     status: Some("running".to_string()),
@@ -396,13 +414,16 @@ impl AcpProcess {
                                     }
 
                                     // Record tool_result trace when status indicates completion or we have output
-                                    let is_complete = status == "completed" || status == "failed" || raw_output.is_some();
+                                    let is_complete = status == "completed"
+                                        || status == "failed"
+                                        || raw_output.is_some();
                                     if is_complete {
                                         let record = TraceRecord::new(
                                             &our_sid,
                                             TraceEventType::ToolResult,
                                             Contributor::new(&provider_clone, None),
-                                        ).with_tool(TraceTool {
+                                        )
+                                        .with_tool(TraceTool {
                                             name: kind.to_string(),
                                             tool_call_id: tool_call_id.map(|s| s.to_string()),
                                             status: Some(status.to_string()),
@@ -439,10 +460,13 @@ impl AcpProcess {
                     &our_sid,
                     TraceEventType::AgentMessage,
                     Contributor::new(&provider_clone, None),
-                ).with_conversation(TraceConversation {
+                )
+                .with_conversation(TraceConversation {
                     turn: None,
                     role: Some("assistant".to_string()),
-                    content_preview: Some(agent_msg_buffer[..agent_msg_buffer.len().min(200)].to_string()),
+                    content_preview: Some(
+                        agent_msg_buffer[..agent_msg_buffer.len().min(200)].to_string(),
+                    ),
                     full_content: Some(agent_msg_buffer.clone()),
                 });
                 let writer = TraceWriter::new(&cwd_clone);
@@ -455,10 +479,13 @@ impl AcpProcess {
                     &our_sid,
                     TraceEventType::AgentThought,
                     Contributor::new(&provider_clone, None),
-                ).with_conversation(TraceConversation {
+                )
+                .with_conversation(TraceConversation {
                     turn: None,
                     role: Some("assistant".to_string()),
-                    content_preview: Some(agent_thought_buffer[..agent_thought_buffer.len().min(200)].to_string()),
+                    content_preview: Some(
+                        agent_thought_buffer[..agent_thought_buffer.len().min(200)].to_string(),
+                    ),
                     full_content: Some(agent_thought_buffer.clone()),
                 });
                 let writer = TraceWriter::new(&cwd_clone);
@@ -613,11 +640,7 @@ impl AcpProcess {
     }
 
     /// Send a prompt to an existing session. 5-minute timeout.
-    pub async fn prompt(
-        &self,
-        session_id: &str,
-        text: &str,
-    ) -> Result<serde_json::Value, String> {
+    pub async fn prompt(&self, session_id: &str, text: &str) -> Result<serde_json::Value, String> {
         self.send_request(
             "session/prompt",
             serde_json::json!({
@@ -663,10 +686,7 @@ impl AcpProcess {
 }
 
 /// Handle agent→client requests. Auto-approves permissions, handles fs ops.
-async fn handle_agent_request(
-    method: &str,
-    params: &serde_json::Value,
-) -> serde_json::Value {
+async fn handle_agent_request(method: &str, params: &serde_json::Value) -> serde_json::Value {
     match method {
         "session/request_permission" => {
             // Auto-approve all permissions

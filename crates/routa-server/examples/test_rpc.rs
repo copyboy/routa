@@ -25,7 +25,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test 1: List methods
     println!("\n=== Test 1: GET /api/rpc/methods ===");
-    let res = client.get(format!("{}/api/rpc/methods", base)).send().await?;
+    let res = client
+        .get(format!("{}/api/rpc/methods", base))
+        .send()
+        .await?;
     let body: serde_json::Value = res.json().await?;
     println!("{}", serde_json::to_string_pretty(&body)?);
 

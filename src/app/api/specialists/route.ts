@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDatabase, isPostgres } from "@/core/db";
 import { PostgresSpecialistStore } from "@/core/store/specialist-store";
 import { syncBundledSpecialistsToDatabase } from "@/core/specialists/specialist-db-loader";
-import { setSpecialistDatabaseEnabled, reloadSpecialists } from "@/core/orchestration/specialist-prompts";
+import { setSpecialistDatabaseEnabled, reloadSpecialists, loadSpecialistsSync } from "@/core/orchestration/specialist-prompts";
 import { AgentRole, ModelTier } from "@/core/models/agent";
 
 // ─── GET /api/specialists ───────────────────────────────────────────────────
@@ -28,10 +28,16 @@ export async function GET(request: NextRequest) {
     const id = searchParams.get("id");
 
     if (!isPostgres()) {
-      return NextResponse.json(
-        { error: "Specialists API requires Postgres database" },
-        { status: 501 }
-      );
+      // SQLite-backed local dev uses the file-based specialist source.
+      const specialists = loadSpecialistsSync();
+      if (id) {
+        const specialist = specialists.find((s) => s.id === id);
+        if (!specialist) {
+          return NextResponse.json({ error: "Specialist not found" }, { status: 404 });
+        }
+        return NextResponse.json(specialist);
+      }
+      return NextResponse.json({ specialists });
     }
 
     const db = getDatabase();
@@ -68,7 +74,7 @@ export async function POST(request: NextRequest) {
   try {
     if (!isPostgres()) {
       return NextResponse.json(
-        { error: "Specialists API requires Postgres database" },
+        { error: "Specialist writes require Postgres; local SQLite uses bundled/file-based specialists" },
         { status: 501 }
       );
     }
@@ -161,7 +167,7 @@ export async function PUT(request: NextRequest) {
   try {
     if (!isPostgres()) {
       return NextResponse.json(
-        { error: "Specialists API requires Postgres database" },
+        { error: "Specialist writes require Postgres; local SQLite uses bundled/file-based specialists" },
         { status: 501 }
       );
     }
@@ -235,7 +241,7 @@ export async function DELETE(request: NextRequest) {
   try {
     if (!isPostgres()) {
       return NextResponse.json(
-        { error: "Specialists API requires Postgres database" },
+        { error: "Specialist writes require Postgres; local SQLite uses bundled/file-based specialists" },
         { status: 501 }
       );
     }

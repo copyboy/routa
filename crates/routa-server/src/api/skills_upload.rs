@@ -23,10 +23,7 @@ async fn upload_skill(
     while let Ok(Some(field)) = multipart.next_field().await {
         let name = field.name().unwrap_or("").to_string();
         if name == "file" {
-            file_name = field
-                .file_name()
-                .unwrap_or("upload.zip")
-                .to_string();
+            file_name = field.file_name().unwrap_or("upload.zip").to_string();
             let data = field
                 .bytes()
                 .await
@@ -78,6 +75,9 @@ async fn upload_skill(
             "Unzip failed: {}",
             String::from_utf8_lossy(&output.stderr)
         ))),
-        Err(e) => Err(ServerError::Internal(format!("Unzip command failed: {}", e))),
+        Err(e) => Err(ServerError::Internal(format!(
+            "Unzip command failed: {}",
+            e
+        ))),
     }
 }

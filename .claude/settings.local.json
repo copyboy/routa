@@ -45,7 +45,12 @@
       "WebSearch",
       "Bash(wc:*)",
       "Bash(gh issue edit:*)",
-      "Bash(gh issue close:*)"
+      "Bash(gh issue close:*)",
+      "Bash(npm run dev)",
+      "Bash(npm run test:run:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh issue link:*)"
     ]
   }
 }

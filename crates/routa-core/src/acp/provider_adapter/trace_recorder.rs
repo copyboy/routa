@@ -5,11 +5,9 @@
 
 use std::collections::HashMap;
 
+use super::types::{NormalizedEventType, NormalizedSessionUpdate, NormalizedToolCall, ToolStatus};
 use crate::trace::{
-    TraceRecord, TraceWriter, TraceEventType, Contributor, TraceConversation, TraceTool,
-};
-use super::types::{
-    NormalizedSessionUpdate, NormalizedEventType, NormalizedToolCall, ToolStatus,
+    Contributor, TraceConversation, TraceEventType, TraceRecord, TraceTool, TraceWriter,
 };
 
 /// Pending tool call waiting for input.
@@ -44,42 +42,49 @@ impl TraceRecorder {
     }
 
     /// Record a trace from a normalized session update.
-    pub async fn record_from_update(
-        &mut self,
-        update: &NormalizedSessionUpdate,
-        cwd: &str,
-    ) {
+    pub async fn record_from_update(&mut self, update: &NormalizedSessionUpdate, cwd: &str) {
         match update.event_type {
             NormalizedEventType::ToolCall => self.handle_tool_call(update, cwd).await,
             NormalizedEventType::ToolCallUpdate => self.handle_tool_call_update(update, cwd).await,
             NormalizedEventType::AgentMessage => self.handle_agent_message(update, cwd).await,
             NormalizedEventType::AgentThought => self.handle_agent_thought(update, cwd).await,
             NormalizedEventType::UserMessage => self.handle_user_message(update, cwd).await,
-            NormalizedEventType::TurnComplete => self.flush_buffers(&update.session_id, cwd, &update.provider).await,
+            NormalizedEventType::TurnComplete => {
+                self.flush_buffers(&update.session_id, cwd, &update.provider)
+                    .await
+            }
             NormalizedEventType::PlanUpdate | NormalizedEventType::Error => {}
         }
     }
 
     async fn handle_tool_call(&mut self, update: &NormalizedSessionUpdate, cwd: &str) {
-        let Some(tool_call) = &update.tool_call else { return };
+        let Some(tool_call) = &update.tool_call else {
+            return;
+        };
 
         if tool_call.input_finalized {
             // Input is ready, record immediately
-            self.record_tool_call_trace(&update.session_id, &update.provider, tool_call, cwd).await;
+            self.record_tool_call_trace(&update.session_id, &update.provider, tool_call, cwd)
+                .await;
         } else {
             // Input is deferred, store in pending
-            self.pending_tool_calls.insert(tool_call.tool_call_id.clone(), PendingToolCall {
-                tool_call_id: tool_call.tool_call_id.clone(),
-                name: tool_call.name.clone(),
-                title: tool_call.title.clone(),
-                provider: update.provider.clone(),
-                traced: false,
-            });
+            self.pending_tool_calls.insert(
+                tool_call.tool_call_id.clone(),
+                PendingToolCall {
+                    tool_call_id: tool_call.tool_call_id.clone(),
+                    name: tool_call.name.clone(),
+                    title: tool_call.title.clone(),
+                    provider: update.provider.clone(),
+                    traced: false,
+                },
+            );
         }
     }
 
     async fn handle_tool_call_update(&mut self, update: &NormalizedSessionUpdate, cwd: &str) {
-        let Some(tool_call) = &update.tool_call else { return };
+        let Some(tool_call) = &update.tool_call else {
+            return;
+        };
 
         // Check if this update provides deferred input - extract data first to avoid borrow issues
         let should_trace_call = {
@@ -91,10 +96,17 @@ impl TraceRecorder {
         };
 
         let final_call_data = if should_trace_call {
-            let pending = self.pending_tool_calls.get(&tool_call.tool_call_id).unwrap();
+            let pending = self
+                .pending_tool_calls
+                .get(&tool_call.tool_call_id)
+                .unwrap();
             Some(NormalizedToolCall {
                 tool_call_id: tool_call.tool_call_id.clone(),
-                name: if tool_call.name.is_empty() { pending.name.clone() } else { tool_call.name.clone() },
+                name: if tool_call.name.is_empty() {
+                    pending.name.clone()
+                } else {
+                    tool_call.name.clone()
+                },
                 title: tool_call.title.clone().or_else(|| pending.title.clone()),
                 status: ToolStatus::Running,
                 input: tool_call.input.clone(),
@@ -107,7 +119,8 @@ impl TraceRecorder {
 
         // Now we can safely call async methods and mutate
         if let Some(final_call) = final_call_data {
-            self.record_tool_call_trace(&update.session_id, &update.provider, &final_call, cwd).await;
+            self.record_tool_call_trace(&update.session_id, &update.provider, &final_call, cwd)
+                .await;
             if let Some(pending) = self.pending_tool_calls.get_mut(&tool_call.tool_call_id) {
                 pending.traced = true;
             }
@@ -115,51 +128,89 @@ impl TraceRecorder {
 
         // Record tool_result if complete
         if matches!(tool_call.status, ToolStatus::Completed | ToolStatus::Failed) {
-            self.record_tool_result_trace(&update.session_id, &update.provider, tool_call, cwd).await;
+            self.record_tool_result_trace(&update.session_id, &update.provider, tool_call, cwd)
+                .await;
             self.pending_tool_calls.remove(&tool_call.tool_call_id);
         }
     }
 
     async fn handle_agent_message(&mut self, update: &NormalizedSessionUpdate, cwd: &str) {
-        let Some(message) = &update.message else { return };
+        let Some(message) = &update.message else {
+            return;
+        };
 
         if message.is_chunk {
-            let existing = self.message_buffer.entry(update.session_id.clone()).or_default();
+            let existing = self
+                .message_buffer
+                .entry(update.session_id.clone())
+                .or_default();
             existing.push_str(&message.content);
 
             if existing.len() >= 100 {
                 let content = std::mem::take(existing);
-                self.record_agent_message_trace(&update.session_id, &update.provider, &content, cwd).await;
+                self.record_agent_message_trace(
+                    &update.session_id,
+                    &update.provider,
+                    &content,
+                    cwd,
+                )
+                .await;
             }
         } else {
-            self.record_agent_message_trace(&update.session_id, &update.provider, &message.content, cwd).await;
+            self.record_agent_message_trace(
+                &update.session_id,
+                &update.provider,
+                &message.content,
+                cwd,
+            )
+            .await;
         }
     }
 
     async fn handle_agent_thought(&mut self, update: &NormalizedSessionUpdate, cwd: &str) {
-        let Some(message) = &update.message else { return };
+        let Some(message) = &update.message else {
+            return;
+        };
 
         if message.is_chunk {
-            let existing = self.thought_buffer.entry(update.session_id.clone()).or_default();
+            let existing = self
+                .thought_buffer
+                .entry(update.session_id.clone())
+                .or_default();
             existing.push_str(&message.content);
 
             if existing.len() >= 100 {
                 let content = std::mem::take(existing);
-                self.record_agent_thought_trace(&update.session_id, &update.provider, &content, cwd).await;
+                self.record_agent_thought_trace(
+                    &update.session_id,
+                    &update.provider,
+                    &content,
+                    cwd,
+                )
+                .await;
             }
         } else {
-            self.record_agent_thought_trace(&update.session_id, &update.provider, &message.content, cwd).await;
+            self.record_agent_thought_trace(
+                &update.session_id,
+                &update.provider,
+                &message.content,
+                cwd,
+            )
+            .await;
         }
     }
 
     async fn handle_user_message(&mut self, update: &NormalizedSessionUpdate, cwd: &str) {
-        let Some(message) = &update.message else { return };
-        
+        let Some(message) = &update.message else {
+            return;
+        };
+
         let record = TraceRecord::new(
             &update.session_id,
             TraceEventType::UserMessage,
             Contributor::new(&update.provider, None),
-        ).with_conversation(TraceConversation {
+        )
+        .with_conversation(TraceConversation {
             turn: None,
             role: Some("user".to_string()),
             content_preview: Some(message.content.chars().take(200).collect()),
@@ -173,14 +224,16 @@ impl TraceRecorder {
         // Flush message buffer
         if let Some(content) = self.message_buffer.remove(session_id) {
             if !content.is_empty() {
-                self.record_agent_message_trace(session_id, provider, &content, cwd).await;
+                self.record_agent_message_trace(session_id, provider, &content, cwd)
+                    .await;
             }
         }
 
         // Flush thought buffer
         if let Some(content) = self.thought_buffer.remove(session_id) {
             if !content.is_empty() {
-                self.record_agent_thought_trace(session_id, provider, &content, cwd).await;
+                self.record_agent_thought_trace(session_id, provider, &content, cwd)
+                    .await;
             }
         }
     }
@@ -196,7 +249,8 @@ impl TraceRecorder {
             session_id,
             TraceEventType::ToolCall,
             Contributor::new(provider, None),
-        ).with_tool(TraceTool {
+        )
+        .with_tool(TraceTool {
             name: tool_call.name.clone(),
             tool_call_id: Some(tool_call.tool_call_id.clone()),
             status: Some("running".to_string()),
@@ -218,7 +272,8 @@ impl TraceRecorder {
             session_id,
             TraceEventType::ToolResult,
             Contributor::new(provider, None),
-        ).with_tool(TraceTool {
+        )
+        .with_tool(TraceTool {
             name: tool_call.name.clone(),
             tool_call_id: Some(tool_call.tool_call_id.clone()),
             status: Some(tool_call.status.as_str().to_string()),
@@ -240,7 +295,8 @@ impl TraceRecorder {
             session_id,
             TraceEventType::AgentMessage,
             Contributor::new(provider, None),
-        ).with_conversation(TraceConversation {
+        )
+        .with_conversation(TraceConversation {
             turn: None,
             role: Some("assistant".to_string()),
             content_preview: Some(content.chars().take(200).collect()),
@@ -261,7 +317,8 @@ impl TraceRecorder {
             session_id,
             TraceEventType::AgentThought,
             Contributor::new(provider, None),
-        ).with_conversation(TraceConversation {
+        )
+        .with_conversation(TraceConversation {
             turn: None,
             role: Some("assistant".to_string()),
             content_preview: Some(content.chars().take(200).collect()),
@@ -280,7 +337,8 @@ impl TraceRecorder {
     pub fn cleanup_session(&mut self, session_id: &str) {
         self.message_buffer.remove(session_id);
         self.thought_buffer.remove(session_id);
-        self.pending_tool_calls.retain(|_, v| v.tool_call_id != session_id);
+        self.pending_tool_calls
+            .retain(|_, v| v.tool_call_id != session_id);
     }
 }
 
@@ -289,4 +347,3 @@ impl Default for TraceRecorder {
         Self::new()
     }
 }
-

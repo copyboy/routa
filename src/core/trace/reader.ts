@@ -8,6 +8,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { TraceRecord, TraceEventType } from "./types";
+import { getTracesDir } from "../storage/folder-slug";
 
 /**
  * Check if running in a serverless environment (e.g., Vercel)
@@ -102,43 +103,37 @@ export class TraceReader {
   }
 
   async #queryFromFiles(query: TraceQuery): Promise<TraceRecord[]> {
-    // If traces directory doesn't exist, return empty result
-    try {
-      await fs.access(this.#baseDir);
-    } catch {
-      return [];
-    }
-
     const traces: TraceRecord[] = [];
 
-    // Get all day directories
-    const dayDirs = await this.#listDayDirs();
+    // Collect all trace base directories: primary + any repo-specific ones
+    const allBaseDirs = await this.#getAllTraceBaseDirs();
 
-    // Apply date filtering if specified
-    const filteredDays = this.#filterDaysByDate(dayDirs, query);
+    if (allBaseDirs.length === 0) return [];
 
-    // Read traces from each day directory
-    for (const dayDir of filteredDays) {
-      const traceFiles = await this.#listTraceFiles(dayDir);
+    for (const baseDir of allBaseDirs) {
+      // Get all day directories from this base
+      const dayDirs = await this.#listDayDirsFrom(baseDir);
 
-      for (const traceFile of traceFiles) {
-        const content = await fs.readFile(traceFile, "utf-8");
+      // Apply date filtering if specified
+      const filteredDays = this.#filterDaysByDate(dayDirs, query);
 
-        for (const line of content.split("\n").filter(Boolean)) {
-          try {
-            const record: TraceRecord = JSON.parse(line);
-            if (this.#matchesQuery(record, query)) {
-              traces.push(record);
+      // Read traces from each day directory
+      for (const dayDir of filteredDays) {
+        const traceFiles = await this.#listTraceFiles(dayDir);
+
+        for (const traceFile of traceFiles) {
+          const content = await fs.readFile(traceFile, "utf-8");
+
+          for (const line of content.split("\n").filter(Boolean)) {
+            try {
+              const record: TraceRecord = JSON.parse(line);
+              if (this.#matchesQuery(record, query)) {
+                traces.push(record);
+              }
+            } catch {
+              // Skip invalid lines
             }
-          } catch {
-            // Skip invalid lines
           }
-        }
-
-        // Early termination if we have enough results
-        const needed = (query.limit ?? Infinity) + (query.offset ?? 0);
-        if (traces.length >= needed) {
-          break;
         }
       }
     }
@@ -169,28 +164,27 @@ export class TraceReader {
       }
     }
 
-    try {
-      await fs.access(this.#baseDir);
-    } catch {
-      return null;
-    }
+    const allBaseDirs = await this.#getAllTraceBaseDirs();
+    if (allBaseDirs.length === 0) return null;
 
-    const dayDirs = await this.#listDayDirs();
+    for (const baseDir of allBaseDirs) {
+      const dayDirs = await this.#listDayDirsFrom(baseDir);
 
-    for (const dayDir of dayDirs) {
-      const traceFiles = await this.#listTraceFiles(dayDir);
+      for (const dayDir of dayDirs) {
+        const traceFiles = await this.#listTraceFiles(dayDir);
 
-      for (const traceFile of traceFiles) {
-        const content = await fs.readFile(traceFile, "utf-8");
+        for (const traceFile of traceFiles) {
+          const content = await fs.readFile(traceFile, "utf-8");
 
-        for (const line of content.split("\n").filter(Boolean)) {
-          try {
-            const record: TraceRecord = JSON.parse(line);
-            if (record.id === id) {
-              return record;
+          for (const line of content.split("\n").filter(Boolean)) {
+            try {
+              const record: TraceRecord = JSON.parse(line);
+              if (record.id === id) {
+                return record;
+              }
+            } catch {
+              // Skip invalid lines
             }
-          } catch {
-            // Skip invalid lines
           }
         }
       }
@@ -221,53 +215,117 @@ export class TraceReader {
       eventTypes: {},
     };
 
-    try {
-      await fs.access(this.#baseDir);
-    } catch {
-      return defaultStats;
-    }
+    const allBaseDirs = await this.#getAllTraceBaseDirs();
+    if (allBaseDirs.length === 0) return defaultStats;
 
     const stats: TraceStats = { ...defaultStats, eventTypes: {} };
     const sessions = new Set<string>();
+    const seenDays = new Set<string>();
 
-    const dayDirs = await this.#listDayDirs();
-    stats.totalDays = dayDirs.length;
+    for (const baseDir of allBaseDirs) {
+      const dayDirs = await this.#listDayDirsFrom(baseDir);
 
-    for (const dayDir of dayDirs) {
-      const traceFiles = await this.#listTraceFiles(dayDir);
-      stats.totalFiles += traceFiles.length;
+      for (const dayDir of dayDirs) {
+        seenDays.add(path.basename(dayDir));
+        const traceFiles = await this.#listTraceFiles(dayDir);
+        stats.totalFiles += traceFiles.length;
 
-      for (const traceFile of traceFiles) {
-        const content = await fs.readFile(traceFile, "utf-8");
-        const lines = content.split("\n").filter(Boolean);
-        stats.totalRecords += lines.length;
+        for (const traceFile of traceFiles) {
+          const content = await fs.readFile(traceFile, "utf-8");
+          const lines = content.split("\n").filter(Boolean);
+          stats.totalRecords += lines.length;
 
-        for (const line of lines) {
-          try {
-            const record: TraceRecord = JSON.parse(line);
-            sessions.add(record.sessionId);
-            stats.eventTypes[record.eventType] =
-              (stats.eventTypes[record.eventType] ?? 0) + 1;
-          } catch {
-            // Skip invalid lines
+          for (const line of lines) {
+            try {
+              const record: TraceRecord = JSON.parse(line);
+              sessions.add(record.sessionId);
+              stats.eventTypes[record.eventType] =
+                (stats.eventTypes[record.eventType] ?? 0) + 1;
+            } catch {
+              // Skip invalid lines
+            }
           }
         }
       }
     }
 
+    stats.totalDays = seenDays.size;
     stats.uniqueSessions = sessions.size;
     return stats;
   }
 
   /**
+   * Collect all trace base directories: the primary one, the new ~/.routa/ path,
+   * and any repo-specific ones under .routa/repos/.
+   * This ensures traces from all storage locations are discovered.
+   */
+  async #getAllTraceBaseDirs(): Promise<string[]> {
+    const dirs: string[] = [];
+
+    // 1. New storage path: ~/.routa/projects/{folder-slug}/traces/
+    // Strip trailing slash to avoid slug mismatch (e.g. "foo-" vs "foo")
+    const workspaceRoot = this.#baseDir.replace(/\.routa\/traces$/, "").replace(/\/+$/, "");
+    const newTraceDir = getTracesDir(workspaceRoot);
+    try {
+      await fs.access(newTraceDir);
+      dirs.push(newTraceDir);
+    } catch {
+      // New trace dir doesn't exist yet — that's OK
+    }
+
+    // 2. Legacy primary trace directory: {project}/.routa/traces/
+    try {
+      await fs.access(this.#baseDir);
+      // Only add if different from the new path (avoid duplicates)
+      if (this.#baseDir !== newTraceDir) {
+        dirs.push(this.#baseDir);
+      }
+    } catch {
+      // Primary trace dir doesn't exist — that's OK
+    }
+
+    // 3. Scan .routa/repos/*/.routa/traces/ for repo-specific trace directories
+    const reposDir = path.join(workspaceRoot, ".routa", "repos");
+    try {
+      const repoEntries = await fs.readdir(reposDir, { withFileTypes: true });
+      for (const entry of repoEntries) {
+        if (!entry.isDirectory()) continue;
+        const repoTraceDir = path.join(reposDir, entry.name, ".routa", "traces");
+        try {
+          await fs.access(repoTraceDir);
+          dirs.push(repoTraceDir);
+        } catch {
+          // No trace dir in this repo — skip
+        }
+      }
+    } catch {
+      // No repos directory — that's OK
+    }
+
+    return dirs;
+  }
+
+  /**
+   * List all day directories from a specific base dir, sorted newest first.
+   */
+  async #listDayDirsFrom(baseDir: string): Promise<string[]> {
+    try {
+      const entries = await fs.readdir(baseDir, { withFileTypes: true });
+      const dirs = entries
+        .filter((e) => e.isDirectory())
+        .map((e) => path.join(baseDir, e.name));
+      return dirs.sort().reverse();
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * List all day directories sorted newest first.
+   * @deprecated Use #listDayDirsFrom instead
    */
   async #listDayDirs(): Promise<string[]> {
-    const entries = await fs.readdir(this.#baseDir, { withFileTypes: true });
-    const dirs = entries
-      .filter((e) => e.isDirectory())
-      .map((e) => path.join(this.#baseDir, e.name));
-    return dirs.sort().reverse();
+    return this.#listDayDirsFrom(this.#baseDir);
   }
 
   /**

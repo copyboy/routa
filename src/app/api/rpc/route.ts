@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
         const agentId = params.id as string;
         const status = params.status as string;
         if (!agentId || !status) return err(id, -32602, "Missing required params: id, status");
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         await system.agentStore.updateStatus(agentId, status as any);
         return ok(id, { ok: true });
       }

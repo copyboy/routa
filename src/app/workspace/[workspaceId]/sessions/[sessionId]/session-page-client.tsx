@@ -14,25 +14,23 @@
  */
 
 import {useCallback, useEffect, useRef, useState} from "react";
-import {useRouter, useParams} from "next/navigation";
-import {SkillPanel} from "@/client/components/skill-panel";
+import {useRouter, useParams, useSearchParams} from "next/navigation";
 import {ChatPanel} from "@/client/components/chat-panel";
-import {SessionPanel} from "@/client/components/session-panel";
 import {SpecialistManager} from "@/client/components/specialist-manager";
-import {type CrafterAgent, TaskPanel} from "@/client/components/task-panel";
-import {CollaborativeTaskEditor} from "@/client/components/collaborative-task-editor";
+import {type CrafterAgent, type CrafterMessage, TaskPanel, CraftersView} from "@/client/components/task-panel";
 import {AgentInstallPanel} from "@/client/components/agent-install-panel";
-import {WorkspaceSwitcher} from "@/client/components/workspace-switcher";
+import {LeftSidebar} from "./left-sidebar";
+import {AppHeader} from "@/client/components/app-header";
 import {CodebasePicker} from "@/client/components/codebase-picker";
 import {useWorkspaces, useCodebases} from "@/client/hooks/use-workspaces";
 import {useAcp} from "@/client/hooks/use-acp";
-import {useSkills} from "@/client/hooks/use-skills";
-import {useNotes} from "@/client/hooks/use-notes";
+import {type NoteData, useNotes} from "@/client/hooks/use-notes";
+import {BrowserAcpClient} from "@/client/acp-client";
 import type {RepoSelection} from "@/client/components/repo-picker";
 import type {ParsedTask} from "@/client/utils/task-block-parser";
-import {ProtocolBadge} from "@/app/protocol-badge";
-import {consumePendingPrompt} from "@/client/utils/pending-prompt";
-import {SettingsPanel, loadDefaultProviders, loadProviderConnectionConfig, getModelDefinitionByAlias} from "@/client/components/settings-panel";
+import {consumePendingPrompt, storePendingPrompt} from "@/client/utils/pending-prompt";
+import {SettingsPanel, DockerConfigModal, loadDefaultProviders, loadProviderConnectionConfig, getModelDefinitionByAlias} from "@/client/components/settings-panel";
+import {getDesktopApiBaseUrl, shouldSuppressTeardownError} from "@/client/utils/diagnostics";
 
 type AgentRole = "CRAFTER" | "ROUTA" | "GATE" | "DEVELOPER";
 
@@ -42,6 +40,14 @@ interface SpecialistOption {
   name: string;
   role: AgentRole;
   model?: string;
+}
+
+interface SessionRecord {
+  sessionId: string;
+  name?: string;
+  provider?: string;
+  role?: string;
+  parentSessionId?: string;
 }
 
 /** Built-in roles always available in the selector */
@@ -77,7 +83,8 @@ function useRealParams() {
     // Start with placeholder values, will be resolved in useEffect
     workspaceId: params.workspaceId as string,
     sessionId: params.sessionId as string,
-    isResolved: false,
+    // If not placeholder, consider it resolved immediately
+    isResolved: !isPlaceholder,
   });
 
   // Resolve params on mount and when URL changes
@@ -125,9 +132,12 @@ function useRealParams() {
 
 export function SessionPageClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { workspaceId, sessionId, isResolved } = useRealParams();
+  const isEmbedMode = searchParams.get("embed") === "true";
 
   const [refreshKey, setRefreshKey] = useState(0);
+  const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<AgentRole>("ROUTA");
   const [selectedSpecialistId, setSelectedSpecialistId] = useState<string | null>(null);
   const [specialists, setSpecialists] = useState<SpecialistOption[]>([]);
@@ -165,23 +175,24 @@ export function SessionPageClient() {
   }, [workspacesHook, router]);
 
   const acp = useAcp();
-  const skillsHook = useSkills();
   const notesHook = useNotes(workspaceId, sessionId);
 
   // ── Collaborative editing panel view ──────────────────────────────────
   const [taskPanelMode, setTaskPanelMode] = useState<"tasks" | "collab">("tasks");
 
   // ── Resizable right sidebar state ────────────────────────────────────
-  const [sidebarWidth, setSidebarWidth] = useState(380);
+  const [sidebarWidth, setSidebarWidth] = useState(480);
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartXRef = useRef(0);
   const resizeStartWidthRef = useRef(0);
 
   // ── Resizable left sidebar state ──────────────────────────────────
-  const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(320);
   const [isLeftResizing, setIsLeftResizing] = useState(false);
   const leftResizeStartXRef = useRef(0);
   const leftResizeStartWidthRef = useRef(0);
+
+
 
   // ── Left sidebar collapse ──────────────────────────────────────────
   const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(false);
@@ -191,6 +202,12 @@ export function SessionPageClient() {
   const [showAgentInstallPopup, setShowAgentInstallPopup] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [showSpecialistManager, setShowSpecialistManager] = useState(false);
+  // Docker error popup state
+  const [dockerErrorMessage, setDockerErrorMessage] = useState<string | null>(null);
+  // Input text to restore when a docker session fails before prompt was sent
+  const [dockerRetryText, setDockerRetryText] = useState<string | null>(null);
+  const navigationTargetRef = useRef<string | null>(null);
+  const providerChildClientsRef = useRef<Map<string, BrowserAcpClient>>(new Map());
 
   // Handle custom events for specialist manager
   useEffect(() => {
@@ -202,6 +219,15 @@ export function SessionPageClient() {
   }, []);
   const agentInstallCloseRef = useRef<HTMLButtonElement>(null);
   const installAgentsButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    return () => {
+      for (const client of providerChildClientsRef.current.values()) {
+        client.disconnect();
+      }
+      providerChildClientsRef.current.clear();
+    };
+  }, []);
 
   // ── Load custom specialists for agent selector ──────────────────────
   useEffect(() => {
@@ -231,6 +257,13 @@ export function SessionPageClient() {
   const [crafterAgents, setCrafterAgents] = useState<CrafterAgent[]>([]);
   const [activeCrafterId, setActiveCrafterId] = useState<string | null>(null);
   const [concurrency, setConcurrency] = useState(1);
+
+  // Queue for sequential task execution (concurrency=1).
+  // Holds the pending note IDs / task IDs that haven't been dispatched yet.
+  const noteTaskQueueRef = useRef<Array<{ noteId: string; mode: "quick-access" | "provider" }>>([]);
+  const routaTaskQueueRef = useRef<string[]>([]);
+  // Track how many agents are currently running (dispatched but not completed).
+  const runningCrafterCountRef = useRef(0);
 
   // ── Tool mode state ──────────────────────────────────────────────────
   const [toolMode, setToolMode] = useState<"essential" | "full">("essential");
@@ -289,30 +322,181 @@ export function SessionPageClient() {
       });
   }, [sessionId, acp.connected, acp.setProvider, isResolved]);
 
+  // ── Restore CRAFTER agents from child sessions on page reload ─────────
+  const crafterAgentsRestoredRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isResolved || sessionId === "__placeholder__") return;
+    if (!sessionId || !acp.connected) return;
+    if (crafterAgentsRestoredRef.current.has(sessionId)) return;
+    crafterAgentsRestoredRef.current.add(sessionId);
+
+    fetch(`/api/sessions?parentSessionId=${sessionId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data?.sessions?.length) return;
+        const childSessions = data.sessions as Array<{
+          sessionId: string;
+          name?: string;
+          routaAgentId?: string;
+          role?: string;
+          provider?: string;
+        }>;
+
+        // Only restore if we don't already have crafterAgents (e.g. from live SSE)
+        setCrafterAgents((prev) => {
+          if (prev.length > 0) return prev;
+
+          const restored: CrafterAgent[] = childSessions
+            .filter((cs) => cs.role === "CRAFTER")
+            .map((cs) => ({
+              id: cs.routaAgentId ?? cs.sessionId,
+              sessionId: cs.sessionId,
+              taskId: "",
+              taskTitle: cs.name ?? "CRAFTER Task",
+              // Child sessions that exist in DB are completed (running ones are tracked in-memory)
+              status: "completed" as const,
+              messages: [],
+            }));
+
+          if (restored.length > 0) {
+            console.log(`[SessionPage] Restored ${restored.length} CRAFTER agent(s) from DB`);
+            setActiveCrafterId(restored[0].id);
+          }
+          return restored;
+        });
+      })
+      .catch((err) => {
+        console.warn("[SessionPage] Failed to restore CRAFTER agents:", err);
+      });
+  }, [sessionId, acp.connected, isResolved]);
+
+  // Handler to update agent messages after lazy-loading from DB
+  const handleUpdateAgentMessages = useCallback(
+    (agentId: string, messages: CrafterMessage[]) => {
+      setCrafterAgents((prev) =>
+        prev.map((a) => (a.id === agentId ? { ...a, messages } : a))
+      );
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!notesHook.notes.length) return;
+
+    setCrafterAgents((prev) => {
+      let changed = false;
+      const next = prev.map((agent) => {
+        if (agent.taskId) return agent;
+
+        const matchedNote = notesHook.notes.find((note) =>
+          note.metadata.type === "task" && (
+            note.metadata.childSessionId === agent.sessionId ||
+            note.metadata.assignedAgentIds?.includes(agent.id) ||
+            note.title === agent.taskTitle
+          )
+        );
+
+        if (!matchedNote) return agent;
+        changed = true;
+        return {
+          ...agent,
+          taskId: matchedNote.id,
+        };
+      });
+
+      return changed ? next : prev;
+    });
+  }, [notesHook.notes]);
+
+  useEffect(() => {
+    if (!focusedSessionId) return;
+    const matchedAgent = crafterAgents.find((agent) => agent.sessionId === focusedSessionId);
+    if (matchedAgent && matchedAgent.id !== activeCrafterId) {
+      setActiveCrafterId(matchedAgent.id);
+    }
+  }, [activeCrafterId, crafterAgents, focusedSessionId]);
+
   // Track if we've already sent the pending prompt for this session
   const pendingPromptSentRef = useRef<Set<string>>(new Set());
+  // Holds the consumed pending text across effect re-runs (survives cleanup/re-run cycles)
+  const pendingPromptTextRef = useRef<string | null>(null);
 
-  // Check for and send pending prompt after session is selected
+  // Check for and send pending prompt after session is selected.
+  // Waits for the ACP process to be ready (acp_status: "ready" SSE event)
+  // before sending.
+  //
+  // Fix: previously the sessionId was marked as "sent" before actually sending,
+  // so when acp.updates changed (acp_status: ready fires), the effect re-ran,
+  // the cleanup cancelled the fallback timer, and the early-exit guard prevented
+  // the prompt from ever being sent. Now we:
+  //   1. Store consumed text in a ref (survives re-runs without re-consuming storage)
+  //   2. Only mark as "sent" when we actually call acp.prompt()
   useEffect(() => {
     if (!sessionId || !acp.connected || acp.loading) return;
 
     // Only send once per session per page load
     if (pendingPromptSentRef.current.has(sessionId)) return;
 
-    // Check for pending prompt from home page navigation
-    const pendingText = consumePendingPrompt(sessionId);
-    if (pendingText) {
-      console.log(`[SessionPage] Found pending prompt for session ${sessionId}, sending...`);
-      pendingPromptSentRef.current.add(sessionId);
-
-      // Small delay to ensure ACP connection is fully ready
-      const timer = setTimeout(() => {
-        acp.prompt(pendingText);
-      }, 100);
-
-      return () => clearTimeout(timer);
+    // Consume from sessionStorage on first run; reuse stored text on re-runs
+    if (!pendingPromptTextRef.current) {
+      const text = consumePendingPrompt(sessionId);
+      if (!text) return;
+      pendingPromptTextRef.current = text;
     }
-  }, [sessionId, acp.connected, acp.loading, acp.prompt]);
+
+    const pendingText = pendingPromptTextRef.current;
+
+    // Check if ACP is already ready (e.g. session was reused or event already fired)
+    const lastUpdate = acp.updates.findLast(
+      (u) => (u as Record<string, unknown>).update &&
+        ((u as Record<string, unknown>).update as Record<string, unknown>).sessionUpdate === "acp_status"
+    );
+    const acpReady = lastUpdate &&
+      ((lastUpdate as Record<string, unknown>).update as Record<string, unknown>).status === "ready";
+
+    if (acpReady) {
+      console.log(`[SessionPage] ACP ready, sending pending prompt for session ${sessionId}`);
+      pendingPromptSentRef.current.add(sessionId);
+      pendingPromptTextRef.current = null;
+      acp.prompt(pendingText);
+      return;
+    }
+
+    // Not ready yet — wait for acp_status: ready via acp.updates dependency.
+    // Use a timeout as fallback in case the ready event is missed.
+    console.log(`[SessionPage] Waiting for ACP ready before sending pending prompt for session ${sessionId}`);
+
+    const timer = setTimeout(() => {
+      if (!pendingPromptSentRef.current.has(sessionId) && pendingPromptTextRef.current) {
+        console.log(`[SessionPage] Timeout fallback: sending pending prompt for session ${sessionId}`);
+        pendingPromptSentRef.current.add(sessionId);
+        pendingPromptTextRef.current = null;
+        acp.prompt(pendingText);
+      }
+    }, 8000);
+
+    return () => clearTimeout(timer);
+  }, [sessionId, acp.connected, acp.loading, acp.prompt, acp.updates]);
+
+  // Detect acp_status: error in SSE updates → show docker config popup and restore input
+  useEffect(() => {
+    if (!acp.updates.length) return;
+    const lastUpdate = acp.updates[acp.updates.length - 1];
+    const update = (lastUpdate as Record<string, unknown>).update as Record<string, unknown> | undefined;
+    if (
+      update?.sessionUpdate === "acp_status" &&
+      update?.status === "error" &&
+      acp.selectedProvider === "docker-opencode"
+    ) {
+      const errMsg = (update.error as string | undefined) ?? "Docker session failed to start";
+      setDockerErrorMessage(errMsg);
+      // Restore pending text so user can retry after configuring
+      if (pendingPromptTextRef.current) {
+        setDockerRetryText(pendingPromptTextRef.current);
+        pendingPromptTextRef.current = null;
+      }
+    }
+  }, [acp.updates, acp.selectedProvider]);
 
   // Load global tool mode on mount
   useEffect(() => {
@@ -340,16 +524,6 @@ export function SessionPageClient() {
       console.error("Failed to toggle tool mode:", error);
     }
   }, []);
-
-  // Load repo skills when repo selection changes
-  useEffect(() => {
-    if (repoSelection?.path) {
-      skillsHook.loadRepoSkills(repoSelection.path);
-    } else {
-      skillsHook.clearRepoSkills();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoSelection?.path]);
 
   // Agent Install popup: body scroll lock + Escape to close
   useEffect(() => {
@@ -393,7 +567,7 @@ export function SessionPageClient() {
 
     const handleMouseMove = (e: MouseEvent) => {
       const delta = resizeStartXRef.current - e.clientX;
-      const newWidth = Math.max(280, Math.min(700, resizeStartWidthRef.current + delta));
+      const newWidth = Math.max(280, Math.min(960, resizeStartWidthRef.current + delta));
       setSidebarWidth(newWidth);
     };
 
@@ -465,7 +639,7 @@ export function SessionPageClient() {
     lastChildUpdateIndexRef.current = updates.length;
 
     setCrafterAgents((prev) => {
-      let updated = [...prev];
+      const updated = [...prev];
       let changed = false;
 
       for (const notification of pending) {
@@ -559,8 +733,64 @@ export function SessionPageClient() {
           }
 
           case "completed":
+
           case "ended": {
             agent.status = "completed";
+            // Sync task status: mark corresponding task as completed
+            if (agent.taskId) {
+              setRoutaTasks((prev) =>
+                prev.map((t) => (t.id === agent.taskId ? { ...t, status: "completed" as const } : t))
+              );
+            }
+            break;
+          }
+
+          case "task_completion": {
+            // Orchestrator sends this when a child agent finishes (success or error)
+            const taskStatus = update.taskStatus as string | undefined;
+            const summary = update.completionSummary as string | undefined;
+            if (taskStatus === "NEEDS_FIX" || taskStatus === "BLOCKED" || taskStatus === "FAILED") {
+              agent.status = "error";
+              if (summary) {
+                messages.push({
+                  id: crypto.randomUUID(),
+                  role: "info",
+                  content: `Error: ${summary}`,
+                  timestamp: new Date(),
+                });
+              }
+              // Sync task status for failed tasks
+              if (agent.taskId) {
+                setRoutaTasks((prev) =>
+                  prev.map((t) => (t.id === agent.taskId ? { ...t, status: "confirmed" as const } : t))
+                );
+              }
+            } else {
+              agent.status = "completed";
+              if (summary) {
+                messages.push({
+                  id: crypto.randomUUID(),
+                  role: "info",
+                  content: summary,
+                  timestamp: new Date(),
+                });
+              }
+              // Sync task status for successful tasks
+              if (agent.taskId) {
+                setRoutaTasks((prev) =>
+                  prev.map((t) => (t.id === agent.taskId ? { ...t, status: "completed" as const } : t))
+                );
+              }
+            }
+            break;
+          }
+
+          case "session_renamed": {
+            // Update the CRAFTER agent's display name when set_agent_name is called
+            const newName = update.name as string | undefined;
+            if (newName) {
+              agent.taskTitle = newName;
+            }
             break;
           }
 
@@ -639,12 +869,17 @@ export function SessionPageClient() {
     if (!sid) return;
 
     // Never delete child sessions (they belong to a parent orchestration)
+    // Also never delete ROUTA-role sessions (they are long-running orchestrators)
     try {
       const resp = await fetch(`/api/sessions/${sid}`);
       if (resp.ok) {
         const sessionData = await resp.json();
         if (sessionData?.session?.parentSessionId) {
           console.log(`[deleteEmptySession] Skipping child session: ${sid} (parent: ${sessionData.session.parentSessionId})`);
+          return;
+        }
+        if (sessionData?.session?.role === "ROUTA") {
+          console.log(`[deleteEmptySession] Skipping ROUTA orchestrator session: ${sid}`);
           return;
         }
       }
@@ -664,9 +899,9 @@ export function SessionPageClient() {
   }, [isSessionEmpty]);
 
   /** Resolve effective provider + model + connection config: explicit > per-role default > global selection */
-  const resolveAgentConfig = useCallback((explicitProvider?: string) => {
+  const resolveAgentConfig = useCallback((role: AgentRole = selectedAgent, explicitProvider?: string) => {
     const defaults = loadDefaultProviders();
-    const roleConfig = defaults[selectedAgent];
+    const roleConfig = defaults[role];
     const effectiveProvider = explicitProvider || roleConfig?.provider || acp.selectedProvider;
     const modelAliasOrName = roleConfig?.model;
     const def = modelAliasOrName ? getModelDefinitionByAlias(modelAliasOrName) : undefined;
@@ -679,6 +914,75 @@ export function SessionPageClient() {
     };
   }, [selectedAgent, acp.selectedProvider]);
 
+  const buildSessionHref = useCallback((targetSessionId: string, focusId?: string | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (focusId && focusId !== targetSessionId) {
+      params.set("focus", focusId);
+    } else {
+      params.delete("focus");
+    }
+
+    const query = params.toString();
+    return `/workspace/${workspaceId}/sessions/${targetSessionId}${query ? `?${query}` : ""}`;
+  }, [searchParams, workspaceId]);
+
+  const fetchSessionRecord = useCallback(async (targetSessionId: string): Promise<SessionRecord | null> => {
+    const response = await fetch(`/api/sessions/${targetSessionId}`, { cache: "no-store" });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return (data?.session ?? null) as SessionRecord | null;
+  }, []);
+
+  const resolveSessionNavigationTarget = useCallback(async (targetSessionId: string) => {
+    const session = await fetchSessionRecord(targetSessionId);
+    if (session?.parentSessionId) {
+      return {
+        routeSessionId: session.parentSessionId,
+        focusedSessionId: session.sessionId,
+      };
+    }
+
+    return {
+      routeSessionId: targetSessionId,
+      focusedSessionId: null,
+    };
+  }, [fetchSessionRecord]);
+
+  useEffect(() => {
+    if (!isResolved || sessionId === "__placeholder__") return;
+
+    let cancelled = false;
+
+    const syncSessionRoute = async () => {
+      const target = await resolveSessionNavigationTarget(sessionId);
+      if (cancelled) return;
+
+      const focusFromQuery = searchParams.get("focus");
+      const nextFocusedSessionId = target.focusedSessionId ?? (focusFromQuery && focusFromQuery !== target.routeSessionId ? focusFromQuery : null);
+      setFocusedSessionId(nextFocusedSessionId);
+
+      if (target.routeSessionId === sessionId) {
+        navigationTargetRef.current = null;
+        return;
+      }
+
+      const nextHref = buildSessionHref(target.routeSessionId, target.focusedSessionId);
+      if (navigationTargetRef.current === nextHref) {
+        return;
+      }
+      navigationTargetRef.current = nextHref;
+      router.replace(nextHref);
+    };
+
+    syncSessionRoute().catch((error) => {
+      console.warn("[SessionPage] Failed to resolve session navigation target:", error);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [buildSessionHref, isResolved, resolveSessionNavigationTarget, router, searchParams, sessionId]);
+
   const handleCreateSession = useCallback(
     async (provider: string) => {
       await ensureConnected();
@@ -687,11 +991,12 @@ export function SessionPageClient() {
       await deleteEmptySession(sessionId);
 
       const cwd = repoSelection?.path ?? undefined;
+      const branch = repoSelection?.branch || undefined;
       // Always pass the selected role - don't skip CRAFTER
       const role = selectedAgent;
-      const { provider: effectiveProvider, model: resolvedModel, baseUrl, apiKey } = resolveAgentConfig(provider);
+      const { provider: effectiveProvider, model: resolvedModel, baseUrl, apiKey } = resolveAgentConfig(role, provider);
       console.log(`[handleCreateSession] Creating session: provider=${effectiveProvider}, model=${resolvedModel}, role=${role}, specialistId=${selectedSpecialistId}`);
-      const result = await acp.createSession(cwd, effectiveProvider, undefined, role, workspaceId, resolvedModel, undefined, selectedSpecialistId ?? undefined, baseUrl, apiKey);
+      const result = await acp.createSession(cwd, effectiveProvider, undefined, role, workspaceId, resolvedModel, undefined, selectedSpecialistId ?? undefined, baseUrl, apiKey, branch);
       if (result?.sessionId) {
         router.push(`/workspace/${workspaceId}/sessions/${result.sessionId}`);
       }
@@ -703,13 +1008,16 @@ export function SessionPageClient() {
     async (newSessionId: string) => {
       await ensureConnected();
 
+      const target = await resolveSessionNavigationTarget(newSessionId);
+
       // Delete previous empty session before switching
       await deleteEmptySession(sessionId);
 
-      acp.selectSession(newSessionId);
-      router.push(`/workspace/${workspaceId}/sessions/${newSessionId}`);
+      setFocusedSessionId(target.focusedSessionId);
+      acp.selectSession(target.routeSessionId);
+      router.push(buildSessionHref(target.routeSessionId, target.focusedSessionId));
     },
-    [acp, ensureConnected, sessionId, deleteEmptySession, workspaceId, router]
+    [acp, buildSessionHref, deleteEmptySession, ensureConnected, resolveSessionNavigationTarget, router, sessionId]
   );
 
   const ensureSessionForChat = useCallback(async (cwd?: string, provider?: string, modeId?: string, model?: string): Promise<string | null> => {
@@ -719,22 +1027,18 @@ export function SessionPageClient() {
 
     // Fallback: create a new session
     const role = selectedAgent;
-    const { provider: effectiveProvider, model: resolvedModel, baseUrl, apiKey } = resolveAgentConfig(provider);
+    const { provider: effectiveProvider, model: resolvedModel, baseUrl, apiKey } = resolveAgentConfig(role, provider);
     // Explicit model (from chat input) takes priority over per-role model config
     const effectiveModel = model ?? resolvedModel;
+    const branch = repoSelection?.branch || undefined;
     console.log(`[ensureSessionForChat] Creating session: provider=${effectiveProvider}, role=${role}, model=${effectiveModel}, specialistId=${selectedSpecialistId}`);
-    const result = await acp.createSession(cwd, effectiveProvider, modeId, role, workspaceId, effectiveModel, undefined, selectedSpecialistId ?? undefined, baseUrl, apiKey);
+    const result = await acp.createSession(cwd, effectiveProvider, modeId, role, workspaceId, effectiveModel, undefined, selectedSpecialistId ?? undefined, baseUrl, apiKey, branch);
     if (result?.sessionId) {
       router.push(`/workspace/${workspaceId}/sessions/${result.sessionId}`);
       return result.sessionId;
     }
     return null;
   }, [acp, sessionId, ensureConnected, selectedAgent, selectedSpecialistId, workspaceId, router, resolveAgentConfig]);
-
-  const handleLoadSkill = useCallback(async (name: string): Promise<string | null> => {
-    const skill = await skillsHook.loadSkill(name, repoSelection?.path);
-    return skill?.content ?? null;
-  }, [skillsHook, repoSelection?.path]);
 
   const handleAgentChange = useCallback((value: string) => {
     // Check if selecting a custom specialist (prefixed with "specialist:")
@@ -864,9 +1168,13 @@ export function SessionPageClient() {
 
     let data = await doCall();
 
-    // If we got a "not initialized" error, re-initialize and retry once
-    if (data.error?.code === -32000 && data.error?.message?.includes("not initialized")) {
-      console.log(`[MCP] Session stale, re-initializing...`);
+    // If we got a "not initialized" error or "tool not found" (stale session),
+    // re-initialize and retry once
+    const isStaleSession =
+      (data.error?.code === -32000 && data.error?.message?.includes("not initialized")) ||
+      (data.error?.code === -32602 && data.error?.message?.includes("not found"));
+    if (isStaleSession) {
+      console.log(`[MCP] Session stale (${data.error?.code}: ${data.error?.message}), re-initializing...`);
       mcpSessionRef.current = null;
       await initMcpSession();
       data = await doCall();
@@ -903,6 +1211,16 @@ export function SessionPageClient() {
     const task = routaTasks.find((t) => t.id === taskId);
     if (!task) return null;
 
+    // Enforce concurrency limit for non-collaborative tasks
+    if (concurrency <= 1 && runningCrafterCountRef.current > 0) {
+      console.warn(`[TaskPanel] Concurrency limit reached (${concurrency}). Queuing task ${taskId}.`);
+      routaTaskQueueRef.current.push(taskId);
+      return null;
+    }
+
+    // Pre-increment running count to prevent race conditions
+    runningCrafterCountRef.current++;
+
     // Mark as running
     setRoutaTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: "running" as const } : t))
@@ -933,14 +1251,11 @@ export function SessionPageClient() {
 
       let agentId: string | undefined;
       let childSessionId: string | undefined;
+      let delegationError: string | undefined;
 
       if (!mcpTaskId) {
         console.warn("[TaskPanel] Could not extract taskId from create_task result:", resultText);
-        if (sessionId) {
-          await acp.prompt(
-            `Execute task: "${task.title}"\nObjective: ${task.objective}\nScope: ${task.scope}\nDone when: ${task.definitionOfDone}`
-          );
-        }
+        delegationError = `Failed to create task in MCP store. Raw: ${resultText.slice(0, 200)}`;
       } else {
         // 2. Delegate to a CRAFTER agent
         try {
@@ -957,30 +1272,33 @@ export function SessionPageClient() {
             const parsed = JSON.parse(delegateText);
             agentId = parsed.agentId;
             childSessionId = parsed.sessionId;
+            if (parsed.error) delegationError = parsed.error;
           } catch {
             const agentMatch = delegateText.match(/"agentId"\s*:\s*"([^"]+)"/);
             const sessionMatch = delegateText.match(/"sessionId"\s*:\s*"([^"]+)"/);
+            const errorMatch = delegateText.match(/"error"\s*:\s*"([^"]+)"/);
             agentId = agentMatch?.[1];
             childSessionId = sessionMatch?.[1];
+            if (errorMatch) delegationError = errorMatch[1];
           }
         } catch (delegateErr) {
-          console.warn("[TaskPanel] delegate_task_to_agent failed, falling back to prompt:", delegateErr);
-          if (sessionId) {
-            await acp.prompt(
-              `Task "${task.title}" has been created (ID: ${mcpTaskId}). Please delegate it to a CRAFTER agent and execute it.`
-            );
-          }
+          delegationError = delegateErr instanceof Error ? delegateErr.message : String(delegateErr);
+          console.warn("[TaskPanel] delegate_task_to_agent failed:", delegateErr);
         }
       }
 
       // 3. Create CrafterAgent record
+      const initialStatus = delegationError ? "error" : "running";
+      const initialMessages: CrafterMessage[] = delegationError
+        ? [{ id: crypto.randomUUID(), role: "info", content: `Delegation failed: ${delegationError}`, timestamp: new Date() }]
+        : [];
       const crafterAgent: CrafterAgent = {
         id: agentId ?? `crafter-${taskId}`,
         sessionId: childSessionId ?? "",
         taskId,
         taskTitle: task.title,
-        status: "running",
-        messages: [],
+        status: initialStatus,
+        messages: initialMessages,
       };
 
       setCrafterAgents((prev) => [...prev, crafterAgent]);
@@ -992,20 +1310,30 @@ export function SessionPageClient() {
         setActiveCrafterId(crafterAgent.id);
       }
 
-      // Mark completed (the orchestrator will handle the actual completion)
+      // Mark status based on delegation outcome
+      if (delegationError) {
+        // Decrement running count since agent didn't actually start
+        runningCrafterCountRef.current = Math.max(0, runningCrafterCountRef.current - 1);
+      }
       setRoutaTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, status: "completed" as const } : t))
+        prev.map((t) =>
+          t.id === taskId
+            ? { ...t, status: delegationError ? ("confirmed" as const) : ("completed" as const) }
+            : t
+        )
       );
 
       return crafterAgent;
     } catch (err) {
       console.error("[TaskPanel] Task execution failed:", err);
+      // Decrement running count on failure
+      runningCrafterCountRef.current = Math.max(0, runningCrafterCountRef.current - 1);
       setRoutaTasks((prev) =>
         prev.map((t) => (t.id === taskId ? { ...t, status: "confirmed" as const } : t))
       );
       return null;
     }
-  }, [routaTasks, sessionId, acp, callMcpTool, concurrency, activeCrafterId]);
+  }, [routaTasks, sessionId, callMcpTool, concurrency, activeCrafterId]);
 
   /**
    * Execute all confirmed tasks with configurable concurrency.
@@ -1017,15 +1345,14 @@ export function SessionPageClient() {
     const effectiveConcurrency = Math.min(requestedConcurrency, confirmedTasks.length);
 
     if (effectiveConcurrency <= 1) {
-      // Sequential execution - auto-switch to each agent's view
-      for (const task of confirmedTasks) {
-        const agent = await handleExecuteTask(task.id);
-        if (agent) {
-          setActiveCrafterId(agent.id);
-        }
-      }
+      // Sequential: dispatch only the first task; queue the rest.
+      // The completion-watching effect will pop and dispatch subsequent tasks.
+      routaTaskQueueRef.current = confirmedTasks.slice(1).map((t) => t.id);
+      const agent = await handleExecuteTask(confirmedTasks[0].id);
+      if (agent) setActiveCrafterId(agent.id);
     } else {
       // Parallel execution with concurrency limit
+      routaTaskQueueRef.current = [];
       const queue = [...confirmedTasks];
       const runBatch = async () => {
         const batch = queue.splice(0, effectiveConcurrency);
@@ -1048,30 +1375,183 @@ export function SessionPageClient() {
 
   const handleSelectCrafter = useCallback((agentId: string) => {
     setActiveCrafterId(agentId);
-  }, []);
+    const matchedAgent = crafterAgents.find((agent) => agent.id === agentId);
+    if (matchedAgent?.sessionId) {
+      setFocusedSessionId(matchedAgent.sessionId);
+      bumpRefresh();
+    }
+  }, [bumpRefresh, crafterAgents]);
+
+  const findCrafterForNote = useCallback((note: NoteData) => {
+    const childSessionId = note.metadata.childSessionId;
+    const assignedAgentIds = note.metadata.assignedAgentIds ?? [];
+    return crafterAgents.find((agent) =>
+      agent.taskId === note.id ||
+      (childSessionId ? agent.sessionId === childSessionId : false) ||
+      agent.taskTitle === note.title ||
+      assignedAgentIds.includes(agent.id)
+    ) ?? null;
+  }, [crafterAgents]);
+
+  const handleSelectNoteTask = useCallback((noteId: string) => {
+    const note = notesHook.notes.find((item) => item.id === noteId);
+    if (!note) return;
+
+    const childSessionId = note.metadata.childSessionId;
+    const matchedAgent = findCrafterForNote(note);
+
+    if (matchedAgent) {
+      setActiveCrafterId(matchedAgent.id);
+      if (matchedAgent.sessionId) {
+        setFocusedSessionId(matchedAgent.sessionId);
+        bumpRefresh();
+      }
+      return;
+    }
+
+    if (childSessionId) {
+      setFocusedSessionId(childSessionId);
+      bumpRefresh();
+    }
+  }, [bumpRefresh, findCrafterForNote, notesHook.notes]);
 
   const handleConcurrencyChange = useCallback((n: number) => {
     setConcurrency(n);
   }, []);
 
+  // ── Auto-advance sequential queue when an agent completes ────────────
+  // Forward-declared refs so the effect callbacks can read the latest handlers
+  // without causing circular dependency loops.
+  const handleExecuteNoteTaskRef = useRef<((noteId: string) => Promise<CrafterAgent | null>) | null>(null);
+  const handleExecuteTaskRef = useRef<((taskId: string) => Promise<CrafterAgent | null>) | null>(null);
+
+  useEffect(() => {
+    const prevRunning = runningCrafterCountRef.current;
+    const nowRunning = crafterAgents.filter((a) => a.status === "running").length;
+    runningCrafterCountRef.current = nowRunning;
+
+    // A crafter just finished (running count decreased) — advance the queue
+    if (nowRunning < prevRunning) {
+      const queuedNoteTask = noteTaskQueueRef.current.shift();
+      if (queuedNoteTask) {
+        const handler = queuedNoteTask.mode === "provider"
+          ? handleExecuteProviderNoteTaskRef.current
+          : handleExecuteNoteTaskRef.current;
+        handler?.(queuedNoteTask.noteId).then((agent) => {
+          if (agent) setActiveCrafterId(agent.id);
+        });
+        return;
+      }
+      const taskId = routaTaskQueueRef.current.shift();
+      if (taskId && handleExecuteTaskRef.current) {
+        handleExecuteTaskRef.current(taskId).then((agent) => {
+          if (agent) setActiveCrafterId(agent.id);
+        });
+      }
+    }
+   
+  }, [crafterAgents]);
+
+  // ── Sync CRAFTER state to collaborative notes ────────────────────────
+  const syncedCrafterStatusRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    for (const agent of crafterAgents) {
+      const syncKey = `${agent.status}:${agent.taskId ?? ""}`;
+      const prevStatus = syncedCrafterStatusRef.current.get(agent.id);
+      if (prevStatus === syncKey) continue;
+      syncedCrafterStatusRef.current.set(agent.id, syncKey);
+
+      if (!agent.taskId) continue;
+
+      const note = notesHook.notes.find((n) => n.id === agent.taskId);
+      if (!note) continue;
+
+      const nextTaskStatus = agent.status === "completed"
+        ? "COMPLETED"
+        : agent.status === "error"
+          ? "FAILED"
+          : agent.status === "running"
+            ? "IN_PROGRESS"
+            : note.metadata.taskStatus;
+
+      const assignedAgentIds = note.metadata.assignedAgentIds ?? [];
+      const shouldSyncAgentId = assignedAgentIds.length !== 1 || assignedAgentIds[0] !== agent.id;
+      const shouldSyncChildSessionId = Boolean(agent.sessionId) && note.metadata.childSessionId !== agent.sessionId;
+      const shouldSyncTaskStatus = Boolean(nextTaskStatus) && note.metadata.taskStatus !== nextTaskStatus;
+
+      if (shouldSyncAgentId || shouldSyncChildSessionId || shouldSyncTaskStatus) {
+        notesHook.updateNote(agent.taskId, {
+          metadata: {
+            ...note.metadata,
+            ...(nextTaskStatus ? { taskStatus: nextTaskStatus } : {}),
+            assignedAgentIds: [agent.id],
+            ...(agent.sessionId ? { childSessionId: agent.sessionId } : {}),
+          },
+        });
+      }
+    }
+  }, [crafterAgents, notesHook]);
+
+  useEffect(() => {
+    const staleTasks = notesHook.notes.filter((note) => {
+      if (note.metadata.type !== "task" || note.metadata.taskStatus !== "IN_PROGRESS") {
+        return false;
+      }
+
+      const updatedAtMs = Date.parse(note.updatedAt);
+      if (Number.isFinite(updatedAtMs) && Date.now() - updatedAtMs < 10_000) {
+        return false;
+      }
+
+      const matchedAgent = findCrafterForNote(note);
+      if (!matchedAgent) {
+        return true;
+      }
+
+      return matchedAgent.status !== "running";
+    });
+
+    if (!staleTasks.length) return;
+
+    void Promise.allSettled(staleTasks.map((note) => {
+      const matchedAgent = findCrafterForNote(note);
+      const nextStatus = matchedAgent?.status === "completed"
+        ? "COMPLETED"
+        : matchedAgent?.status === "error"
+          ? "FAILED"
+          : "PENDING";
+
+      if (note.metadata.taskStatus === nextStatus) {
+        return Promise.resolve(null);
+      }
+
+      return notesHook.updateNote(note.id, {
+        metadata: {
+          ...note.metadata,
+          taskStatus: nextStatus,
+        },
+      });
+    }));
+  }, [findCrafterForNote, notesHook]);
+
   /**
    * Execute a single collaborative task note by creating it in the MCP task store
    * and delegating to a CRAFTER agent.
    */
-  const handleExecuteNoteTask = useCallback(async (noteId: string): Promise<CrafterAgent | null> => {
+  const handleExecuteQuickAccessNoteTask = useCallback(async (noteId: string): Promise<CrafterAgent | null> => {
     const note = notesHook.notes.find((n) => n.id === noteId);
     if (!note) return null;
 
-    // Enforce concurrency limit: if concurrency=1 and another task is running, skip
-    if (concurrency <= 1) {
-      const runningTask = notesHook.notes.find(
-        (n) => n.id !== noteId && n.metadata.type === "task" && n.metadata.taskStatus === "IN_PROGRESS"
-      );
-      if (runningTask) {
-        console.warn(`[CollabEditor] Concurrency limit reached (${concurrency}). Task "${runningTask.title}" is still running.`);
-        return null;
-      }
+    // Enforce concurrency limit: check active crafter count
+    if (concurrency <= 1 && runningCrafterCountRef.current > 0) {
+      console.warn(`[CollabEditor] Concurrency limit reached (${concurrency}). ${runningCrafterCountRef.current} task(s) still running. Queuing instead.`);
+      // Queue the task for later execution
+      noteTaskQueueRef.current.push({ noteId, mode: "quick-access" });
+      return null;
     }
+
+    // Pre-increment running count to prevent race conditions with concurrent dispatch
+    runningCrafterCountRef.current++;
 
     // Mark note as in-progress
     await notesHook.updateNote(noteId, {
@@ -1099,12 +1579,11 @@ export function SessionPageClient() {
 
       let agentId: string | undefined;
       let childSessionId: string | undefined;
+      let delegationError: string | undefined;
 
       if (!mcpTaskId) {
         console.warn("[CollabEditor] Could not extract taskId for note:", noteId);
-        if (sessionId) {
-          await acp.prompt(`Execute task: "${note.title}"\n${note.content}`);
-        }
+        delegationError = `Failed to create task in MCP task store. Raw result: ${resultText.slice(0, 200)}`;
       } else {
         try {
           const delegateResult = await callMcpTool("delegate_task_to_agent", {
@@ -1118,20 +1597,237 @@ export function SessionPageClient() {
             const parsed = JSON.parse(delegateText);
             agentId = parsed.agentId;
             childSessionId = parsed.sessionId;
+            // Check for error in the MCP tool result
+            if (parsed.error) {
+              delegationError = parsed.error;
+            }
           } catch {
             const agentMatch = delegateText.match(/"agentId"\s*:\s*"([^"]+)"/);
             const sessionMatch = delegateText.match(/"sessionId"\s*:\s*"([^"]+)"/);
+            const errorMatch = delegateText.match(/"error"\s*:\s*"([^"]+)"/);
             agentId = agentMatch?.[1];
             childSessionId = sessionMatch?.[1];
+            if (errorMatch) delegationError = errorMatch[1];
           }
         } catch (delegateErr) {
+          delegationError = delegateErr instanceof Error ? delegateErr.message : String(delegateErr);
           console.warn("[CollabEditor] delegate_task_to_agent failed:", delegateErr);
         }
       }
 
+      // Determine initial status: if delegation returned an error, mark as error
+      const initialStatus = delegationError ? "error" : "running";
+      const initialMessages: CrafterMessage[] = delegationError
+        ? [{
+            id: crypto.randomUUID(),
+            role: "info",
+            content: `Delegation failed: ${delegationError}`,
+            timestamp: new Date(),
+          }]
+        : [];
+
       const crafterAgent: CrafterAgent = {
         id: agentId ?? `crafter-collab-${noteId}`,
         sessionId: childSessionId ?? "",
+        taskId: noteId,
+        taskTitle: note.title,
+        status: initialStatus,
+        messages: initialMessages,
+      };
+
+      // If delegation failed, also mark the task note as FAILED
+      if (delegationError) {
+        await notesHook.updateNote(noteId, {
+          metadata: { ...note.metadata, taskStatus: "FAILED" },
+        });
+        // Decrement running count since agent didn't actually start
+        runningCrafterCountRef.current = Math.max(0, runningCrafterCountRef.current - 1);
+      }
+
+      if (!delegationError && (childSessionId || agentId || mcpTaskId)) {
+        await notesHook.updateNote(noteId, {
+          metadata: {
+            ...note.metadata,
+            taskStatus: "IN_PROGRESS",
+            ...(childSessionId ? { childSessionId } : {}),
+            ...(mcpTaskId ? { linkedTaskId: mcpTaskId } : {}),
+            ...(agentId ? { assignedAgentIds: [agentId] } : {}),
+          },
+        });
+      }
+
+      setCrafterAgents((prev) => [...prev, crafterAgent]);
+      setActiveCrafterId(crafterAgent.id);
+      if (childSessionId) {
+        setFocusedSessionId(childSessionId);
+        bumpRefresh();
+      }
+
+      return crafterAgent;
+    } catch (err) {
+      console.error("[CollabEditor] Note task execution failed:", err);
+      // Decrement running count on failure
+      runningCrafterCountRef.current = Math.max(0, runningCrafterCountRef.current - 1);
+      await notesHook.updateNote(noteId, {
+        metadata: { ...note.metadata, taskStatus: "PENDING" },
+      });
+      return null;
+    }
+  }, [notesHook, workspaceId, sessionId, callMcpTool, activeCrafterId, concurrency]);
+
+  const handleExecuteProviderNoteTask = useCallback(async (noteId: string): Promise<CrafterAgent | null> => {
+    const note = notesHook.notes.find((n) => n.id === noteId);
+    if (!note) return null;
+
+    if (concurrency <= 1 && runningCrafterCountRef.current > 0) {
+      noteTaskQueueRef.current.push({ noteId, mode: "provider" });
+      return null;
+    }
+
+    runningCrafterCountRef.current++;
+
+    const existingMetadata = note.metadata ?? {};
+    const { provider, model, baseUrl, apiKey } = resolveAgentConfig("CRAFTER");
+    const branch = repoSelection?.branch || undefined;
+    const cwd = repoSelection?.path ?? undefined;
+    const promptText = [note.title.trim(), note.content?.trim()].filter(Boolean).join("\n\n");
+
+    await notesHook.updateNote(noteId, {
+      metadata: { ...existingMetadata, taskStatus: "IN_PROGRESS" },
+    });
+
+    const providerClient = new BrowserAcpClient(getDesktopApiBaseUrl());
+    let childSessionId: string | null = null;
+    let crafterAgentId: string | null = null;
+
+    try {
+      await providerClient.initialize();
+
+      const sessionResult = await providerClient.newSession({
+        cwd,
+        branch,
+        name: note.title,
+        provider,
+        role: "CRAFTER",
+        workspaceId,
+        model,
+        parentSessionId: sessionId,
+        baseUrl,
+        apiKey,
+      });
+
+      childSessionId = sessionResult.sessionId;
+      crafterAgentId = sessionResult.routaAgentId ?? sessionResult.sessionId;
+      providerChildClientsRef.current.set(childSessionId, providerClient);
+
+      providerClient.onUpdate((notification) => {
+        const raw = notification as Record<string, unknown>;
+        const update = (raw.update ?? raw) as Record<string, unknown>;
+        const notificationSessionId = (notification.sessionId ?? raw.sessionId) as string | undefined;
+
+        if (!childSessionId || notificationSessionId !== childSessionId || !crafterAgentId) {
+          return;
+        }
+
+        setCrafterAgents((prev) => {
+          const agentIndex = prev.findIndex((agent) => agent.id === crafterAgentId);
+          if (agentIndex < 0) return prev;
+
+          const nextAgents = [...prev];
+          const nextAgent = { ...nextAgents[agentIndex] };
+          const messages = [...nextAgent.messages];
+          const kind = update.sessionUpdate as string | undefined;
+
+          const extractText = () => {
+            const content = update.content as { type?: string; text?: string } | undefined;
+            if (content?.text) return content.text;
+            if (typeof update.text === "string") return update.text;
+            return "";
+          };
+
+          switch (kind) {
+            case "agent_message_chunk": {
+              const text = extractText();
+              if (!text) return prev;
+              const lastMessage = messages[messages.length - 1];
+              if (lastMessage && lastMessage.role === "assistant" && !lastMessage.toolName) {
+                messages[messages.length - 1] = {
+                  ...lastMessage,
+                  content: lastMessage.content + text,
+                };
+              } else {
+                messages.push({
+                  id: crypto.randomUUID(),
+                  role: "assistant",
+                  content: text,
+                  timestamp: new Date(),
+                });
+              }
+              break;
+            }
+            case "agent_thought_chunk": {
+              const text = extractText();
+              if (!text) return prev;
+              const lastMessage = messages[messages.length - 1];
+              if (lastMessage && lastMessage.role === "thought") {
+                messages[messages.length - 1] = {
+                  ...lastMessage,
+                  content: lastMessage.content + text,
+                };
+              } else {
+                messages.push({
+                  id: crypto.randomUUID(),
+                  role: "thought",
+                  content: text,
+                  timestamp: new Date(),
+                });
+              }
+              break;
+            }
+            case "tool_call": {
+              const toolCallId = (update.toolCallId as string | undefined) ?? crypto.randomUUID();
+              const title = (update.title as string | undefined) ?? "tool";
+              messages.push({
+                id: toolCallId,
+                role: "tool",
+                content: title,
+                timestamp: new Date(),
+                toolName: title,
+                toolStatus: (update.status as string | undefined) ?? "running",
+              });
+              break;
+            }
+            case "tool_call_update": {
+              const toolCallId = update.toolCallId as string | undefined;
+              if (!toolCallId) return prev;
+              const messageIndex = messages.findIndex((message) => message.id === toolCallId);
+              if (messageIndex >= 0) {
+                messages[messageIndex] = {
+                  ...messages[messageIndex],
+                  toolStatus: (update.status as string | undefined) ?? messages[messageIndex].toolStatus,
+                };
+              }
+              break;
+            }
+            case "completed":
+            case "ended":
+            case "turn_complete": {
+              nextAgent.status = "completed";
+              break;
+            }
+            default:
+              return prev;
+          }
+
+          nextAgent.messages = messages;
+          nextAgents[agentIndex] = nextAgent;
+          return nextAgents;
+        });
+      });
+
+      const crafterAgent: CrafterAgent = {
+        id: crafterAgentId,
+        sessionId: childSessionId,
         taskId: noteId,
         taskTitle: note.title,
         status: "running",
@@ -1139,55 +1835,166 @@ export function SessionPageClient() {
       };
 
       setCrafterAgents((prev) => [...prev, crafterAgent]);
-      if (!activeCrafterId) setActiveCrafterId(crafterAgent.id);
+      setActiveCrafterId(crafterAgent.id);
+      setFocusedSessionId(childSessionId);
+      bumpRefresh();
 
-      return crafterAgent;
-    } catch (err) {
-      console.error("[CollabEditor] Note task execution failed:", err);
       await notesHook.updateNote(noteId, {
-        metadata: { ...note.metadata, taskStatus: "PENDING" },
+        metadata: {
+          ...existingMetadata,
+          taskStatus: "IN_PROGRESS",
+          childSessionId,
+          provider,
+          assignedAgentIds: [crafterAgent.id],
+        },
       });
+
+      const promptResult = await providerClient.prompt(childSessionId, promptText || note.title);
+      const finalContent = promptResult.content?.trim();
+
+      setCrafterAgents((prev) => prev.map((agent) => {
+        if (agent.id !== crafterAgent.id) return agent;
+        return {
+          ...agent,
+          status: "completed",
+          messages: finalContent
+            ? [{
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: finalContent,
+                timestamp: new Date(),
+              }]
+            : agent.messages,
+        };
+      }));
+
+      await notesHook.updateNote(noteId, {
+        metadata: {
+          ...existingMetadata,
+          taskStatus: "COMPLETED",
+          childSessionId,
+          provider,
+        },
+      });
+
+      providerClient.disconnect();
+      providerChildClientsRef.current.delete(childSessionId);
+      runningCrafterCountRef.current = Math.max(0, runningCrafterCountRef.current - 1);
+
+      return {
+        id: crafterAgent.id,
+        sessionId: childSessionId,
+        taskId: noteId,
+        taskTitle: note.title,
+        status: "completed",
+        messages: finalContent
+          ? [{
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: finalContent,
+              timestamp: new Date(),
+            }]
+          : [],
+      };
+    } catch (err) {
+      if (shouldSuppressTeardownError(err)) {
+        if (childSessionId) {
+          providerClient.disconnect();
+          providerChildClientsRef.current.delete(childSessionId);
+        }
+        runningCrafterCountRef.current = Math.max(0, runningCrafterCountRef.current - 1);
+        return null;
+      }
+
+      console.error("[CollabEditor] Provider note task execution failed:", err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+
+      if (crafterAgentId && childSessionId) {
+        setCrafterAgents((prev) => prev.map((agent) => {
+          if (agent.id !== crafterAgentId) return agent;
+          return {
+            ...agent,
+            status: "error",
+            messages: [{
+              id: crypto.randomUUID(),
+              role: "info",
+              content: `Execution failed: ${errorMessage}`,
+              timestamp: new Date(),
+            }],
+          };
+        }));
+      }
+
+      await notesHook.updateNote(noteId, {
+        metadata: {
+          ...existingMetadata,
+          taskStatus: "FAILED",
+          ...(childSessionId ? { childSessionId } : {}),
+          provider,
+        },
+      });
+
+      if (childSessionId) {
+        providerClient.disconnect();
+        providerChildClientsRef.current.delete(childSessionId);
+      }
+
+      runningCrafterCountRef.current = Math.max(0, runningCrafterCountRef.current - 1);
+
       return null;
     }
-  }, [notesHook, workspaceId, sessionId, acp, callMcpTool, activeCrafterId, concurrency]);
+  }, [bumpRefresh, concurrency, notesHook, repoSelection, resolveAgentConfig, sessionId, workspaceId]);
+
+  const handleExecuteSelectedNoteTasks = useCallback(async (noteIds: string[], requestedConcurrency: number) => {
+    const pendingNoteIds = noteIds.filter((noteId) => {
+      const note = notesHook.notes.find((item) => item.id === noteId);
+      return Boolean(note && (!note.metadata.taskStatus || note.metadata.taskStatus === "PENDING"));
+    });
+    if (!pendingNoteIds.length) return;
+
+    const effectiveConcurrency = Math.max(1, Math.min(requestedConcurrency, pendingNoteIds.length));
+    const queue = [...pendingNoteIds];
+
+    while (queue.length > 0) {
+      const batch = queue.splice(0, effectiveConcurrency);
+      await Promise.allSettled(batch.map((noteId) => handleExecuteProviderNoteTask(noteId)));
+    }
+  }, [handleExecuteProviderNoteTask, notesHook.notes]);
 
   /**
    * Execute all pending collaborative task notes with configurable concurrency.
    */
   const handleExecuteAllNoteTasks = useCallback(async (requestedConcurrency: number) => {
-    const pendingNotes = notesHook.notes.filter(
-      (n) => n.metadata.type === "task" && (!n.metadata.taskStatus || n.metadata.taskStatus === "PENDING")
-    );
-    if (pendingNotes.length === 0) return;
+    const pendingNoteIds = notesHook.notes
+      .filter((n) => n.metadata.type === "task" && (!n.metadata.taskStatus || n.metadata.taskStatus === "PENDING"))
+      .map((n) => n.id);
+    await handleExecuteSelectedNoteTasks(pendingNoteIds, requestedConcurrency);
+  }, [handleExecuteSelectedNoteTasks, notesHook.notes]);
 
-    const effectiveConcurrency = Math.min(requestedConcurrency, pendingNotes.length);
+  const handleOpenOrExecuteNoteTask = useCallback(async (noteId: string): Promise<CrafterAgent | null> => {
+    const note = notesHook.notes.find((item) => item.id === noteId);
+    if (!note) return null;
 
-    if (effectiveConcurrency <= 1) {
-      for (const note of pendingNotes) {
-        const agent = await handleExecuteNoteTask(note.id);
-        if (agent) setActiveCrafterId(agent.id);
-      }
-    } else {
-      const queue = [...pendingNotes];
-      while (queue.length > 0) {
-        const batch = queue.splice(0, effectiveConcurrency);
-        const results = await Promise.allSettled(batch.map((n) => handleExecuteNoteTask(n.id)));
-        for (const result of results) {
-          if (result.status === "fulfilled" && result.value) {
-            setActiveCrafterId(result.value.id);
-            break;
-          }
-        }
-      }
+    const matchedAgent = findCrafterForNote(note);
+    if (matchedAgent || note.metadata.childSessionId) {
+      handleSelectNoteTask(noteId);
+      return matchedAgent;
     }
-  }, [notesHook, handleExecuteNoteTask]);
+
+    return handleExecuteProviderNoteTask(noteId);
+  }, [findCrafterForNote, handleExecuteProviderNoteTask, handleSelectNoteTask, notesHook.notes]);
+
+  // Keep refs up to date so the queue-advance effect always calls the latest version
+  const handleExecuteProviderNoteTaskRef = useRef<((noteId: string) => Promise<CrafterAgent | null>) | null>(null);
+  useEffect(() => { handleExecuteNoteTaskRef.current = handleExecuteQuickAccessNoteTask; }, [handleExecuteQuickAccessNoteTask]);
+  useEffect(() => { handleExecuteProviderNoteTaskRef.current = handleExecuteProviderNoteTask; }, [handleExecuteProviderNoteTask]);
+  useEffect(() => { handleExecuteTaskRef.current = handleExecuteTask; }, [handleExecuteTask]);
 
   // Notes are now pre-filtered by useNotes(workspaceId, sessionId)
   // - Task notes: only those with matching sessionId
   // - Spec/general notes: workspace-wide (no sessionId) or matching sessionId
   const sessionNotes = notesHook.notes;
   const hasCollabNotes = sessionNotes.some((n) => n.metadata.type === "task" || n.metadata.type === "spec");
-  const showTaskPanel = true;
 
   // Verify workspace exists, redirect to home if not
   // Allow "default" as a special workspace ID that always exists
@@ -1236,113 +2043,71 @@ export function SessionPageClient() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50 dark:bg-[#0f1117]">
+    <div className={`h-screen flex flex-col bg-gray-50 dark:bg-[#0f1117] ${isEmbedMode ? 'embed-mode' : ''}`}>
       {/* ─── Top Bar ──────────────────────────────────────────────── */}
-      <header className="h-[52px] shrink-0 bg-white dark:bg-[#161922] border-b border-gray-200 dark:border-gray-800 flex items-center px-3 md:px-4 gap-2 md:gap-4 z-10">
-        {/* Mobile hamburger */}
-        <button
-          onClick={() => setShowMobileSidebar(!showMobileSidebar)}
-          className="md:hidden w-8 h-8 flex items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500"
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            {showMobileSidebar ? (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            )}
-          </svg>
-        </button>
-
-        {/* Logo - links back to workspace */}
-        <a href={`/workspace/${workspaceId}`} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-          <img
-            src="/logo.svg"
-            alt="Routa"
-            width={28}
-            height={28}
-            className="rounded-lg"
-          />
-          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 hidden sm:inline">
-            Routa
-          </span>
-        </a>
-
-        {/* Workspace context */}
-        <div className="w-px h-5 bg-gray-200 dark:bg-gray-700" />
-        <span className="text-xs text-gray-400 dark:text-gray-500 hidden sm:inline truncate max-w-[120px]">
-          {effectiveWorkspace.title}
-        </span>
-
-        {/* Agent selector */}
-        <div className="relative">
-          <select
-            value={selectedSpecialistId ? `specialist:${selectedSpecialistId}` : selectedAgent}
-            onChange={(e) => handleAgentChange(e.target.value)}
-            className="appearance-none pl-2.5 pr-6 py-0.5 text-xs font-medium rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e2130] text-gray-900 dark:text-gray-100 cursor-pointer focus:ring-1 focus:ring-blue-500"
-          >
-            {/* Built-in roles */}
-            {BUILTIN_ROLES.map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
-              </option>
-            ))}
-            {/* Custom specialists from DB */}
-            {specialists.length > 0 && (
-              <optgroup label="Custom Specialists">
-                {specialists.map((s) => (
-                  <option key={s.id} value={`specialist:${s.id}`}>
-                    {s.name}{s.model ? ` (${s.model})` : ""}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-          <svg className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
-
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        {/* Protocol badges (hidden on small screens) */}
-        <div className="hidden lg:flex items-center gap-2">
-          <ProtocolBadge name="MCP" endpoint="/api/mcp" />
-          <ProtocolBadge name="ACP" endpoint="/api/acp" />
-        </div>
-
-        {/* Tool Mode Toggle */}
-        <label className="hidden md:flex items-center gap-1.5 cursor-pointer select-none" title={`Tool Mode: ${toolMode === "essential" ? "Essential (7 tools)" : "Full (34 tools)"}`}>
-          <span className="text-[10px] text-gray-400 dark:text-gray-500">Full</span>
+      {!isEmbedMode && (
+        <AppHeader
+          workspaceId={workspaceId}
+          workspaces={workspacesHook.workspaces}
+          workspacesLoading={workspacesHook.loading}
+          onWorkspaceSelect={handleWorkspaceSelect}
+          onWorkspaceCreate={handleWorkspaceCreate}
+          variant="session"
+          showMobileSidebar={showMobileSidebar}
+          onToggleMobileSidebar={() => setShowMobileSidebar(!showMobileSidebar)}
+        leftSlot={
+          /* Agent selector */
           <div className="relative">
-            <input
-              type="checkbox"
-              checked={toolMode === "essential"}
-              onChange={(e) => handleToolModeToggle(e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-7 h-3.5 bg-gray-300 dark:bg-gray-600 rounded-full peer peer-checked:bg-purple-500 transition-colors" />
-            <div className="absolute left-0.5 top-0.5 w-2.5 h-2.5 bg-white rounded-full transition-transform peer-checked:translate-x-3.5" />
+            <select
+              value={selectedSpecialistId ? `specialist:${selectedSpecialistId}` : selectedAgent}
+              onChange={(e) => handleAgentChange(e.target.value)}
+              className="appearance-none pl-2.5 pr-6 py-0.5 text-xs font-medium rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e2130] text-gray-900 dark:text-gray-100 cursor-pointer focus:ring-1 focus:ring-blue-500"
+            >
+              {BUILTIN_ROLES.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+              {specialists.length > 0 && (
+                <optgroup label="Custom Specialists">
+                  {specialists.map((s) => (
+                    <option key={s.id} value={`specialist:${s.id}`}>
+                      {s.name}{s.model ? ` (${s.model})` : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+            <svg className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
           </div>
-          <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium">Essential</span>
-        </label>
-
-        {/* MCP Tools link */}
-        <a
-          href="/mcp-tools"
-          className="hidden md:inline-flex px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-900/20 text-[11px] font-medium text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
-        >
-          MCP Tools
-        </a>
-
-        {/* Traces link */}
-        <a
-          href="/traces"
-          className="hidden md:inline-flex px-2.5 py-1 rounded-md bg-purple-50 dark:bg-purple-900/20 text-[11px] font-medium text-purple-600 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
-        >
-          Traces
-        </a>
-      </header>
+        }
+        rightSlot={
+          <>
+            {/* Tool Mode Toggle */}
+            <label className="hidden md:flex items-center gap-1.5 cursor-pointer select-none" title={`Tool Mode: ${toolMode === "essential" ? "Essential (7 tools)" : "Full (34 tools)"}`}>
+              <span className="text-[10px] text-gray-400 dark:text-gray-500">Full</span>
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  checked={toolMode === "essential"}
+                  onChange={(e) => handleToolModeToggle(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-7 h-3.5 bg-gray-300 dark:bg-gray-600 rounded-full peer peer-checked:bg-purple-500 transition-colors" />
+                <div className="absolute left-0.5 top-0.5 w-2.5 h-2.5 bg-white rounded-full transition-transform peer-checked:translate-x-3.5" />
+              </div>
+              <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium">Essential</span>
+            </label>
+            <a href="/mcp-tools" className="hidden md:inline-flex px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-900/20 text-[11px] font-medium text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors">
+              MCP Tools
+            </a>
+            <a href="/traces" className="hidden md:inline-flex px-2.5 py-1 rounded-md bg-purple-50 dark:bg-purple-900/20 text-[11px] font-medium text-purple-600 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors">
+              Traces
+            </a>
+          </>
+        }
+        />
+      )}
 
       {/* ─── Main Area ────────────────────────────────────────────── */}
       <div className="flex-1 flex min-h-0 relative">
@@ -1355,168 +2120,44 @@ export function SessionPageClient() {
         )}
 
         {/* ─── Left Sidebar ──────────────────────────────────────── */}
-        <aside
-          className={`shrink-0 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-[#13151d] flex flex-col relative transition-[width] duration-200
-            ${showMobileSidebar ? "fixed inset-y-[52px] left-0 z-40 shadow-2xl overflow-y-auto" : "hidden md:flex overflow-hidden"}
-          `}
-          style={{ width: isLeftSidebarCollapsed ? "44px" : `${leftSidebarWidth}px` }}
-        >
-          {isLeftSidebarCollapsed ? (
-            /* ─── Collapsed sidebar: icon-only strip ─────────────── */
-            <div className="flex flex-col items-center py-2 gap-2 h-full">
-              {/* Expand button */}
-              <button
-                onClick={() => setIsLeftSidebarCollapsed(false)}
-                className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                title="Expand sidebar"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                </svg>
-              </button>
-
-              {/* New session button */}
-              <button
-                onClick={() => handleCreateSession("")}
-                disabled={acp.providers.length === 0 || !acp.selectedProvider}
-                className="p-1.5 rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                title="New Session"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
-
-              <div className="flex-1" />
-
-              {/* Settings button */}
-              <button
-                onClick={() => setShowSettingsPanel(true)}
-                className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                title="Settings"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </button>
-            </div>
-          ) : (
-            /* ─── Expanded sidebar ────────────────────────────────── */
-            <>
-          {/* Workspace section */}
-          <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <svg className="w-3.5 h-3.5 text-indigo-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
-              </svg>
-              <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">
-                {effectiveWorkspace.title}
-              </span>
-              {codebases.length > 0 && repoSelection && (
-                <>
-                  <span className="text-gray-300 dark:text-gray-600">/</span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                    {repoSelection.name ?? repoSelection.path.split("/").pop()}
-                  </span>
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-1">
-              <WorkspaceSwitcher
-                workspaces={workspacesHook.workspaces}
-                activeWorkspaceId={workspaceId}
-                onSelect={handleWorkspaceSelect}
-                onCreate={handleWorkspaceCreate}
-                loading={workspacesHook.loading}
-                compact
-              />
-              {/* Collapse button */}
-              <button
-                onClick={() => setIsLeftSidebarCollapsed(true)}
-                className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                title="Collapse sidebar"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7M18 19l-7-7 7-7" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          {/* Sessions header + New Session */}
-          <div className="px-3 py-2 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
-            <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Sessions</span>
-            <button
-              onClick={() => handleCreateSession("")}
-              disabled={acp.providers.length === 0 || !acp.selectedProvider}
-              className="px-2 py-0.5 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              + New
-            </button>
-          </div>
-
-          {/* Sessions - scrollable with max height */}
-          <div className="flex-1 min-h-0 max-h-[50%] overflow-y-auto">
-            <SessionPanel
-              selectedSessionId={sessionId}
-              onSelect={handleSelectSession}
-              refreshKey={refreshKey}
-              workspaceId={workspaceId}
-              onSessionDeleted={(deletedId) => {
-                if (sessionId === deletedId) {
-                  router.push(`/workspace/${workspaceId}`);
-                }
-              }}
-            />
-          </div>
-
-          {/* Divider */}
-          <div className="mx-3 my-1 border-t border-gray-100 dark:border-gray-800 shrink-0" />
-
-          {/* Skills - scrollable, takes remaining space */}
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <SkillPanel
-              skillsHook={skillsHook}
-            />
-          </div>
-
-          {/* Bottom actions */}
-          <div className="p-2 border-t border-gray-100 dark:border-gray-800 space-y-1">
-            <button
-              ref={installAgentsButtonRef}
-              onClick={() => setShowAgentInstallPopup(true)}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              Install Agents
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowSettingsPanel(true)}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[11px] text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              Settings
-            </button>
-          </div>
-
-            </>
-          )}
-
-          {/* Left sidebar resize handle */}
-          <div
-            className="left-resize-handle hidden md:block"
-            onMouseDown={handleLeftResizeStart}
-          >
-            <div className="resize-indicator" />
-          </div>
-        </aside>
+        {!isEmbedMode && (
+          <LeftSidebar
+            isCollapsed={isLeftSidebarCollapsed}
+            onToggleCollapse={() => setIsLeftSidebarCollapsed((v) => !v)}
+            width={leftSidebarWidth}
+            showMobileSidebar={showMobileSidebar}
+            onResizeStart={handleLeftResizeStart}
+            sessionId={sessionId}
+            focusedSessionId={focusedSessionId}
+            workspaceId={workspaceId}
+            refreshKey={refreshKey}
+            onSelectSession={handleSelectSession}
+            onCreateSession={handleCreateSession}
+            codebases={codebases}
+            repoSelection={repoSelection}
+            hasProviders={acp.providers.length > 0}
+            hasSelectedProvider={!!acp.selectedProvider}
+            routaTasks={routaTasks}
+            onConfirmAllTasks={handleConfirmAllTasks}
+            onExecuteAllTasks={handleExecuteAllTasks}
+            onConfirmTask={handleConfirmTask}
+            onEditTask={handleEditTask}
+            onExecuteTask={handleExecuteTask}
+            concurrency={concurrency}
+            onConcurrencyChange={handleConcurrencyChange}
+            hasCollabNotes={hasCollabNotes}
+            sessionNotes={sessionNotes}
+            notesConnected={notesHook.connected}
+            onUpdateNote={notesHook.updateNote}
+            onDeleteNote={notesHook.deleteNote}
+            onExecuteNoteTask={handleExecuteProviderNoteTask}
+            onExecuteQuickAccessNoteTask={handleOpenOrExecuteNoteTask}
+            onExecuteAllNoteTasks={handleExecuteAllNoteTasks}
+            onExecuteSelectedNoteTasks={handleExecuteSelectedNoteTasks}
+            crafterAgents={crafterAgents}
+            onSelectNoteTask={handleSelectNoteTask}
+          />
+        )}
 
         {/* ─── Chat Area ──────────────────────────────────────────── */}
         <main className="flex-1 min-w-0">
@@ -1525,9 +2166,6 @@ export function SessionPageClient() {
             activeSessionId={sessionId}
             onEnsureSession={ensureSessionForChat}
             onSelectSession={handleSelectSession}
-            skills={skillsHook.skills}
-            repoSkills={skillsHook.repoSkills}
-            onLoadSkill={handleLoadSkill}
             repoSelection={repoSelection}
             onRepoChange={setRepoSelection}
             onTasksDetected={handleTasksDetected}
@@ -1538,60 +2176,71 @@ export function SessionPageClient() {
             activeWorkspaceId={workspaceId}
             onWorkspaceChange={handleWorkspaceSelect}
             codebases={codebases}
+            inputPrefill={dockerRetryText}
+            onInputPrefillConsumed={() => setDockerRetryText(null)}
           />
         </main>
 
-        {/* ─── Right Panel: Routa Sub-Tasks (Resizable) ───────────── */}
-        {showTaskPanel && (
-          <aside
-            className="shrink-0 border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-[#13151d] flex flex-col overflow-hidden relative"
-            style={{ width: `${sidebarWidth}px` }}
-          >
-            {/* Resize handle */}
+        {/* ─── Right Sidebar: CRAFTERs running status ─────────────── */}
+        {!isEmbedMode && crafterAgents.length > 0 && (
+          <>
+            {/* Right sidebar resize handle */}
             <div
-              className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-20 hover:bg-indigo-500/30 active:bg-indigo-500/50 transition-colors group"
+              className="hidden md:flex items-center justify-center w-1 cursor-col-resize hover:bg-indigo-500/30 active:bg-indigo-500/50 transition-colors group shrink-0"
               onMouseDown={handleResizeStart}
             >
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-indigo-400 group-active:bg-indigo-500 transition-colors" />
+              <div className="w-0.5 h-8 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-indigo-400 group-active:bg-indigo-500 transition-colors" />
             </div>
-
-            {/* When collaborative notes exist, show Collab Edit directly; otherwise show TaskPanel */}
-            {hasCollabNotes ? (
-              <CollaborativeTaskEditor
-                notes={sessionNotes}
-                connected={notesHook.connected}
-                onUpdateNote={notesHook.updateNote}
-                onDeleteNote={notesHook.deleteNote}
-                workspaceId={workspaceId}
-                crafterAgents={crafterAgents}
+            <aside
+              className="hidden md:flex shrink-0 border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-[#13151d] flex-col overflow-hidden"
+              style={{ width: `${sidebarWidth}px` }}
+            >
+              {/* CRAFTER agents header */}
+              <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">
+                    CRAFTERs
+                  </span>
+                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300">
+                    {crafterAgents.length}
+                  </span>
+                </div>
+                {/* Concurrency control */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Concurrency
+                  </span>
+                  <div className="flex items-center rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    {[1, 2].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => handleConcurrencyChange(n)}
+                        className={`px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                          concurrency === n
+                            ? "bg-indigo-600 text-white"
+                            : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {/* CRAFTERs content */}
+              <CraftersView
+                agents={crafterAgents}
                 activeCrafterId={activeCrafterId}
                 onSelectCrafter={handleSelectCrafter}
-                onExecuteTask={handleExecuteNoteTask}
-                onExecuteAll={handleExecuteAllNoteTasks}
-                concurrency={concurrency}
-                onConcurrencyChange={handleConcurrencyChange}
+                onUpdateAgentMessages={handleUpdateAgentMessages}
               />
-            ) : (
-              <TaskPanel
-                tasks={routaTasks}
-                onConfirmAll={handleConfirmAllTasks}
-                onExecuteAll={handleExecuteAllTasks}
-                onConfirmTask={handleConfirmTask}
-                onEditTask={handleEditTask}
-                onExecuteTask={handleExecuteTask}
-                crafterAgents={crafterAgents}
-                activeCrafterId={activeCrafterId}
-                onSelectCrafter={handleSelectCrafter}
-                concurrency={concurrency}
-                onConcurrencyChange={handleConcurrencyChange}
-              />
-            )}
-          </aside>
+            </aside>
+          </>
         )}
       </div>
 
       {/* ─── Resize overlay (prevents iframe/content interference) ─── */}
-      {(isResizing || isLeftResizing) && (
+      {(isLeftResizing || isResizing) && (
         <div className="fixed inset-0 z-50 cursor-col-resize" />
       )}
 
@@ -1658,6 +2307,24 @@ export function SessionPageClient() {
         open={showSettingsPanel}
         onClose={() => setShowSettingsPanel(false)}
         providers={acp.providers}
+      />
+
+      {/* ─── Docker Config Modal ─────────────────────────────────── */}
+      <DockerConfigModal
+        open={!!dockerErrorMessage}
+        errorMessage={dockerErrorMessage ?? ""}
+        onClose={() => setDockerErrorMessage(null)}
+        onSaved={(apiKey) => {
+          setDockerErrorMessage(null);
+          // Re-store pending text so the pending-prompt effect can re-send after reconnect
+          if (dockerRetryText && sessionId) {
+            storePendingPrompt(sessionId, dockerRetryText);
+            pendingPromptSentRef.current.delete(sessionId);
+            pendingPromptTextRef.current = dockerRetryText;
+          }
+          // The input will be pre-filled in the TiptapInput via dockerRetryText state
+          void apiKey; // used by saveProviderConnections inside DockerConfigModal
+        }}
       />
 
       {/* ─── Specialist Manager ──────────────────────────────────── */}

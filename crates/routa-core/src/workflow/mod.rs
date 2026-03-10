@@ -15,12 +15,12 @@
 //!                                     Claude / OpenCode / GLM
 //! ```
 
-pub mod schema;
-pub mod executor;
 pub mod agent_caller;
+pub mod executor;
+pub mod schema;
 pub mod specialist;
 
-pub use schema::{WorkflowDefinition, WorkflowStep, StepAction, TriggerConfig, OnFailure};
-pub use executor::WorkflowExecutor;
 pub use agent_caller::AcpAgentCaller;
+pub use executor::WorkflowExecutor;
+pub use schema::{OnFailure, StepAction, TriggerConfig, WorkflowDefinition, WorkflowStep};
 pub use specialist::{SpecialistDef, SpecialistLoader};

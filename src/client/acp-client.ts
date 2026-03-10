@@ -27,6 +27,8 @@ export interface AcpNewSessionResult {
   provider?: string;
   role?: string;
   routaAgentId?: string;
+  /** ACP process lifecycle status — "connecting" means the agent is still starting up */
+  acpStatus?: "connecting" | "ready" | "error";
 }
 
 export interface AcpPromptResult {
@@ -47,6 +49,7 @@ export interface AcpProviderInfo {
   command: string;
   status?: "available" | "unavailable" | "checking";
   source?: "static" | "registry";
+  unavailableReason?: string;
 }
 
 export type SessionUpdateHandler = (update: AcpSessionNotification) => void;
@@ -117,9 +120,15 @@ export class BrowserAcpClient {
    */
   async newSession(params: {
     cwd?: string;
+    /** Git branch to scope the session to (optional) */
+    branch?: string;
+    /** Optional display name for the session */
+    name?: string;
     provider?: string;
     modeId?: string;
     role?: string;
+    /** Parent session ID when creating a child session */
+    parentSessionId?: string;
     crafterProvider?: string;
     gateProvider?: string;
     mcpServers?: Array<{ name: string; url?: string }>;
@@ -131,12 +140,21 @@ export class BrowserAcpClient {
     baseUrl?: string;
     /** API key override (overrides ANTHROPIC_AUTH_TOKEN env var) */
     apiKey?: string;
+    /** Custom provider command (for user-defined ACP providers) */
+    customCommand?: string;
+    /** Custom provider args (for user-defined ACP providers) */
+    customArgs?: string[];
+    /** Docker OpenCode: auth.json content to mount into container */
+    authJson?: string;
   }): Promise<AcpNewSessionResult> {
     const result = await this.rpc<AcpNewSessionResult>("session/new", {
       cwd: params.cwd,
+      branch: params.branch,
+      name: params.name,
       provider: params.provider ?? "opencode",
       modeId: params.modeId,
       role: params.role,
+      parentSessionId: params.parentSessionId,
       crafterProvider: params.crafterProvider,
       gateProvider: params.gateProvider,
       mcpServers: params.mcpServers ?? [],
@@ -146,6 +164,9 @@ export class BrowserAcpClient {
       specialistId: params.specialistId,
       baseUrl: params.baseUrl,
       apiKey: params.apiKey,
+      customCommand: params.customCommand,
+      customArgs: params.customArgs,
+      authJson: params.authJson,
     });
     this._sessionId = result.sessionId;
 
@@ -379,6 +400,18 @@ export class BrowserAcpClient {
     await this.rpc("session/cancel", { sessionId });
   }
 
+  async respondToUserInput(
+    sessionId: string,
+    toolCallId: string,
+    response: Record<string, unknown>,
+  ): Promise<void> {
+    await this.rpc("session/respond_user_input", {
+      sessionId,
+      toolCallId,
+      response,
+    });
+  }
+
   /**
    * Register a handler for session updates (SSE).
    */
@@ -432,7 +465,17 @@ export class BrowserAcpClient {
     };
 
     this.eventSource.onerror = () => {
-      // SSE will auto-reconnect
+      // EventSource auto-reconnects on transient errors, but if the
+      // connection is CLOSED (readyState === 2) — e.g. after a server
+      // restart / page refresh — we must reconnect manually.
+      if (this.eventSource?.readyState === EventSource.CLOSED) {
+        console.warn("[AcpClient] SSE connection closed, reconnecting in 2s...");
+        setTimeout(() => {
+          if (this._sessionId) {
+            this.connectSSE(this._sessionId);
+          }
+        }, 2000);
+      }
     };
   }
 

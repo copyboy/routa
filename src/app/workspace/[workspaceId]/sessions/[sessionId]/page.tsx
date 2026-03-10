@@ -7,6 +7,7 @@
  * Route: /workspace/[workspaceId]/sessions/[sessionId]
  */
 
+import { Suspense } from "react";
 import { SessionPageClient } from "./session-page-client";
 
 // Required for static export - tells Next.js which paths to pre-render.
@@ -20,5 +21,9 @@ export async function generateStaticParams() {
 }
 
 export default function WorkspaceSessionPage() {
-  return <SessionPageClient />;
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center">Loading...</div>}>
+      <SessionPageClient />
+    </Suspense>
+  );
 }

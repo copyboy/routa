@@ -1,4 +1,5 @@
 import {AcpProcessConfig, JsonRpcMessage, NotificationHandler, PendingRequest} from "@/core/acp/processer";
+import {needsShell} from "@/core/acp/utils";
 import {getTerminalManager} from "@/core/acp/terminal-manager";
 import type {IProcessHandle} from "@/core/platform/interfaces";
 import {getServerBridge} from "@/core/platform";
@@ -134,6 +135,9 @@ export class AcpProcess {
                 NODE_NO_READLINE: "1",
             },
             detached: false,
+            // On Windows, batch files (.cmd/.bat) cannot be spawned directly —
+            // they must be run through the shell (cmd.exe /c ...).
+            shell: needsShell(command),
         });
 
         if (!this.process || !this.process.pid) {

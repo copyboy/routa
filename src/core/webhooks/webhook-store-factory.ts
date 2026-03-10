@@ -22,9 +22,7 @@ export function getGitHubWebhookStore(): GitHubWebhookStore {
       g[GLOBAL_KEY] = new PgGitHubWebhookStore(db);
     } else if (driver === "sqlite") {
       try {
-        // eslint-disable-next-line no-eval
-        const dynamicRequire = eval("require") as NodeRequire;
-        const { getSqliteDatabase } = dynamicRequire("../db/sqlite");
+        const { getSqliteDatabase } = require("../db/sqlite") as typeof import("../db/sqlite");
         const { SqliteGitHubWebhookStore } = require("../store/github-webhook-store") as typeof import("../store/github-webhook-store");
         const db = getSqliteDatabase();
         g[GLOBAL_KEY] = new SqliteGitHubWebhookStore(db);

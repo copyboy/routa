@@ -1,8 +1,8 @@
 /**
- * SQLite Database Connection — for desktop platforms (Tauri / Electron).
+ * SQLite Database Connection — for the local Node.js backend.
  *
  * Uses better-sqlite3 via drizzle-orm for local database storage.
- * The database file is stored in the application data directory.
+ * The database file defaults to the project-local `routa.db`.
  *
  * Connection is lazy-initialized and cached for the lifetime of the process.
  */
@@ -50,6 +50,19 @@ export function getSqliteDatabase(dbPath?: string): SqliteDatabase {
  * Uses raw SQL for CREATE TABLE IF NOT EXISTS.
  */
 function initializeSqliteTables(db: SqliteDatabase): void {
+  function runAddColumn(sqlStatement: ReturnType<typeof sql>) {
+    try {
+      db.run(sqlStatement);
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      const causeMessage = error instanceof Error && error.cause instanceof Error
+        ? error.cause.message.toLowerCase() : "";
+      if (!message.includes("duplicate column name") && !causeMessage.includes("duplicate column name")) {
+        throw error;
+      }
+    }
+  }
+
   db.run(sql`
     CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY,
@@ -88,9 +101,28 @@ function initializeSqliteTables(db: SqliteDatabase): void {
       verification_commands TEXT,
       assigned_to TEXT,
       status TEXT NOT NULL DEFAULT 'PENDING',
+      board_id TEXT,
+      column_id TEXT,
+      position INTEGER NOT NULL DEFAULT 0,
+      priority TEXT,
+      labels TEXT DEFAULT '[]',
+      assignee TEXT,
+      assigned_provider TEXT,
+      assigned_role TEXT,
+      assigned_specialist_id TEXT,
+      assigned_specialist_name TEXT,
+      trigger_session_id TEXT,
+      github_id TEXT,
+      github_number INTEGER,
+      github_url TEXT,
+      github_repo TEXT,
+      github_state TEXT,
+      github_synced_at INTEGER,
+      last_sync_error TEXT,
       dependencies TEXT DEFAULT '[]',
       parallel_group TEXT,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      session_id TEXT,
       completion_summary TEXT,
       verification_verdict TEXT,
       verification_report TEXT,
@@ -99,6 +131,25 @@ function initializeSqliteTables(db: SqliteDatabase): void {
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     )
   `);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN board_id TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN column_id TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN priority TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN labels TEXT DEFAULT '[]'`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN assignee TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN assigned_provider TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN assigned_role TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN assigned_specialist_id TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN assigned_specialist_name TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN trigger_session_id TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN github_id TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN github_number INTEGER`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN github_url TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN github_repo TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN github_state TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN github_synced_at INTEGER`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN last_sync_error TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN session_id TEXT`);
 
   db.run(sql`
     CREATE TABLE IF NOT EXISTS notes (
@@ -175,6 +226,11 @@ function initializeSqliteTables(db: SqliteDatabase): void {
     )
   `);
 
+  // Add branch column to existing acp_sessions tables
+  try { db.run(sql`ALTER TABLE acp_sessions ADD COLUMN branch TEXT`); } catch { /* column already exists */ }
+  // Add parent_session_id column to existing acp_sessions tables
+  try { db.run(sql`ALTER TABLE acp_sessions ADD COLUMN parent_session_id TEXT`); } catch { /* column already exists */ }
+
   db.run(sql`
     CREATE TABLE IF NOT EXISTS codebases (
       id TEXT PRIMARY KEY,
@@ -193,6 +249,20 @@ function initializeSqliteTables(db: SqliteDatabase): void {
   // Add source_type/source_url to existing codebases tables that predate this migration
   try { db.run(sql`ALTER TABLE codebases ADD COLUMN source_type TEXT`); } catch { /* column already exists */ }
   try { db.run(sql`ALTER TABLE codebases ADD COLUMN source_url TEXT`); } catch { /* column already exists */ }
+
+  db.run(sql`
+    CREATE TABLE IF NOT EXISTS kanban_boards (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      columns TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    )
+  `);
+
+  db.run(sql`DROP INDEX IF EXISTS kanban_boards_workspace_default_idx`);
 
   db.run(sql`
     CREATE TABLE IF NOT EXISTS skills (
@@ -219,12 +289,95 @@ function initializeSqliteTables(db: SqliteDatabase): void {
     )
   `);
 
+  db.run(sql`
+    CREATE TABLE IF NOT EXISTS background_tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      triggered_by TEXT NOT NULL DEFAULT 'user',
+      trigger_source TEXT NOT NULL DEFAULT 'manual',
+      priority TEXT NOT NULL DEFAULT 'NORMAL',
+      result_session_id TEXT,
+      error_message TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 1,
+      started_at INTEGER,
+      completed_at INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+      last_activity INTEGER,
+      current_activity TEXT,
+      tool_call_count INTEGER DEFAULT 0,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      workflow_run_id TEXT,
+      workflow_step_name TEXT,
+      depends_on_task_ids TEXT,
+      task_output TEXT
+    )
+  `);
+
+  db.run(sql`
+    CREATE TABLE IF NOT EXISTS github_webhook_configs (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      github_token TEXT NOT NULL,
+      webhook_secret TEXT NOT NULL DEFAULT '',
+      event_types TEXT NOT NULL DEFAULT '[]',
+      label_filter TEXT DEFAULT '[]',
+      trigger_agent_id TEXT NOT NULL,
+      workflow_id TEXT,
+      workspace_id TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      prompt_template TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    )
+  `);
+
+  db.run(sql`
+    CREATE TABLE IF NOT EXISTS schedules (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      cron_expr TEXT NOT NULL,
+      task_prompt TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_run_at INTEGER,
+      next_run_at INTEGER,
+      last_task_id TEXT,
+      prompt_template TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    )
+  `);
+
+  db.run(sql`
+    CREATE TABLE IF NOT EXISTS webhook_trigger_logs (
+      id TEXT PRIMARY KEY,
+      config_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      event_action TEXT,
+      payload TEXT DEFAULT '{}',
+      background_task_id TEXT,
+      signature_valid INTEGER NOT NULL DEFAULT 0,
+      outcome TEXT NOT NULL DEFAULT 'triggered',
+      error_message TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    )
+  `);
+
   console.log("[SQLite] Tables initialized");
 }
 
 /**
  * Check if SQLite is configured as the database.
- * Always true for desktop platforms.
+ * Always true when the local Node.js backend selects SQLite.
  */
 export function isSqliteConfigured(): boolean {
   return true;

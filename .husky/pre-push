@@ -1,0 +1,12 @@
+# Pre-push hook: Run full checks (lint + typecheck + tests)
+# Uses smart-check.sh for AI-aware error handling
+
+# Skip if SKIP_HOOKS is set (for emergency pushes)
+if [ -n "$SKIP_HOOKS" ]; then
+  echo "⚠️  SKIP_HOOKS is set, skipping pre-push checks"
+  exit 0
+fi
+
+# Run smart check script
+./scripts/smart-check.sh
+

@@ -9,11 +9,7 @@
 //! - GET  /api/polling/check  - Get polling status
 //! - POST /api/polling/check  - Manually trigger a poll check
 
-use axum::{
-    extract::State,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -42,7 +38,7 @@ impl Default for PollingConfig {
             .unwrap_or_else(|_| "false".to_string())
             .parse()
             .unwrap_or(false);
-        
+
         let interval_seconds = std::env::var("GITHUB_POLLING_INTERVAL")
             .unwrap_or_else(|_| "30".to_string())
             .parse()
@@ -128,7 +124,7 @@ pub fn start_polling_if_enabled() {
 
 fn start_polling_task() {
     let mut handle_guard = POLLING_HANDLE.lock().unwrap();
-    
+
     // Don't start if already running
     if handle_guard.is_some() {
         return;
@@ -174,7 +170,7 @@ async fn poll_all_repos() -> Result<Vec<PollResult>, String> {
     //
     // For now, return empty results
     let results: Vec<PollResult> = vec![];
-    
+
     let checked_at = chrono::Utc::now().to_rfc3339();
     {
         let mut config = POLLING_CONFIG.lock().unwrap();
@@ -196,7 +192,7 @@ pub fn router() -> Router<AppState> {
 
 async fn get_config() -> Result<Json<serde_json::Value>, ServerError> {
     let config = POLLING_CONFIG.lock().unwrap().clone();
-    
+
     Ok(Json(serde_json::json!({
         "ok": true,
         "config": config,
@@ -214,14 +210,14 @@ async fn update_config(
     Json(body): Json<UpdateConfigRequest>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     let mut config = POLLING_CONFIG.lock().unwrap();
-    
+
     if let Some(enabled) = body.enabled {
         config.enabled = enabled;
         config.is_running = enabled;
-        
+
         // Drop the lock before starting/stopping task
         drop(config);
-        
+
         if enabled {
             start_polling_task();
             send_notification(
@@ -235,15 +231,15 @@ async fn update_config(
                 "GitHub event polling has been stopped",
             );
         }
-        
+
         // Re-acquire lock
         config = POLLING_CONFIG.lock().unwrap();
     }
-    
+
     if let Some(interval) = body.interval_seconds {
         if interval >= 10 {
             config.interval_seconds = interval;
-            
+
             // Restart polling task if running
             if config.enabled {
                 drop(config);
@@ -253,10 +249,10 @@ async fn update_config(
             }
         }
     }
-    
+
     let config_clone = config.clone();
     drop(config);
-    
+
     Ok(Json(serde_json::json!({
         "ok": true,
         "config": config_clone,
@@ -275,12 +271,10 @@ async fn get_status() -> Result<Json<serde_json::Value>, ServerError> {
     })))
 }
 
-async fn check_now(
-    State(_state): State<AppState>,
-) -> Result<Json<serde_json::Value>, ServerError> {
-    let results = poll_all_repos().await.map_err(|e| {
-        ServerError::Internal(format!("Polling failed: {}", e))
-    })?;
+async fn check_now(State(_state): State<AppState>) -> Result<Json<serde_json::Value>, ServerError> {
+    let results = poll_all_repos()
+        .await
+        .map_err(|e| ServerError::Internal(format!("Polling failed: {}", e)))?;
 
     let summary = PollSummary {
         repos_checked: results.len() as u32,
@@ -298,7 +292,9 @@ async fn check_now(
         ),
     );
 
-    let checked_at = POLLING_CONFIG.lock().unwrap()
+    let checked_at = POLLING_CONFIG
+        .lock()
+        .unwrap()
         .last_checked_at
         .clone()
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
@@ -359,4 +355,3 @@ fn send_notification(title: &str, body: &str) {
     // Log the notification for debugging
     tracing::debug!("[Notification] {}: {}", title, body);
 }
-

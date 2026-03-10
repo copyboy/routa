@@ -1,18 +1,22 @@
 //! TraceReader — Query and read trace records from filesystem storage.
 //!
-//! Storage path: `<workspace>/.routa/traces/{day}/traces-{datetime}.jsonl`
+//! Storage paths:
+//! - New: `~/.routa/projects/{folder-slug}/traces/{day}/traces-{datetime}.jsonl`
+//! - Legacy: `<workspace>/.routa/traces/{day}/traces-{datetime}.jsonl`
 //!
 //! Features:
 //! - Filter traces by session, file, workspace, date range
 //! - Retrieve individual traces by ID
 //! - Export traces in standard Agent Trace JSON format
 //! - Efficient file scanning with early termination on match
+//! - Backward-compatible: searches both new and legacy paths
 
-use std::path::{Path, PathBuf};
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use super::types::TraceRecord;
+use crate::storage::get_traces_dir;
 
 /// Query parameters for filtering traces.
 #[derive(Debug, Clone, Default)]
@@ -38,84 +42,107 @@ pub struct TraceQuery {
 /// TraceReader provides querying capabilities over stored traces.
 #[derive(Clone)]
 pub struct TraceReader {
-    /// Base directory for trace files (e.g., "/project/.routa/traces")
-    base_dir: PathBuf,
+    /// New trace directory: ~/.routa/projects/{slug}/traces
+    new_base_dir: PathBuf,
+    /// Legacy trace directory: {workspace}/.routa/traces
+    legacy_base_dir: PathBuf,
 }
 
 impl TraceReader {
     /// Create a new TraceReader with the given workspace root.
     ///
-    /// Traces are read from `<workspace_root>/.routa/traces/`.
+    /// Reads from both `~/.routa/projects/{folder-slug}/traces/` (new)
+    /// and `<workspace_root>/.routa/traces/` (legacy).
     pub fn new(workspace_root: impl AsRef<Path>) -> Self {
-        let base_dir = workspace_root.as_ref().join(".routa").join("traces");
+        let workspace_str = workspace_root.as_ref().to_string_lossy().to_string();
+        let new_base_dir = get_traces_dir(&workspace_str);
+        let legacy_base_dir = workspace_root.as_ref().join(".routa").join("traces");
         Self {
-            base_dir,
+            new_base_dir,
+            legacy_base_dir,
         }
     }
 
-    /// Create a TraceReader with a custom base directory.
+    /// Create a TraceReader with a custom base directory (used as legacy path).
     pub fn with_base_dir(base_dir: impl AsRef<Path>) -> Self {
         Self {
-            base_dir: base_dir.as_ref().to_path_buf(),
+            new_base_dir: base_dir.as_ref().to_path_buf(),
+            legacy_base_dir: base_dir.as_ref().to_path_buf(),
         }
+    }
+
+    /// Collect all trace base directories: new path, legacy path, and repo-specific ones.
+    async fn get_all_trace_base_dirs(&self) -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
+
+        // 1. New storage path: ~/.routa/projects/{slug}/traces/
+        if self.new_base_dir.exists() {
+            dirs.push(self.new_base_dir.clone());
+        }
+
+        // 2. Legacy path: {workspace}/.routa/traces/
+        if self.legacy_base_dir.exists() && self.legacy_base_dir != self.new_base_dir {
+            dirs.push(self.legacy_base_dir.clone());
+        }
+
+        // 3. Scan .routa/repos/*/.routa/traces/ for repo-specific trace directories
+        if let Some(routa_dir) = self.legacy_base_dir.parent() {
+            let repos_dir = routa_dir.join("repos");
+            if let Ok(mut readdir) = tokio::fs::read_dir(&repos_dir).await {
+                while let Ok(Some(entry)) = readdir.next_entry().await {
+                    let repo_trace_dir = entry.path().join(".routa").join("traces");
+                    if repo_trace_dir.exists() {
+                        dirs.push(repo_trace_dir);
+                    }
+                }
+            }
+        }
+
+        dirs
     }
 
     /// Query traces based on the provided filter parameters.
     ///
     /// Returns traces sorted by timestamp (newest first).
+    /// Scans both the primary trace directory and all repo-specific directories.
     pub async fn query(&self, query: &TraceQuery) -> Result<Vec<TraceRecord>, TraceReadError> {
-        // If traces directory doesn't exist, return empty result
-        if !self.base_dir.exists() {
+        let all_base_dirs = self.get_all_trace_base_dirs().await;
+        if all_base_dirs.is_empty() {
             return Ok(Vec::new());
         }
 
         let mut traces = Vec::new();
 
-        // Get all day directories
-        let mut day_dirs = collect_dirs(&self.base_dir).await?;
+        for base_dir in &all_base_dirs {
+            let mut day_dirs = collect_dirs(base_dir).await.unwrap_or_default();
+            day_dirs.sort_by(|a, b| b.cmp(a));
 
-        // Sort day directories (newest first)
-        day_dirs.sort_by(|a, b| b.cmp(a));
+            let filtered_days =
+                if let (Some(start), Some(end)) = (&query.start_date, &query.end_date) {
+                    self.filter_days_by_range(&day_dirs, start, end)?
+                } else if let Some(start) = &query.start_date {
+                    self.filter_days_since(&day_dirs, start)?
+                } else if let Some(end) = &query.end_date {
+                    self.filter_days_until(&day_dirs, end)?
+                } else {
+                    day_dirs
+                };
 
-        // Apply date filtering if specified
-        let filtered_days = if let (Some(start), Some(end)) = (&query.start_date, &query.end_date) {
-            self.filter_days_by_range(&day_dirs, start, end)?
-        } else if let Some(start) = &query.start_date {
-            self.filter_days_since(&day_dirs, start)?
-        } else if let Some(end) = &query.end_date {
-            self.filter_days_until(&day_dirs, end)?
-        } else {
-            day_dirs
-        };
+            for day_dir in filtered_days {
+                let mut trace_files = collect_jsonl_files(&day_dir).await.unwrap_or_default();
+                trace_files.sort_by(|a, b| b.cmp(a));
 
-        // Read traces from each day directory
-        for day_dir in filtered_days {
-            // Read all JSONL files in the day directory
-            let mut trace_files = collect_jsonl_files(&day_dir).await?;
+                for trace_file in trace_files {
+                    let content = tokio::fs::read_to_string(&trace_file).await.map_err(|e| {
+                        TraceReadError::Io(format!("Failed to read trace file: {}", e))
+                    })?;
 
-            // Sort trace files by name (which contains timestamp)
-            trace_files.sort_by(|a, b| b.cmp(a));
-
-            for trace_file in trace_files {
-                let content = tokio::fs::read_to_string(&trace_file).await
-                    .map_err(|e| TraceReadError::Io(format!("Failed to read trace file: {}", e)))?;
-
-                for line in content.lines() {
-                    if let Ok(record) = serde_json::from_str::<TraceRecord>(line) {
-                        if self.matches_query(&record, query) {
-                            traces.push(record);
+                    for line in content.lines() {
+                        if let Ok(record) = serde_json::from_str::<TraceRecord>(line) {
+                            if self.matches_query(&record, query) {
+                                traces.push(record);
+                            }
                         }
-                    }
-                }
-
-                // Early termination if we have enough results
-                if let (Some(limit), Some(offset)) = (query.limit, query.offset) {
-                    if traces.len() >= limit + offset {
-                        break;
-                    }
-                } else if let Some(limit) = query.limit {
-                    if traces.len() >= limit {
-                        break;
                     }
                 }
             }
@@ -132,24 +159,24 @@ impl TraceReader {
 
     /// Get a single trace by its ID.
     pub async fn get_by_id(&self, id: &str) -> Result<Option<TraceRecord>, TraceReadError> {
-        if !self.base_dir.exists() {
-            return Ok(None);
-        }
+        let all_base_dirs = self.get_all_trace_base_dirs().await;
 
-        // Search through all trace files
-        let day_dirs = collect_dirs(&self.base_dir).await?;
+        for base_dir in &all_base_dirs {
+            let day_dirs = collect_dirs(base_dir).await.unwrap_or_default();
 
-        for day_dir in day_dirs {
-            let trace_files = collect_jsonl_files(&day_dir).await?;
+            for day_dir in day_dirs {
+                let trace_files = collect_jsonl_files(&day_dir).await.unwrap_or_default();
 
-            for trace_file in trace_files {
-                let content = tokio::fs::read_to_string(&trace_file).await
-                    .map_err(|e| TraceReadError::Io(format!("Failed to read trace file: {}", e)))?;
+                for trace_file in trace_files {
+                    let content = tokio::fs::read_to_string(&trace_file).await.map_err(|e| {
+                        TraceReadError::Io(format!("Failed to read trace file: {}", e))
+                    })?;
 
-                for line in content.lines() {
-                    if let Ok(record) = serde_json::from_str::<TraceRecord>(line) {
-                        if record.id == id {
-                            return Ok(Some(record));
+                    for line in content.lines() {
+                        if let Ok(record) = serde_json::from_str::<TraceRecord>(line) {
+                            if record.id == id {
+                                return Ok(Some(record));
+                            }
                         }
                     }
                 }
@@ -164,39 +191,43 @@ impl TraceReader {
     /// Returns a JSON array of trace records.
     pub async fn export(&self, query: &TraceQuery) -> Result<Value, TraceReadError> {
         let traces = self.query(query).await?;
-        let traces_json: Value = serde_json::to_value(traces)
-            .map_err(|e| TraceReadError::Serialization(format!("Failed to serialize traces: {}", e)))?;
+        let traces_json: Value = serde_json::to_value(traces).map_err(|e| {
+            TraceReadError::Serialization(format!("Failed to serialize traces: {}", e))
+        })?;
         Ok(traces_json)
     }
 
     /// Get trace statistics for a workspace.
     pub async fn stats(&self) -> Result<TraceStats, TraceReadError> {
-        if !self.base_dir.exists() {
+        let all_base_dirs = self.get_all_trace_base_dirs().await;
+        if all_base_dirs.is_empty() {
             return Ok(TraceStats::default());
         }
 
         let mut stats = TraceStats::default();
 
-        let day_dirs = collect_dirs(&self.base_dir).await?;
+        for base_dir in &all_base_dirs {
+            let day_dirs = collect_dirs(base_dir).await.unwrap_or_default();
 
-        for day_dir in day_dirs {
-            stats.total_days += 1;
+            for day_dir in day_dirs {
+                stats.total_days += 1;
 
-            let trace_files = collect_jsonl_files(&day_dir).await?;
-            stats.total_files += trace_files.len() as u32;
+                let trace_files = collect_jsonl_files(&day_dir).await.unwrap_or_default();
+                stats.total_files += trace_files.len() as u32;
 
-            for trace_file in trace_files {
-                let content = tokio::fs::read_to_string(&trace_file).await
-                    .map_err(|e| TraceReadError::Io(format!("Failed to read trace file: {}", e)))?;
+                for trace_file in trace_files {
+                    let content = tokio::fs::read_to_string(&trace_file).await.map_err(|e| {
+                        TraceReadError::Io(format!("Failed to read trace file: {}", e))
+                    })?;
 
-                stats.total_records += content.lines().count();
+                    stats.total_records += content.lines().count();
 
-                // Track sessions and event types
-                for line in content.lines() {
-                    if let Ok(record) = serde_json::from_str::<TraceRecord>(line) {
-                        stats.sessions.insert(record.session_id.clone());
-                        let event_type_str = format!("{:?}", record.event_type);
-                        *stats.event_types.entry(event_type_str).or_insert(0) += 1;
+                    for line in content.lines() {
+                        if let Ok(record) = serde_json::from_str::<TraceRecord>(line) {
+                            stats.sessions.insert(record.session_id.clone());
+                            let event_type_str = format!("{:?}", record.event_type);
+                            *stats.event_types.entry(event_type_str).or_insert(0) += 1;
+                        }
                     }
                 }
             }
@@ -326,7 +357,9 @@ async fn collect_dirs(path: &Path) -> Result<Vec<PathBuf>, TraceReadError> {
         .await
         .map_err(|e| TraceReadError::Io(format!("Failed to read directory: {}", e)))?;
 
-    while let Some(entry) = readdir.next_entry().await
+    while let Some(entry) = readdir
+        .next_entry()
+        .await
         .map_err(|e| TraceReadError::Io(format!("Failed to read dir entry: {}", e)))?
     {
         let path = entry.path();
@@ -345,7 +378,9 @@ async fn collect_jsonl_files(path: &Path) -> Result<Vec<PathBuf>, TraceReadError
         .await
         .map_err(|e| TraceReadError::Io(format!("Failed to read directory: {}", e)))?;
 
-    while let Some(entry) = readdir.next_entry().await
+    while let Some(entry) = readdir
+        .next_entry()
+        .await
         .map_err(|e| TraceReadError::Io(format!("Failed to read dir entry: {}", e)))?
     {
         let path = entry.path();

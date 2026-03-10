@@ -342,3 +342,83 @@ export function CodeViewer({
 }
 
 export default CodeViewer;
+
+// ─── CodeEditor ─────────────────────────────────────────────────────────────
+// Editable variant of CodeViewer — full CodeMirror with onChange callback.
+
+interface CodeEditorProps {
+  /** Current editor content */
+  value: string;
+  /** Language for syntax highlighting */
+  language?: SupportedLanguage;
+  /** Called whenever the document changes */
+  onChange?: (value: string) => void;
+  /** Maximum height before scrolling */
+  maxHeight?: string;
+  /** Optional classname for wrapper */
+  className?: string;
+  /** Placeholder text when empty */
+  placeholder?: string;
+}
+
+export function CodeEditor({
+  value,
+  language = "json",
+  onChange,
+  maxHeight = "500px",
+  className = "",
+}: CodeEditorProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<EditorView | null>(null);
+  // Keep onChange in a ref so update listener doesn't go stale
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+
+  // Mount editor once
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const langInfo = detectLanguage(undefined, language);
+    const extensions: Extension[] = [
+      langInfo.extensions,
+      lightTheme,
+      EditorView.theme({ "&": { maxHeight } }),
+      EditorView.lineWrapping,
+      lineNumbersExtension,
+      EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          onChangeRef.current?.(update.state.doc.toString());
+        }
+      }),
+    ];
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    if (prefersDark) extensions.push(oneDark);
+
+    const state = EditorState.create({ doc: value, extensions });
+    const view = new EditorView({ state, parent: containerRef.current });
+    editorRef.current = view;
+    return () => {
+      view.destroy();
+      editorRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync external value changes (e.g. reset)
+  useEffect(() => {
+    if (!editorRef.current) return;
+    const current = editorRef.current.state.doc.toString();
+    if (current !== value) {
+      editorRef.current.dispatch({
+        changes: { from: 0, to: current.length, insert: value },
+      });
+    }
+  }, [value]);
+
+  return (
+    <div
+      ref={containerRef}
+      className={`cm-container ${className}`}
+      style={{ minHeight: "120px" }}
+    />
+  );
+}

@@ -35,8 +35,8 @@
 //!     output_key: "implementation_plan"
 //! ```
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Top-level workflow definition loaded from a YAML file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -237,8 +237,7 @@ impl std::fmt::Display for StepAction {
 impl WorkflowDefinition {
     /// Parse a workflow definition from a YAML string.
     pub fn from_yaml(yaml: &str) -> Result<Self, String> {
-        serde_yaml::from_str(yaml)
-            .map_err(|e| format!("Failed to parse workflow YAML: {}", e))
+        serde_yaml::from_str(yaml).map_err(|e| format!("Failed to parse workflow YAML: {}", e))
     }
 
     /// Load a workflow definition from a file path.

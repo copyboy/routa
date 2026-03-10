@@ -18,9 +18,9 @@ use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use tokio::sync::RwLock;
 
-use super::runtime_manager::{AcpRuntimeManager, RuntimeType};
-use super::registry_fetch::fetch_registry;
 use super::paths::AcpPaths;
+use super::registry_fetch::fetch_registry;
+use super::runtime_manager::{AcpRuntimeManager, RuntimeType};
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -110,10 +110,10 @@ impl AcpWarmupService {
     }
 
     pub async fn needs_warmup(&self, agent_id: &str) -> bool {
-        match self.states.read().await.get(agent_id).map(|s| &s.state) {
-            None | Some(WarmupState::Idle) | Some(WarmupState::Failed) => true,
-            _ => false,
-        }
+        matches!(
+            self.states.read().await.get(agent_id).map(|s| &s.state),
+            None | Some(WarmupState::Idle) | Some(WarmupState::Failed)
+        )
     }
 
     pub async fn get_status(&self, agent_id: &str) -> WarmupStatus {
@@ -153,13 +153,17 @@ impl AcpWarmupService {
             return Ok(self.is_warmed_up(agent_id).await);
         }
 
-        self.set_state(agent_id, WarmupStatus {
-            agent_id: agent_id.to_string(),
-            state: WarmupState::Warming,
-            started_at: Some(now_secs()),
-            finished_at: None,
-            error: None,
-        }).await;
+        self.set_state(
+            agent_id,
+            WarmupStatus {
+                agent_id: agent_id.to_string(),
+                state: WarmupState::Warming,
+                started_at: Some(now_secs()),
+                finished_at: None,
+                error: None,
+            },
+        )
+        .await;
 
         let result = self.run_warmup(agent_id).await;
 
@@ -169,13 +173,17 @@ impl AcpWarmupService {
             Err(e) => (WarmupState::Failed, Some(e.clone())),
         };
 
-        self.set_state(agent_id, WarmupStatus {
-            agent_id: agent_id.to_string(),
-            state,
-            started_at: None,
-            finished_at: Some(now_secs()),
-            error,
-        }).await;
+        self.set_state(
+            agent_id,
+            WarmupStatus {
+                agent_id: agent_id.to_string(),
+                state,
+                started_at: None,
+                finished_at: Some(now_secs()),
+                error,
+            },
+        )
+        .await;
 
         result.map_err(|_| "Warmup failed".to_string())
     }
@@ -286,7 +294,11 @@ impl AcpWarmupService {
                 Ok(true)
             }
             Ok(Err(e)) => {
-                tracing::error!("[AcpWarmup] Prewarm command error for {}: {}", package_name, e);
+                tracing::error!(
+                    "[AcpWarmup] Prewarm command error for {}: {}",
+                    package_name,
+                    e
+                );
                 Err(e.to_string())
             }
             Err(_) => {
@@ -301,6 +313,9 @@ impl AcpWarmupService {
     }
 
     async fn set_state(&self, agent_id: &str, status: WarmupStatus) {
-        self.states.write().await.insert(agent_id.to_string(), status);
+        self.states
+            .write()
+            .await
+            .insert(agent_id.to_string(), status);
     }
 }

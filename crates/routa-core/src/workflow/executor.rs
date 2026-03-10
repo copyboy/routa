@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 
 use crate::workflow::agent_caller::{resolve_env_vars, AcpAgentCaller, AgentCallConfig};
-use crate::workflow::schema::{WorkflowDefinition, WorkflowStep, StepAction, OnFailure};
+use crate::workflow::schema::{OnFailure, StepAction, WorkflowDefinition, WorkflowStep};
 use crate::workflow::specialist::{SpecialistDef, SpecialistLoader};
 
 /// Result of executing a single workflow step.
@@ -64,7 +64,9 @@ impl WorkflowExecutor {
         // Also load built-in specialists as fallback
         for builtin in SpecialistLoader::builtin_specialists() {
             if specialist_loader.get(&builtin.id).is_none() {
-                specialist_loader.specialists.insert(builtin.id.clone(), builtin);
+                specialist_loader
+                    .specialists
+                    .insert(builtin.id.clone(), builtin);
             }
         }
 
@@ -86,7 +88,9 @@ impl WorkflowExecutor {
         // Add built-in specialists as fallback
         for builtin in SpecialistLoader::builtin_specialists() {
             if specialist_loader.get(&builtin.id).is_none() {
-                specialist_loader.specialists.insert(builtin.id.clone(), builtin);
+                specialist_loader
+                    .specialists
+                    .insert(builtin.id.clone(), builtin);
             }
         }
 
@@ -111,7 +115,10 @@ impl WorkflowExecutor {
     }
 
     /// Execute a workflow definition.
-    pub async fn execute(&mut self, workflow: &WorkflowDefinition) -> Result<WorkflowResult, String> {
+    pub async fn execute(
+        &mut self,
+        workflow: &WorkflowDefinition,
+    ) -> Result<WorkflowResult, String> {
         println!("╔══════════════════════════════════════════════════════════╗");
         println!("║  Routa Workflow Engine                                  ║");
         println!("╠══════════════════════════════════════════════════════════╣");
@@ -132,7 +139,12 @@ impl WorkflowExecutor {
         let mut all_success = true;
 
         for (i, step) in workflow.steps.iter().enumerate() {
-            println!("── Step {}/{}: {} ──", i + 1, workflow.steps.len(), step.name);
+            println!(
+                "── Step {}/{}: {} ──",
+                i + 1,
+                workflow.steps.len(),
+                step.name
+            );
 
             // Check condition
             if let Some(ref cond) = step.condition {
@@ -174,7 +186,9 @@ impl WorkflowExecutor {
                     Ok(result) => {
                         if result.success {
                             println!("   ✅ Success (model: {})", result.model);
-                            if let (Some(inp), Some(out)) = (result.input_tokens, result.output_tokens) {
+                            if let (Some(inp), Some(out)) =
+                                (result.input_tokens, result.output_tokens)
+                            {
                                 println!("   📊 Tokens: {} in / {} out", inp, out);
                             }
 
@@ -186,8 +200,7 @@ impl WorkflowExecutor {
                                 .insert(step.name.clone(), result.output.clone());
 
                             if self.verbose {
-                                println!("   📝 Output preview: {}",
-                                    truncate(&result.output, 200));
+                                println!("   📝 Output preview: {}", truncate(&result.output, 200));
                             }
 
                             step_result = Some(result);
@@ -196,7 +209,10 @@ impl WorkflowExecutor {
                             // Step returned but was not successful
                             last_error = result.error.clone();
                             if attempt < max_attempts {
-                                println!("   ⚠️  Failed: {} (will retry)", last_error.as_deref().unwrap_or("unknown"));
+                                println!(
+                                    "   ⚠️  Failed: {} (will retry)",
+                                    last_error.as_deref().unwrap_or("unknown")
+                                );
                             } else {
                                 step_result = Some(result);
                             }
@@ -225,7 +241,10 @@ impl WorkflowExecutor {
             });
 
             if !final_result.success {
-                println!("   ❌ Failed: {}", final_result.error.as_deref().unwrap_or("unknown"));
+                println!(
+                    "   ❌ Failed: {}",
+                    final_result.error.as_deref().unwrap_or("unknown")
+                );
                 all_success = false;
 
                 // Handle failure strategy
@@ -259,8 +278,16 @@ impl WorkflowExecutor {
 
         println!("═══════════════════════════════════════════════════════════");
         println!("  Workflow Complete: {}", workflow.name);
-        println!("  Status: {}", if all_success { "✅ SUCCESS" } else { "❌ FAILED" });
-        println!("  Steps: {}/{} succeeded",
+        println!(
+            "  Status: {}",
+            if all_success {
+                "✅ SUCCESS"
+            } else {
+                "❌ FAILED"
+            }
+        );
+        println!(
+            "  Steps: {}/{} succeeded",
             results.iter().filter(|r| r.success).count(),
             results.len()
         );
@@ -325,10 +352,7 @@ impl WorkflowExecutor {
         Err(format!(
             "Unknown specialist '{}'. Available: {:?}",
             id,
-            self.specialist_loader
-                .all()
-                .keys()
-                .collect::<Vec<_>>()
+            self.specialist_loader.all().keys().collect::<Vec<_>>()
         ))
     }
 
@@ -355,17 +379,11 @@ impl WorkflowExecutor {
             .as_ref()
             .map(|u| self.resolve_template(u))
             .or_else(|| self.variables.get("base_url").cloned())
-            .unwrap_or_else(|| {
-                match adapter.as_str() {
-                    "opencode-sdk" | "opencode" => {
-                        std::env::var("OPENCODE_BASE_URL")
-                            .unwrap_or_else(|_| "https://open.bigmodel.cn/api/coding/paas/v4".to_string())
-                    }
-                    _ => {
-                        std::env::var("ANTHROPIC_BASE_URL")
-                            .unwrap_or_else(|_| "https://api.anthropic.com".to_string())
-                    }
-                }
+            .unwrap_or_else(|| match adapter.as_str() {
+                "opencode-sdk" | "opencode" => std::env::var("OPENCODE_BASE_URL")
+                    .unwrap_or_else(|_| "https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
+                _ => std::env::var("ANTHROPIC_BASE_URL")
+                    .unwrap_or_else(|_| "https://api.anthropic.com".to_string()),
             });
 
         // Determine API key from config, env
@@ -463,8 +481,7 @@ impl WorkflowExecutor {
         if prompt.is_empty() {
             prompt = format!(
                 "Execute your role as {} ({}). Analyze the context and provide actionable output.",
-                specialist.name,
-                specialist.role
+                specialist.name, specialist.role
             );
         }
 
@@ -544,8 +561,12 @@ mod tests {
     #[test]
     fn test_resolve_template_steps() {
         let mut executor = WorkflowExecutor::new();
-        executor.step_outputs.insert("Refine".to_string(), "refined output".to_string());
-        executor.variables.insert("model".to_string(), "GLM-4.7".to_string());
+        executor
+            .step_outputs
+            .insert("Refine".to_string(), "refined output".to_string());
+        executor
+            .variables
+            .insert("model".to_string(), "GLM-4.7".to_string());
         executor.trigger_payload = Some("issue body".to_string());
 
         assert_eq!(

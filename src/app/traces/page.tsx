@@ -25,6 +25,8 @@ interface Session {
   sessionId: string;
   name?: string;
   provider?: string;
+  role?: string;
+  parentSessionId?: string;
   count: number;
   firstTimestamp: string;
   lastTimestamp: string;
@@ -54,10 +56,10 @@ function TracePageContent() {
       const sessionsData = sessionsRes.ok ? await sessionsRes.json() : { sessions: [] };
 
       const traces = tracesData.traces || [];
-      const sessionMeta = new Map<string, { name?: string; provider?: string }>(
-        (sessionsData.sessions || []).map((s: { sessionId: string; name?: string; provider?: string }) => [
+      const sessionMeta = new Map<string, { name?: string; provider?: string; role?: string; parentSessionId?: string }>(
+        (sessionsData.sessions || []).map((s: { sessionId: string; name?: string; provider?: string; role?: string; parentSessionId?: string }) => [
           s.sessionId,
-          { name: s.name, provider: s.provider },
+          { name: s.name, provider: s.provider, role: s.role, parentSessionId: s.parentSessionId },
         ])
       );
 
@@ -80,6 +82,8 @@ function TracePageContent() {
           sessionId,
           name: sessionMeta.get(sessionId)?.name,
           provider: sessionMeta.get(sessionId)?.provider,
+          role: sessionMeta.get(sessionId)?.role,
+          parentSessionId: sessionMeta.get(sessionId)?.parentSessionId,
           count,
           firstTimestamp: first,
           lastTimestamp: last,
@@ -275,38 +279,81 @@ function TracePageContent() {
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {sessions.map((session) => (
-                    <button
-                      key={session.sessionId}
-                      onClick={() => handleSessionSelect(session.sessionId)}
-                      className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${
-                        selectedSessionId === session.sessionId
-                          ? "bg-blue-50 dark:bg-blue-900/20 border-l-2 border-blue-500"
-                          : ""
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <span className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
-                          {session.name || (
-                            <code className="font-mono">
-                              {session.sessionId.slice(0, 8)}…
-                            </code>
+                  {(() => {
+                    // Separate top-level (parent) sessions from child sessions
+                    const parentSessions = sessions.filter(s => !s.parentSessionId);
+                    const childSessionMap = new Map<string, Session[]>();
+                    for (const s of sessions) {
+                      if (s.parentSessionId) {
+                        const children = childSessionMap.get(s.parentSessionId) ?? [];
+                        children.push(s);
+                        childSessionMap.set(s.parentSessionId, children);
+                      }
+                    }
+
+                    const renderSession = (session: Session, isChild = false) => {
+                      const roleColor: Record<string, string> = {
+                        ROUTA: "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300",
+                        CRAFTER: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
+                        GATE: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300",
+                        DEVELOPER: "bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300",
+                      };
+                      const roleClass = session.role ? (roleColor[session.role] ?? "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400") : "";
+
+                      return (
+                        <div key={session.sessionId}>
+                          <button
+                            onClick={() => handleSessionSelect(session.sessionId)}
+                            className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${
+                              isChild ? "pl-8 py-2" : ""
+                            } ${
+                              selectedSessionId === session.sessionId
+                                ? "bg-blue-50 dark:bg-blue-900/20 border-l-2 border-blue-500"
+                                : ""
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <span className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
+                                {session.name || (
+                                  <code className="font-mono">
+                                    {session.sessionId.slice(0, 8)}…
+                                  </code>
+                                )}
+                              </span>
+                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">
+                                {session.count}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 flex-wrap">
+                              <span>{formatTimestamp(session.lastTimestamp)}</span>
+                              {session.role && (
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${roleClass}`}>
+                                  {session.role}
+                                </span>
+                              )}
+                              {session.provider && (
+                                <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[10px]">
+                                  {session.provider}
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                          {/* Child sessions indented under parent */}
+                          {!isChild && childSessionMap.has(session.sessionId) && (
+                            <div className="border-l-2 border-gray-200 dark:border-gray-700 ml-4">
+                              {(childSessionMap.get(session.sessionId) ?? []).map(child => renderSession(child, true))}
+                            </div>
                           )}
-                        </span>
-                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">
-                          {session.count}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                        <span>{formatTimestamp(session.lastTimestamp)}</span>
-                        {session.provider && (
-                          <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[10px]">
-                            {session.provider}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                        </div>
+                      );
+                    };
+
+                    return [
+                      ...parentSessions.map(s => renderSession(s, false)),
+                      // Any sessions without a recognized parent (orphans) shown at bottom
+                      ...sessions.filter(s => s.parentSessionId && !sessions.some(p => p.sessionId === s.parentSessionId)).map(s => renderSession(s, false)),
+                    ];
+                  })()}
                 </div>
               )}
             </div>

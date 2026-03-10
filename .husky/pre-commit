@@ -1,0 +1,11 @@
+# Pre-commit hook: Run quick lint check
+# Full checks are done in pre-push
+
+# Skip if SKIP_HOOKS is set (for emergency commits)
+if [ -n "$SKIP_HOOKS" ]; then
+  echo "⚠️  SKIP_HOOKS is set, skipping pre-commit checks"
+  exit 0
+fi
+
+# Run lint only (fast check)
+npm run lint

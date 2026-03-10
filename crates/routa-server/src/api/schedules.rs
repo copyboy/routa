@@ -13,7 +13,12 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_schedules).post(create_schedule))
         .route("/tick", get(get_tick_status).post(trigger_tick))
-        .route("/{id}", get(get_schedule).patch(update_schedule).delete(delete_schedule))
+        .route(
+            "/{id}",
+            get(get_schedule)
+                .patch(update_schedule)
+                .delete(delete_schedule),
+        )
         .route("/{id}/run", axum::routing::post(run_schedule_now))
 }
 

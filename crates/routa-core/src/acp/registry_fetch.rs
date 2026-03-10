@@ -2,8 +2,7 @@
 
 use super::registry_types::AcpRegistry;
 
-const REGISTRY_URL: &str =
-    "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
+const REGISTRY_URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 
 /// Fetch the live ACP registry from the CDN.
 pub async fn fetch_registry() -> Result<AcpRegistry, String> {

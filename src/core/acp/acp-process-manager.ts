@@ -1,11 +1,12 @@
 import {AcpProcess} from "@/core/acp/acp-process";
-import {buildConfigFromPreset, ManagedProcess, NotificationHandler} from "@/core/acp/processer";
+import {buildConfigFromPreset, buildConfigFromInline, ManagedProcess, NotificationHandler} from "@/core/acp/processer";
 import {ClaudeCodeProcess, buildClaudeCodeConfig, mapClaudeModeToPermissionMode} from "@/core/acp/claude-code-process";
 import {ensureMcpForProvider, providerSupportsMcp} from "@/core/acp/mcp-setup";
 import {getDefaultRoutaMcpConfig} from "@/core/acp/mcp-config-generator";
 import {OpencodeSdkAdapter, OpencodeSdkDirectAdapter, shouldUseOpencodeAdapter, getOpencodeServerUrl, isOpencodeServerConfigured, isOpencodeDirectApiConfigured} from "@/core/acp/opencode-sdk-adapter";
 import {ClaudeCodeSdkAdapter, shouldUseClaudeCodeSdkAdapter} from "@/core/acp/claude-code-sdk-adapter";
 import {WorkspaceAgentAdapter, type WorkspaceAgentAdapterOptions} from "@/core/acp/workspace-agent";
+import { DockerOpenCodeAdapter, getDockerProcessManager, DEFAULT_DOCKER_AGENT_IMAGE } from "@/core/acp/docker";
 import {isServerlessEnvironment} from "@/core/acp/api-based-providers";
 import {getHttpSessionStore} from "@/core/acp/http-session-store";
 import {AgentInstanceFactory, getAgentInstanceManager, type AgentInstanceConfig} from "@/core/acp/agent-instance-factory";
@@ -53,6 +54,16 @@ export interface ManagedWorkspaceAgent {
 }
 
 /**
+ * A managed Docker OpenCode adapter.
+ */
+export interface ManagedDockerAdapter {
+    adapter: DockerOpenCodeAdapter;
+    acpSessionId: string;
+    presetId: string;
+    createdAt: Date;
+}
+
+/**
  * Singleton manager for ACP agent processes.
  * Maps our session IDs to ACP process instances.
  * Supports spawning different agent types via presets, including Claude Code.
@@ -62,6 +73,7 @@ export class AcpProcessManager {
     private processes = new Map<string, ManagedProcess>();
     private claudeProcesses = new Map<string, ManagedClaudeProcess>();
     private opencodeAdapters = new Map<string, ManagedOpencodeAdapter>();
+    private dockerAdapters = new Map<string, ManagedDockerAdapter>();
     private claudeCodeSdkAdapters = new Map<string, ManagedClaudeCodeSdkAdapter>();
     private workspaceAgents = new Map<string, ManagedWorkspaceAgent>();
 
@@ -93,10 +105,11 @@ export class AcpProcessManager {
         }
 
         // Setup MCP: writes config files and/or returns CLI args
-        // Pass workspaceId so the MCP endpoint URL has the correct ?wsId= param
+        // Pass workspaceId and sessionId so the MCP endpoint URL has ?wsId= and ?sid= params
+        // This ensures notes created by the agent are scoped to the current session.
         let mcpConfigs: string[] | undefined;
         if (providerSupportsMcp(presetId)) {
-            const mcpResult = await ensureMcpForProvider(presetId, getDefaultRoutaMcpConfig(workspaceId));
+            const mcpResult = await ensureMcpForProvider(presetId, getDefaultRoutaMcpConfig(workspaceId, sessionId));
             mcpConfigs = mcpResult.mcpConfigs.length > 0 ? mcpResult.mcpConfigs : undefined;
             console.log(`[AcpProcessManager] MCP setup for ${presetId}: ${mcpResult.summary}`);
         }
@@ -122,6 +135,43 @@ export class AcpProcessManager {
             process: proc,
             acpSessionId,
             presetId,
+            createdAt: new Date(),
+        });
+
+        return acpSessionId;
+    }
+
+    /**
+     * Spawn a new ACP agent process from an inline command and args (custom provider).
+     * Used when the user defines a custom ACP provider not in the preset registry.
+     *
+     * @param sessionId - Our internal session ID
+     * @param command - The command to execute (e.g. "my-agent")
+     * @param args - Command-line arguments for ACP mode (e.g. ["--acp"])
+     * @param cwd - Working directory for the agent
+     * @param displayName - Human-readable name for logging
+     * @param onNotification - Handler for session/update notifications
+     * @returns The agent's ACP session ID
+     */
+    async createSessionFromInline(
+        sessionId: string,
+        command: string,
+        args: string[],
+        cwd: string,
+        displayName: string,
+        onNotification: NotificationHandler,
+    ): Promise<string> {
+        const config = buildConfigFromInline(command, args, cwd, displayName);
+        const proc = new AcpProcess(config, onNotification);
+
+        await proc.start();
+        await proc.initialize();
+        const acpSessionId = await proc.newSession(cwd);
+
+        this.processes.set(sessionId, {
+            process: proc,
+            acpSessionId,
+            presetId: `custom:${command}`,
             createdAt: new Date(),
         });
 
@@ -179,6 +229,77 @@ export class AcpProcessManager {
         }
 
         throw new Error("OpenCode SDK not configured. Set OPENCODE_SERVER_URL or OPENCODE_API_KEY.");
+    }
+
+    /**
+     * Create a session using Docker-isolated OpenCode agent.
+     */
+    async createDockerSession(
+        sessionId: string,
+        cwd: string,
+        onNotification: NotificationHandler,
+        image?: string,
+        extraEnv?: Record<string, string>,
+        authJson?: string,
+    ): Promise<string> {
+        const dockerManager = getDockerProcessManager();
+        // Use acquireContainer for container reuse support
+        const container = await dockerManager.acquireContainer({
+            sessionId,
+            image: image ?? DEFAULT_DOCKER_AGENT_IMAGE,
+            workspacePath: cwd,
+            env: extraEnv,
+            authJson,
+        });
+
+        try {
+            await dockerManager.waitForHealthy(sessionId, undefined, onNotification);
+            const adapter = new DockerOpenCodeAdapter(
+                `http://127.0.0.1:${container.hostPort}`,
+                onNotification,
+            );
+            await adapter.connect();
+            const acpSessionId = await adapter.createSession(`Routa Docker Session ${sessionId}`);
+
+            this.dockerAdapters.set(sessionId, {
+                adapter,
+                acpSessionId,
+                presetId: "docker-opencode",
+                createdAt: new Date(),
+            });
+
+            return acpSessionId;
+        } catch (err) {
+            // Emit container logs so the user can see why the session failed
+            try {
+                const bridge = (await import("@/core/platform")).getServerBridge();
+                const { shellEscape } = await import("./docker/utils");
+                const { stdout, stderr } = await bridge.process.exec(
+                    `docker logs --tail 50 ${shellEscape(container.containerName)}`,
+                    { timeout: 5_000 },
+                );
+                const logs = `${stdout}${stderr ? `\n${stderr}` : ""}`.trim();
+                if (logs) {
+                    onNotification({
+                        jsonrpc: "2.0",
+                        method: "session/update",
+                        params: {
+                            sessionId,
+                            update: {
+                                sessionUpdate: "process_output",
+                                source: "docker",
+                                data: `[Container logs on failure]\n${logs}\n`,
+                                displayName: "Docker",
+                            },
+                        },
+                    });
+                }
+            } catch {
+                // Log capture failure is non-fatal
+            }
+            await dockerManager.stopContainer(sessionId).catch(() => {});
+            throw err;
+        }
     }
 
     /**
@@ -348,12 +469,31 @@ export class AcpProcessManager {
     }
 
     /**
+     * Get the Docker OpenCode adapter for a session.
+     */
+    getDockerAdapter(sessionId: string): DockerOpenCodeAdapter | undefined {
+        return this.dockerAdapters.get(sessionId)?.adapter;
+    }
+
+    /**
      * Get the Claude Code SDK adapter for a session.
      * Returns existing adapter from memory, or undefined if not found.
      * Use getOrRecreateClaudeCodeSdkAdapter for serverless environments.
      */
     getClaudeCodeSdkAdapter(sessionId: string): ClaudeCodeSdkAdapter | undefined {
         return this.claudeCodeSdkAdapters.get(sessionId)?.adapter;
+    }
+
+    respondToClaudeCodeSdkUserInput(
+        sessionId: string,
+        toolUseId: string,
+        updatedInput: Record<string, unknown>,
+    ): boolean {
+        const adapter = this.claudeCodeSdkAdapters.get(sessionId)?.adapter;
+        if (!adapter) {
+            return false;
+        }
+        return adapter.respondToUserInput(toolUseId, updatedInput);
     }
 
     /**
@@ -380,7 +520,7 @@ export class AcpProcessManager {
 
         // Check HTTP session store for session metadata
         const store = getHttpSessionStore();
-        let sessionRecord = store.getSession(sessionId);
+        const sessionRecord = store.getSession(sessionId);
         let cwd = sessionRecord?.cwd;
         let provider = sessionRecord?.provider;
 
@@ -518,6 +658,19 @@ export class AcpProcessManager {
     }
 
     /**
+     * Check if a session is using Docker OpenCode adapter.
+     */
+    isDockerAdapterSession(sessionId: string): boolean {
+        if (this.dockerAdapters.has(sessionId)) {
+            return true;
+        }
+
+        const store = getHttpSessionStore();
+        const sessionRecord = store.getSession(sessionId);
+        return sessionRecord?.provider === "docker-opencode";
+    }
+
+    /**
      * Check if a session is using OpenCode SDK adapter (async version).
      * In serverless environments, also checks database for persisted sessions.
      */
@@ -566,7 +719,7 @@ export class AcpProcessManager {
 
         // Check HTTP session store for session metadata
         const store = getHttpSessionStore();
-        let sessionRecord = store.getSession(sessionId);
+        const sessionRecord = store.getSession(sessionId);
         let provider = sessionRecord?.provider;
 
         // If not in HTTP store (serverless cold start), try to recover from database
@@ -636,6 +789,7 @@ export class AcpProcessManager {
             this.processes.get(sessionId)?.acpSessionId ??
             this.claudeProcesses.get(sessionId)?.acpSessionId ??
             this.opencodeAdapters.get(sessionId)?.acpSessionId ??
+            this.dockerAdapters.get(sessionId)?.acpSessionId ??
             this.claudeCodeSdkAdapters.get(sessionId)?.acpSessionId ??
             this.workspaceAgents.get(sessionId)?.acpSessionId
         );
@@ -649,6 +803,7 @@ export class AcpProcessManager {
             this.processes.get(sessionId)?.presetId ??
             this.claudeProcesses.get(sessionId)?.presetId ??
             this.opencodeAdapters.get(sessionId)?.presetId ??
+            this.dockerAdapters.get(sessionId)?.presetId ??
             this.claudeCodeSdkAdapters.get(sessionId)?.presetId ??
             this.workspaceAgents.get(sessionId)?.presetId
         );
@@ -696,6 +851,14 @@ export class AcpProcessManager {
             createdAt: managed.createdAt,
         }));
 
+        const dockerSessions = Array.from(this.dockerAdapters.entries()).map(([sessionId, managed]) => ({
+            sessionId,
+            acpSessionId: managed.acpSessionId,
+            presetId: managed.presetId,
+            alive: managed.adapter.alive,
+            createdAt: managed.createdAt,
+        }));
+
         const workspaceAgentSessions = Array.from(this.workspaceAgents.entries()).map(([sessionId, managed]) => ({
             sessionId,
             acpSessionId: managed.acpSessionId,
@@ -704,7 +867,7 @@ export class AcpProcessManager {
             createdAt: managed.createdAt,
         }));
 
-        return [...acpSessions, ...claudeSessions, ...adapterSessions, ...claudeCodeSdkSessions, ...workspaceAgentSessions];
+        return [...acpSessions, ...claudeSessions, ...adapterSessions, ...dockerSessions, ...claudeCodeSdkSessions, ...workspaceAgentSessions];
     }
 
     /**
@@ -729,6 +892,14 @@ export class AcpProcessManager {
         if (adapterManaged) {
             adapterManaged.adapter.kill();
             this.opencodeAdapters.delete(sessionId);
+            return;
+        }
+
+        const dockerManaged = this.dockerAdapters.get(sessionId);
+        if (dockerManaged) {
+            dockerManaged.adapter.kill();
+            this.dockerAdapters.delete(sessionId);
+            getDockerProcessManager().stopContainer(sessionId).catch(() => {});
             return;
         }
 
@@ -764,6 +935,12 @@ export class AcpProcessManager {
             managed.adapter.kill();
         }
         this.opencodeAdapters.clear();
+
+        for (const [, managed] of this.dockerAdapters) {
+            managed.adapter.kill();
+        }
+        this.dockerAdapters.clear();
+        getDockerProcessManager().stopAll().catch(() => {});
 
         for (const [, managed] of this.claudeCodeSdkAdapters) {
             managed.adapter.kill();

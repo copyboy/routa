@@ -135,7 +135,10 @@ async fn handle_skillssh_search(
         })
         .unwrap_or_default();
 
-    let count = data.get("count").and_then(|c| c.as_u64()).unwrap_or(skills.len() as u64);
+    let count = data
+        .get("count")
+        .and_then(|c| c.as_u64())
+        .unwrap_or(skills.len() as u64);
 
     Ok(Json(serde_json::json!({
         "type": "skillssh",
@@ -145,9 +148,7 @@ async fn handle_skillssh_search(
     })))
 }
 
-async fn handle_github_list(
-    query: &CatalogQuery,
-) -> Result<Json<serde_json::Value>, ServerError> {
+async fn handle_github_list(query: &CatalogQuery) -> Result<Json<serde_json::Value>, ServerError> {
     let repo = query.repo.as_deref().unwrap_or(DEFAULT_GITHUB_REPO);
     let catalog_path = query.path.as_deref().unwrap_or(DEFAULT_GITHUB_PATH);
     let git_ref = query.git_ref.as_deref().unwrap_or(DEFAULT_REF);
@@ -167,9 +168,10 @@ async fn handle_github_list(
         req = req.header("Authorization", format!("token {}", token));
     }
 
-    let response = req.send().await.map_err(|e| {
-        ServerError::Internal(format!("GitHub API request failed: {}", e))
-    })?;
+    let response = req
+        .send()
+        .await
+        .map_err(|e| ServerError::Internal(format!("GitHub API request failed: {}", e)))?;
 
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Err(ServerError::NotFound(format!(
@@ -185,9 +187,10 @@ async fn handle_github_list(
         )));
     }
 
-    let entries: Vec<serde_json::Value> = response.json().await.map_err(|e| {
-        ServerError::Internal(format!("Failed to parse GitHub response: {}", e))
-    })?;
+    let entries: Vec<serde_json::Value> = response
+        .json()
+        .await
+        .map_err(|e| ServerError::Internal(format!("Failed to parse GitHub response: {}", e)))?;
 
     let installed = installed_skill_names();
 
@@ -382,7 +385,13 @@ async fn download_and_install_skills(
     let repo_root = top_dirs[0].path();
     std::fs::create_dir_all(dest_base).ok();
 
-    let search_dirs = ["skills", ".agents/skills", ".opencode/skills", ".claude/skills", ".codex/skills"];
+    let search_dirs = [
+        "skills",
+        ".agents/skills",
+        ".opencode/skills",
+        ".claude/skills",
+        ".codex/skills",
+    ];
 
     let mut installed = Vec::new();
     let mut errors = Vec::new();

@@ -78,9 +78,8 @@
 pub use routa_core::rpc::error::RpcError;
 pub use routa_core::rpc::router::RpcRouter;
 pub use routa_core::rpc::types::{
-    JsonRpcError, JsonRpcRequest, JsonRpcResponse,
-    BAD_REQUEST, INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST,
-    METHOD_NOT_FOUND, NOT_FOUND, PARSE_ERROR,
+    JsonRpcError, JsonRpcRequest, JsonRpcResponse, BAD_REQUEST, INTERNAL_ERROR, INVALID_PARAMS,
+    INVALID_REQUEST, METHOD_NOT_FOUND, NOT_FOUND, PARSE_ERROR,
 };
 
 // Re-export method param/result types for typed usage

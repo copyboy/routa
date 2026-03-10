@@ -34,8 +34,9 @@ test.describe("ACP Provider Switching", () => {
     await page.goto("http://localhost:3000");
     results.push("1. Navigated to http://localhost:3000");
 
-    await expect(page.locator("h1")).toHaveText("Routa");
-    results.push("   - Page title 'Routa' confirmed");
+    // Wait for the home input container to be visible (main app content)
+    await page.waitForSelector("#home-input-container", { timeout: 15_000 });
+    results.push("   - Home input container visible");
 
     // Step 2: Confirm ACP Provider dropdown exists and list visible options
     const providerLabel = page.locator("label:has-text('ACP Provider')");

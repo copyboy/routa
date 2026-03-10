@@ -172,8 +172,7 @@ use rusqlite::Row;
 
 fn row_to_agent(row: &Row<'_>) -> Agent {
     let metadata_str: String = row.get(7).unwrap_or_default();
-    let metadata: HashMap<String, String> =
-        serde_json::from_str(&metadata_str).unwrap_or_default();
+    let metadata: HashMap<String, String> = serde_json::from_str(&metadata_str).unwrap_or_default();
     let created_ms: i64 = row.get(8).unwrap_or(0);
     let updated_ms: i64 = row.get(9).unwrap_or(0);
 
@@ -189,9 +188,7 @@ fn row_to_agent(row: &Row<'_>) -> Agent {
         status: AgentStatus::from_str(&row.get::<_, String>(6).unwrap_or_default())
             .unwrap_or(AgentStatus::Pending),
         metadata,
-        created_at: chrono::DateTime::from_timestamp_millis(created_ms)
-            .unwrap_or_else(|| Utc::now()),
-        updated_at: chrono::DateTime::from_timestamp_millis(updated_ms)
-            .unwrap_or_else(|| Utc::now()),
+        created_at: chrono::DateTime::from_timestamp_millis(created_ms).unwrap_or_else(Utc::now),
+        updated_at: chrono::DateTime::from_timestamp_millis(updated_ms).unwrap_or_else(Utc::now),
     }
 }

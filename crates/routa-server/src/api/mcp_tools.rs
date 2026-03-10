@@ -10,7 +10,12 @@ use crate::error::ServerError;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(list_tools).post(execute_tool).patch(update_tools_config))
+    Router::new().route(
+        "/",
+        get(list_tools)
+            .post(execute_tool)
+            .patch(update_tools_config),
+    )
 }
 
 async fn list_tools(State(_state): State<AppState>) -> Json<serde_json::Value> {
@@ -59,6 +64,7 @@ async fn execute_tool(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct UpdateToolsConfigRequest {
     enabled: Option<Vec<String>>,
     disabled: Option<Vec<String>>,

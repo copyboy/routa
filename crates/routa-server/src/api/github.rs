@@ -92,6 +92,7 @@ async fn import_repo(Json(body): Json<ImportRequest>) -> Json<serde_json::Value>
 // ─── Shared query params ──────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct RepoQuery {
     owner: Option<String>,
     repo: Option<String>,
@@ -149,6 +150,7 @@ async fn get_file(Query(q): Query<FileQuery>) -> Json<serde_json::Value> {
 // ─── Search ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct SearchQuery {
     owner: Option<String>,
     repo: Option<String>,

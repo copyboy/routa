@@ -103,14 +103,7 @@ impl AcpPaths {
             other => other,
         };
 
-        let arch_name = match arch {
-            "aarch64" => "aarch64",
-            "x86_64" => "x86_64",
-            "x86" => "x86",
-            other => other,
-        };
-
-        format!("{}-{}", os_name, arch_name)
+        format!("{}-{}", os_name, arch)
     }
 }
 
@@ -119,4 +112,3 @@ impl Default for AcpPaths {
         Self::new()
     }
 }
-

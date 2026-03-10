@@ -77,7 +77,11 @@ pub fn get_current_branch(repo_path: &str) -> Option<String> {
         .ok()?;
     if output.status.success() {
         let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if s.is_empty() { None } else { Some(s) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     } else {
         None
     }
@@ -198,7 +202,7 @@ pub fn get_branch_status(repo_path: &str, branch: &str) -> BranchStatus {
     {
         if o.status.success() {
             let text = String::from_utf8_lossy(&o.stdout);
-            let parts: Vec<&str> = text.trim().split_whitespace().collect();
+            let parts: Vec<&str> = text.split_whitespace().collect();
             if parts.len() == 2 {
                 result.ahead = parts[0].parse().unwrap_or(0);
                 result.behind = parts[1].parse().unwrap_or(0);
@@ -212,8 +216,7 @@ pub fn get_branch_status(repo_path: &str, branch: &str) -> BranchStatus {
         .output()
     {
         if o.status.success() {
-            result.has_uncommitted_changes =
-                !String::from_utf8_lossy(&o.stdout).trim().is_empty();
+            result.has_uncommitted_changes = !String::from_utf8_lossy(&o.stdout).trim().is_empty();
         }
     }
 
@@ -260,7 +263,7 @@ pub fn get_repo_status(repo_path: &str) -> RepoStatus {
     {
         if o.status.success() {
             let text = String::from_utf8_lossy(&o.stdout);
-            let parts: Vec<&str> = text.trim().split_whitespace().collect();
+            let parts: Vec<&str> = text.split_whitespace().collect();
             if parts.len() == 2 {
                 status.ahead = parts[0].parse().unwrap_or(0);
                 status.behind = parts[1].parse().unwrap_or(0);
@@ -457,6 +460,176 @@ fn extract_frontmatter_str(contents: &str) -> Option<(String, String)> {
     }
 
     Some((frontmatter_lines.join("\n"), body_lines.join("\n")))
+}
+
+// ─── Git Worktree Operations ────────────────────────────────────────────
+
+/// Base directory for worktrees: ~/.routa/worktrees/
+pub fn get_worktree_base_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".routa")
+        .join("worktrees")
+}
+
+/// Sanitize a branch name for use as a directory name.
+pub fn branch_to_safe_dir_name(branch: &str) -> String {
+    branch
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '.' || c == '_' || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+/// Prune stale worktree references.
+pub fn worktree_prune(repo_path: &str) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(["worktree", "prune"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+/// Add a new git worktree. If `create_branch` is true, creates a new branch.
+pub fn worktree_add(
+    repo_path: &str,
+    worktree_path: &str,
+    branch: &str,
+    base_branch: &str,
+    create_branch: bool,
+) -> Result<(), String> {
+    // Ensure parent directory exists
+    if let Some(parent) = Path::new(worktree_path).parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let args = if create_branch {
+        vec![
+            "worktree".to_string(),
+            "add".to_string(),
+            "-b".to_string(),
+            branch.to_string(),
+            worktree_path.to_string(),
+            base_branch.to_string(),
+        ]
+    } else {
+        vec![
+            "worktree".to_string(),
+            "add".to_string(),
+            worktree_path.to_string(),
+            branch.to_string(),
+        ]
+    };
+
+    let output = Command::new("git")
+        .args(&args)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+/// Remove a git worktree.
+pub fn worktree_remove(repo_path: &str, worktree_path: &str, force: bool) -> Result<(), String> {
+    let mut args = vec!["worktree", "remove"];
+    if force {
+        args.push("--force");
+    }
+    args.push(worktree_path);
+
+    let output = Command::new("git")
+        .args(&args)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeListEntry {
+    pub path: String,
+    pub head: String,
+    pub branch: String,
+}
+
+/// List all worktrees for a repository.
+pub fn worktree_list(repo_path: &str) -> Vec<WorktreeListEntry> {
+    let output = match Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(repo_path)
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return vec![],
+    };
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut entries = Vec::new();
+    let mut current_path = String::new();
+    let mut current_head = String::new();
+    let mut current_branch = String::new();
+
+    for line in text.lines() {
+        if let Some(p) = line.strip_prefix("worktree ") {
+            if !current_path.is_empty() {
+                entries.push(WorktreeListEntry {
+                    path: std::mem::take(&mut current_path),
+                    head: std::mem::take(&mut current_head),
+                    branch: std::mem::take(&mut current_branch),
+                });
+            }
+            current_path = p.to_string();
+        } else if let Some(h) = line.strip_prefix("HEAD ") {
+            current_head = h.to_string();
+        } else if let Some(b) = line.strip_prefix("branch ") {
+            // "refs/heads/branch-name" -> "branch-name"
+            current_branch = b.strip_prefix("refs/heads/").unwrap_or(b).to_string();
+        }
+    }
+
+    // Push last entry
+    if !current_path.is_empty() {
+        entries.push(WorktreeListEntry {
+            path: current_path,
+            head: current_head,
+            branch: current_branch,
+        });
+    }
+
+    entries
+}
+
+/// Check if a local branch exists.
+pub fn branch_exists(repo_path: &str, branch: &str) -> bool {
+    Command::new("git")
+        .args(["branch", "--list", branch])
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+        .unwrap_or(false)
 }
 
 /// Recursively copy a directory, skipping .git and node_modules.

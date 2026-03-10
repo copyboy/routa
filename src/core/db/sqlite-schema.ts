@@ -2,8 +2,7 @@
  * Drizzle ORM SQLite Schema — All tables for the Routa multi-agent system.
  *
  * Mirrors the Postgres schema (schema.ts) but uses SQLite-compatible types.
- * Used for desktop deployments (Tauri, Electron) where a local SQLite database
- * is preferred over a remote Postgres instance.
+ * Used by the local Node.js backend when SQLite is selected for development.
  *
  * Key differences from Postgres schema:
  * - Uses sqliteTable instead of pgTable
@@ -17,7 +16,9 @@ import {
   text,
   integer,
   primaryKey,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import type { KanbanColumn } from "../models/kanban";
 
 // ─── Workspaces ─────────────────────────────────────────────────────
 
@@ -71,6 +72,24 @@ export const tasks = sqliteTable("tasks", {
   verificationCommands: text("verification_commands", { mode: "json" }).$type<string[]>(),
   assignedTo: text("assigned_to"),
   status: text("status").notNull().default("PENDING"),
+  boardId: text("board_id"),
+  columnId: text("column_id"),
+  position: integer("position").notNull().default(0),
+  priority: text("priority"),
+  labels: text("labels", { mode: "json" }).$type<string[]>().default([]),
+  assignee: text("assignee"),
+  assignedProvider: text("assigned_provider"),
+  assignedRole: text("assigned_role"),
+  assignedSpecialistId: text("assigned_specialist_id"),
+  assignedSpecialistName: text("assigned_specialist_name"),
+  triggerSessionId: text("trigger_session_id"),
+  githubId: text("github_id"),
+  githubNumber: integer("github_number"),
+  githubUrl: text("github_url"),
+  githubRepo: text("github_repo"),
+  githubState: text("github_state"),
+  githubSyncedAt: integer("github_synced_at", { mode: "timestamp_ms" }),
+  lastSyncError: text("last_sync_error"),
   dependencies: text("dependencies", { mode: "json" }).$type<string[]>().default([]),
   parallelGroup: text("parallel_group"),
   workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
@@ -80,6 +99,16 @@ export const tasks = sqliteTable("tasks", {
   verificationVerdict: text("verification_verdict"),
   verificationReport: text("verification_report"),
   version: integer("version").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const kanbanBoards = sqliteTable("kanban_boards", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
+  columns: text("columns", { mode: "json" }).$type<KanbanColumn[]>().notNull().default([]),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
@@ -155,6 +184,8 @@ export const acpSessions = sqliteTable("acp_sessions", {
   /** User-editable display name */
   name: text("name"),
   cwd: text("cwd").notNull(),
+  /** Git branch the session is scoped to (optional) */
+  branch: text("branch"),
   workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   routaAgentId: text("routa_agent_id"),
   provider: text("provider"),
@@ -166,6 +197,8 @@ export const acpSessions = sqliteTable("acp_sessions", {
   firstPromptSent: integer("first_prompt_sent", { mode: "boolean" }).default(false),
   /** Message history stored as JSON array */
   messageHistory: text("message_history", { mode: "json" }).$type<AcpSessionNotification[]>().default([]),
+  /** Parent session ID for child (CRAFTER/GATE) sessions */
+  parentSessionId: text("parent_session_id"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
@@ -368,6 +401,26 @@ export const webhookTriggerLogs = sqliteTable("webhook_trigger_logs", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
+// ─── Worktrees ──────────────────────────────────────────────────────
+
+export const worktrees = sqliteTable("worktrees", {
+  id: text("id").primaryKey(),
+  codebaseId: text("codebase_id").notNull().references(() => codebases.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  worktreePath: text("worktree_path").notNull(),
+  branch: text("branch").notNull(),
+  baseBranch: text("base_branch").notNull(),
+  status: text("status").notNull().default("creating"), // creating | active | error | removing
+  sessionId: text("session_id"),
+  label: text("label"),
+  errorMessage: text("error_message"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  uniqueIndex("uq_worktrees_codebase_branch").on(table.codebaseId, table.branch),
+  uniqueIndex("uq_worktrees_path").on(table.worktreePath),
+]);
+
 // ─── Specialists (user-defined agent specialist configurations) ───────────
 
 export const specialists = sqliteTable("specialists", {
@@ -396,5 +449,59 @@ export const specialists = sqliteTable("specialists", {
   /** Creation timestamp */
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   /** Last update timestamp */
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+// ─── Artifacts (agent-to-agent communication) ───────────────────────────
+
+export const artifacts = sqliteTable("artifacts", {
+  id: text("id").primaryKey(),
+  /** Type: screenshot | test_results | code_diff | logs */
+  type: text("type").notNull(),
+  /** Task this artifact is associated with */
+  taskId: text("task_id").notNull(),
+  /** Workspace ID */
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  /** Agent that provided this artifact */
+  providedByAgentId: text("provided_by_agent_id"),
+  /** Agent that requested this artifact */
+  requestedByAgentId: text("requested_by_agent_id"),
+  /** Request ID if this artifact fulfills a request */
+  requestId: text("request_id"),
+  /** Content (base64 for images, text for others) */
+  content: text("content"),
+  /** Context or description */
+  context: text("context"),
+  /** Status: pending | provided | expired */
+  status: text("status").notNull().default("pending"),
+  /** Expiration timestamp */
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+  /** Additional metadata */
+  metadata: text("metadata", { mode: "json" }).$type<Record<string, string>>(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+// ─── Artifact Requests (pending artifact requests) ───────────────────────
+
+export const artifactRequests = sqliteTable("artifact_requests", {
+  id: text("id").primaryKey(),
+  /** Agent requesting the artifact */
+  fromAgentId: text("from_agent_id").notNull(),
+  /** Agent that should provide the artifact */
+  toAgentId: text("to_agent_id").notNull(),
+  /** Type of artifact requested */
+  artifactType: text("artifact_type").notNull(),
+  /** Task this request is for */
+  taskId: text("task_id").notNull(),
+  /** Workspace ID */
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  /** Context for the request */
+  context: text("context"),
+  /** Status: pending | fulfilled | rejected | expired */
+  status: text("status").notNull().default("pending"),
+  /** ID of artifact that fulfilled this request */
+  artifactId: text("artifact_id"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });

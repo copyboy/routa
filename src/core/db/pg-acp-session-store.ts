@@ -17,6 +17,7 @@ export class PgAcpSessionStore implements AcpSessionStore {
         id: session.id,
         name: session.name,
         cwd: session.cwd,
+        branch: session.branch,
         workspaceId: session.workspaceId,
         routaAgentId: session.routaAgentId,
         provider: session.provider,
@@ -25,6 +26,7 @@ export class PgAcpSessionStore implements AcpSessionStore {
         model: session.model,
         firstPromptSent: session.firstPromptSent ?? false,
         messageHistory: session.messageHistory,
+        parentSessionId: session.parentSessionId,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
       })
@@ -103,6 +105,7 @@ export class PgAcpSessionStore implements AcpSessionStore {
       id: row.id,
       name: row.name ?? undefined,
       cwd: row.cwd,
+      branch: row.branch ?? undefined,
       workspaceId: row.workspaceId,
       routaAgentId: row.routaAgentId ?? undefined,
       provider: row.provider ?? undefined,
@@ -111,6 +114,7 @@ export class PgAcpSessionStore implements AcpSessionStore {
       model: row.model ?? undefined,
       firstPromptSent: row.firstPromptSent ?? false,
       messageHistory: row.messageHistory ?? [],
+      parentSessionId: row.parentSessionId ?? undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

@@ -39,6 +39,10 @@ components:
       type: string
       enum: [APPROVED, NOT_APPROVED, BLOCKED]
 
+    TaskPriority:
+      type: string
+      enum: [low, medium, high, urgent]
+
     NoteType:
       type: string
       enum: [spec, task, general]
@@ -122,6 +126,45 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/TaskStatus"
+        boardId:
+          type: string
+        columnId:
+          type: string
+        position:
+          type: integer
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        labels:
+          type: array
+          items:
+            type: string
+        assignee:
+          type: string
+        assignedProvider:
+          type: string
+        assignedRole:
+          $ref: "#/components/schemas/AgentRole"
+        assignedSpecialistId:
+          type: string
+        assignedSpecialistName:
+          type: string
+        triggerSessionId:
+          type: string
+        githubId:
+          type: string
+        githubNumber:
+          type: integer
+        githubUrl:
+          type: string
+        githubRepo:
+          type: string
+        githubState:
+          type: string
+        githubSyncedAt:
+          type: string
+          format: date-time
+        lastSyncError:
+          type: string
         dependencies:
           type: array
           items:
@@ -142,6 +185,71 @@ components:
           $ref: "#/components/schemas/VerificationVerdict"
         verificationReport:
           type: string
+
+    KanbanColumnAutomation:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+        providerId:
+          type: string
+        role:
+          type: string
+        specialistId:
+          type: string
+        specialistName:
+          type: string
+        transitionType:
+          type: string
+          enum: [entry, exit, both]
+        requiredArtifacts:
+          type: array
+          items:
+            type: string
+            enum: [screenshot, test_results, code_diff]
+        autoAdvanceOnSuccess:
+          type: boolean
+
+    KanbanColumn:
+      type: object
+      required: [id, name, position, stage]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        color:
+          type: string
+        position:
+          type: integer
+        stage:
+          type: string
+        automation:
+          $ref: "#/components/schemas/KanbanColumnAutomation"
+
+    KanbanBoard:
+      type: object
+      required: [id, workspaceId, name, isDefault, columns, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        name:
+          type: string
+        isDefault:
+          type: boolean
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/KanbanColumn"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
     NoteMetadata:
       type: object
@@ -225,6 +333,38 @@ components:
         deleted:
           type: boolean
           const: true
+
+    Worktree:
+      type: object
+      required: [id, codebaseId, workspaceId, worktreePath, branch, baseBranch, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        codebaseId:
+          type: string
+        workspaceId:
+          type: string
+        worktreePath:
+          type: string
+        branch:
+          type: string
+        baseBranch:
+          type: string
+        status:
+          type: string
+          enum: [creating, active, error, removing]
+        sessionId:
+          type: string
+        label:
+          type: string
+        errorMessage:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
 # ─────────────────────────────────────────────────────────
 # API Paths
@@ -470,8 +610,34 @@ paths:
                     type: string
                 parallelGroup:
                   type: string
+                boardId:
+                  type: string
+                columnId:
+                  type: string
+                position:
+                  type: integer
+                priority:
+                  $ref: "#/components/schemas/TaskPriority"
+                labels:
+                  type: array
+                  items:
+                    type: string
+                assignee:
+                  type: string
+                assignedProvider:
+                  type: string
+                assignedRole:
+                  $ref: "#/components/schemas/AgentRole"
+                assignedSpecialistId:
+                  type: string
+                assignedSpecialistName:
+                  type: string
+                createGitHubIssue:
+                  type: boolean
+                repoPath:
+                  type: string
       responses:
-        "200":
+        "201":
           description: Created task
           content:
             application/json:
@@ -515,7 +681,68 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Task"
+                type: object
+                properties:
+                  task:
+                    $ref: "#/components/schemas/Task"
+    patch:
+      operationId: updateTask
+      summary: Update a task
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                objective:
+                  type: string
+                status:
+                  $ref: "#/components/schemas/TaskStatus"
+                boardId:
+                  type: string
+                columnId:
+                  type: string
+                position:
+                  type: integer
+                priority:
+                  $ref: "#/components/schemas/TaskPriority"
+                labels:
+                  type: array
+                  items:
+                    type: string
+                assignee:
+                  type: string
+                assignedProvider:
+                  type: string
+                assignedRole:
+                  $ref: "#/components/schemas/AgentRole"
+                assignedSpecialistId:
+                  type: string
+                assignedSpecialistName:
+                  type: string
+                repoPath:
+                  type: string
+                syncToGitHub:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task:
+                    $ref: "#/components/schemas/Task"
         "404":
           description: Task not found
     delete:
@@ -585,6 +812,166 @@ paths:
                 type: object
                 properties:
                   tasks:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Task"
+
+  /api/kanban/boards:
+    get:
+      operationId: listKanbanBoards
+      summary: List Kanban boards for a workspace
+      parameters:
+        - name: workspaceId
+          in: query
+          schema:
+            type: string
+            default: "default"
+      responses:
+        "200":
+          description: Board list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  boards:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/KanbanBoard"
+    post:
+      operationId: createKanbanBoard
+      summary: Create a Kanban board
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspaceId, name]
+              properties:
+                workspaceId:
+                  type: string
+                name:
+                  type: string
+                isDefault:
+                  type: boolean
+      responses:
+        "201":
+          description: Board created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  board:
+                    $ref: "#/components/schemas/KanbanBoard"
+
+  /api/kanban/boards/{boardId}:
+    get:
+      operationId: getKanbanBoard
+      summary: Get a Kanban board by ID
+      parameters:
+        - name: boardId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Board details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  board:
+                    $ref: "#/components/schemas/KanbanBoard"
+        "404":
+          description: Board not found
+    patch:
+      operationId: updateKanbanBoard
+      summary: Update a Kanban board
+      parameters:
+        - name: boardId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                columns:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/KanbanColumn"
+                isDefault:
+                  type: boolean
+      responses:
+        "200":
+          description: Board updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  board:
+                    $ref: "#/components/schemas/KanbanBoard"
+        "404":
+          description: Board not found
+
+  /api/kanban/decompose:
+    post:
+      operationId: decomposeKanbanTasks
+      summary: Decompose natural language input into multiple Kanban tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [boardId, workspaceId, tasks]
+              properties:
+                boardId:
+                  type: string
+                workspaceId:
+                  type: string
+                tasks:
+                  type: array
+                  items:
+                    type: object
+                    required: [title]
+                    properties:
+                      title:
+                        type: string
+                      description:
+                        type: string
+                      priority:
+                        type: string
+                        enum: [low, medium, high, urgent]
+                      labels:
+                        type: array
+                        items:
+                          type: string
+                columnId:
+                  type: string
+                  default: backlog
+      responses:
+        "200":
+          description: Tasks created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  cards:
                     type: array
                     items:
                       $ref: "#/components/schemas/Task"
@@ -981,6 +1368,54 @@ paths:
                     type: array
                     items:
                       type: object
+
+  /api/sessions/{sessionId}/context:
+    get:
+      operationId: getSessionContext
+      summary: Get hierarchical context for a session
+      description: |
+        Returns comprehensive context information for a session including:
+        - Current session details
+        - Parent session (if exists)
+        - Child sessions
+        - Sibling sessions (same parent)
+        - Recent sessions in the same workspace
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session context
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  current:
+                    type: object
+                  parent:
+                    type: object
+                  children:
+                    type: array
+                    items:
+                      type: object
+                  siblings:
+                    type: array
+                    items:
+                      type: object
+                  recentInWorkspace:
+                    type: array
+                    items:
+                      type: object
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # ── ACP ──
   /api/acp:
@@ -1813,6 +2248,173 @@ paths:
         "200":
           description: Updated
 
+  # ── Worktrees ──
+  /api/workspaces/{workspace_id}/codebases/{codebase_id}/worktrees:
+    get:
+      operationId: listWorktrees
+      summary: List worktrees for a codebase
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: codebase_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of worktrees
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  worktrees:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Worktree"
+    post:
+      operationId: createWorktree
+      summary: Create a new git worktree
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: codebase_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                branch:
+                  type: string
+                baseBranch:
+                  type: string
+                label:
+                  type: string
+      responses:
+        "201":
+          description: Created worktree
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  worktree:
+                    $ref: "#/components/schemas/Worktree"
+        "404":
+          description: Codebase or workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Branch already in use
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Git operation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/worktrees/{id}:
+    get:
+      operationId: getWorktree
+      summary: Get a single worktree
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Worktree details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  worktree:
+                    $ref: "#/components/schemas/Worktree"
+        "404":
+          description: Worktree not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteWorktree
+      summary: Remove a worktree
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: deleteBranch
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletedResponse"
+        "404":
+          description: Worktree not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Removal failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/worktrees/{id}/validate:
+    post:
+      operationId: validateWorktree
+      summary: Validate worktree health on disk
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  healthy:
+                    type: boolean
+                  error:
+                    type: string
+
   # ── Skills catalog ──
   /api/skills/catalog:
     get:
@@ -1943,6 +2545,140 @@ paths:
       responses:
         "200":
           description: Warmup triggered
+
+  # ── Docker ACP ──
+  /api/acp/docker/status:
+    get:
+      operationId: getDockerStatus
+      summary: Get Docker daemon status
+      description: Check if Docker is available and running
+      responses:
+        "200":
+          description: Docker status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available:
+                    type: boolean
+                  daemonRunning:
+                    type: boolean
+                  version:
+                    type: string
+                  apiVersion:
+                    type: string
+                  checkedAt:
+                    type: string
+                    format: date-time
+                  error:
+                    type: string
+
+  /api/acp/docker/pull:
+    post:
+      operationId: pullDockerImage
+      summary: Pull a Docker image
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  description: Image name to pull (e.g., routa/opencode-agent:latest)
+      responses:
+        "200":
+          description: Pull result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  image:
+                    type: string
+                  output:
+                    type: string
+                  error:
+                    type: string
+
+  /api/acp/docker/containers:
+    get:
+      operationId: listDockerContainers
+      summary: List Docker containers for OpenCode agents
+      responses:
+        "200":
+          description: Container list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  containers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        containerId:
+                          type: string
+                        sessionId:
+                          type: string
+                        port:
+                          type: integer
+                        status:
+                          type: string
+
+  /api/acp/docker/container/start:
+    post:
+      operationId: startDockerContainer
+      summary: Start a Docker container for OpenCode agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sessionId:
+                  type: string
+                image:
+                  type: string
+                workdir:
+                  type: string
+                authJson:
+                  type: string
+      responses:
+        "200":
+          description: Container started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  containerId:
+                    type: string
+                  port:
+                    type: integer
+
+  /api/acp/docker/container/stop:
+    post:
+      operationId: stopDockerContainer
+      summary: Stop a Docker container
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                containerId:
+                  type: string
+      responses:
+        "200":
+          description: Container stopped
 
   # ── Files ──
   /api/files/search:
@@ -2384,6 +3120,29 @@ paths:
                     items:
                       type: object
 
+  /api/sessions/{id}/disconnect:
+    post:
+      operationId: disconnectSession
+      summary: Disconnect and kill an active session process
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session disconnected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        "404":
+          description: Session not found
+
   # ── Background Tasks ──
   /api/background-tasks:
     get:
@@ -2439,6 +3198,37 @@ paths:
       responses:
         "200":
           description: Task detail
+    patch:
+      operationId: updateBackgroundTask
+      summary: Update a background task (PENDING only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                prompt:
+                  type: string
+                agentId:
+                  type: string
+                priority:
+                  type: integer
+      responses:
+        "200":
+          description: Updated task
+        "400":
+          description: Task is not in PENDING status
+        "404":
+          description: Task not found
     delete:
       operationId: cancelBackgroundTask
       summary: Cancel a background task
@@ -2628,6 +3418,158 @@ paths:
       responses:
         "200":
           description: Comment posted
+
+  # ── A2UI Dashboard ──
+  /api/a2ui/dashboard:
+    get:
+      operationId: getA2UIDashboard
+      summary: Get A2UI v0.10 dashboard data
+      description: |
+        Returns A2UI v0.10 messages for the workspace dashboard.
+        Aggregates sessions, tasks, background tasks, traces, and custom surfaces.
+      parameters:
+        - name: workspaceId
+          in: query
+          schema:
+            type: string
+            default: "default"
+          description: Workspace ID (defaults to 'default')
+      responses:
+        "200":
+          description: A2UI dashboard data
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, kind]
+                properties:
+                  data:
+                    type: array
+                    description: Array of A2UI v0.10 messages
+                    items:
+                      type: object
+                  kind:
+                    type: string
+                    const: "data"
+                  metadata:
+                    type: object
+                    properties:
+                      mimeType:
+                        type: string
+                        example: "application/json+a2ui"
+        "500":
+          description: Failed to generate A2UI dashboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: postA2UIDashboardMessage
+      summary: Add custom A2UI messages to the dashboard
+      description: |
+        Accepts custom A2UI messages and stores them for the workspace.
+        Messages are appended to the dashboard data.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                workspaceId:
+                  type: string
+                  default: "default"
+                  description: Workspace ID to add messages to
+                messages:
+                  type: array
+                  description: Custom A2UI v0.10 messages
+                  items:
+                    type: object
+      responses:
+        "200":
+          description: Messages added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+        "500":
+          description: Failed to store messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── AG-UI Protocol ──
+  /api/ag-ui:
+    post:
+      operationId: postAGUI
+      summary: Process AG-UI protocol request (SSE stream)
+      description: |
+        Implements the AG-UI protocol (https://docs.ag-ui.com).
+        Accepts RunAgentInput and returns an SSE stream of AG-UI events.
+        Bridges to the existing ACP session infrastructure for real-time updates.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [threadId, runId, messages]
+              properties:
+                threadId:
+                  type: string
+                  description: AG-UI thread ID (maps to ACP session)
+                runId:
+                  type: string
+                  description: AG-UI run ID
+                parentRunId:
+                  type: string
+                  description: Optional parent run ID for nested runs
+                messages:
+                  type: array
+                  description: Message history
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      role:
+                        type: string
+                        enum: [user, assistant, system]
+                      content:
+                        oneOf:
+                          - type: string
+                          - type: array
+                            items:
+                              type: object
+                tools:
+                  type: array
+                  description: Available tools
+                  items:
+                    type: object
+                context:
+                  type: array
+                  description: Additional context
+                  items:
+                    type: object
+                state:
+                  type: object
+                  description: Optional state object
+                forwardedProps:
+                  type: object
+                  description: Optional forwarded properties
+      responses:
+        "200":
+          description: SSE stream of AG-UI events
+          content:
+            text/event-stream: {}
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # ── A2A Protocol ──
   /api/a2a/message:

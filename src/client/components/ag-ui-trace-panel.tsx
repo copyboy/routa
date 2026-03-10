@@ -277,7 +277,7 @@ function EventCard({ event }: { event: AGUIBaseEvent }) {
 
 function AGUILifecycleBar({ event }: { event: AGUIBaseEvent }) {
   const color = EVENT_COLORS[event.type] ?? DEFAULT_EVENT_COLOR;
-  let label = event.type === AGUIEventType.RUN_STARTED ? "Run Started"
+  const label = event.type === AGUIEventType.RUN_STARTED ? "Run Started"
     : event.type === AGUIEventType.RUN_FINISHED ? "Run Finished"
     : event.type === AGUIEventType.RUN_ERROR ? "Run Error"
     : event.type;

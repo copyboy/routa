@@ -57,6 +57,12 @@ interface TaskPanelProps {
   concurrency?: number;
   /** Callback when concurrency changes */
   onConcurrencyChange?: (n: number) => void;
+  /** Abort a running CRAFTER agent */
+  onAbortCrafter?: (agentId: string, sessionId: string) => Promise<void>;
+  /** Manually mark a CRAFTER agent as done */
+  onMarkDoneCrafter?: (agentId: string) => void;
+  /** Callback to update agent messages after lazy-loading from DB */
+  onUpdateAgentMessages?: (agentId: string, messages: CrafterMessage[]) => void;
 }
 
 export function TaskPanel({
@@ -71,17 +77,23 @@ export function TaskPanel({
   onSelectCrafter,
   concurrency = 1,
   onConcurrencyChange,
+  onAbortCrafter,
+  onMarkDoneCrafter,
+  onUpdateAgentMessages,
 }: TaskPanelProps) {
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<PanelView>("tasks");
 
-  // Auto-switch to crafters view when agents appear
+  // Auto-switch to crafters view only on the first agent spawn,
+  // then let the user freely toggle between tabs.
+  const hasAutoSwitchedRef = useRef(false);
   useEffect(() => {
-    if (crafterAgents.length > 0 && viewMode === "tasks") {
+    if (crafterAgents.length > 0 && !hasAutoSwitchedRef.current) {
+      hasAutoSwitchedRef.current = true;
       setViewMode("crafters");
     }
-  }, [crafterAgents.length, viewMode]);
+  }, [crafterAgents.length]);
 
   if (tasks.length === 0 && crafterAgents.length === 0) return null;
 
@@ -95,9 +107,6 @@ export function TaskPanel({
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-            </svg>
             <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {crafterAgents.length > 0 ? "ROUTA / CRAFTERs" : "Sub Tasks"}
             </span>
@@ -217,6 +226,7 @@ export function TaskPanel({
           agents={crafterAgents}
           activeCrafterId={activeCrafterId}
           onSelectCrafter={onSelectCrafter}
+          onUpdateAgentMessages={onUpdateAgentMessages}
         />
       )}
     </div>
@@ -229,18 +239,110 @@ export function CraftersView({
   agents,
   activeCrafterId,
   onSelectCrafter,
+  onUpdateAgentMessages,
 }: {
   agents: CrafterAgent[];
   activeCrafterId?: string | null;
   onSelectCrafter?: (id: string) => void;
+  /** Callback to update agent messages after lazy-loading from DB */
+  onUpdateAgentMessages?: (agentId: string, messages: CrafterMessage[]) => void;
 }) {
   const activeAgent = agents.find((a) => a.id === activeCrafterId) ?? agents[0];
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Track which agents we've already fetched history for
+  const fetchedHistoryRef = useRef<Set<string>>(new Set());
 
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeAgent?.messages.length]);
+
+  // Lazy-load child session history for restored CRAFTERs with empty messages
+  useEffect(() => {
+    if (!activeAgent || activeAgent.messages.length > 0 || !activeAgent.sessionId) return;
+    if (activeAgent.status === "running") return; // Don't load history for running agents
+    if (fetchedHistoryRef.current.has(activeAgent.id)) return;
+    fetchedHistoryRef.current.add(activeAgent.id);
+
+    fetch(`/api/sessions/${activeAgent.sessionId}/history?consolidated=true`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data?.history?.length) return;
+        const history = data.history as Array<{
+          sessionId: string;
+          update?: {
+            sessionUpdate?: string;
+            content?: { type: string; text?: string };
+            title?: string;
+            status?: string;
+          };
+        }>;
+
+        // Convert session history notifications into CrafterMessages
+        const messages: CrafterMessage[] = [];
+        for (const entry of history) {
+          const update = entry.update;
+          if (!update?.sessionUpdate) continue;
+
+          const text = update.content?.text ?? "";
+          switch (update.sessionUpdate) {
+            case "agent_message":
+            case "agent_message_chunk":
+              if (text) {
+                const last = messages[messages.length - 1];
+                if (last && last.role === "assistant" && !last.toolName) {
+                  // Append to existing message, keep original ID
+                  last.content += text;
+                } else {
+                  // Create new message with unique ID
+                  messages.push({
+                    id: `assistant-${crypto.randomUUID()}`,
+                    role: "assistant",
+                    content: text,
+                    timestamp: new Date(),
+                  });
+                }
+              }
+              break;
+            case "agent_thought":
+            case "agent_thought_chunk":
+              if (text) {
+                const last = messages[messages.length - 1];
+                if (last && last.role === "thought") {
+                  // Append to existing thought message, keep original ID
+                  last.content += text;
+                } else {
+                  // Create new thought message with unique ID
+                  messages.push({
+                    id: `thought-${crypto.randomUUID()}`,
+                    role: "thought",
+                    content: text,
+                    timestamp: new Date(),
+                  });
+                }
+              }
+              break;
+            case "tool_call":
+              messages.push({
+                id: `tool-${crypto.randomUUID()}`,
+                role: "tool",
+                content: update.title ?? "tool",
+                timestamp: new Date(),
+                toolName: update.title ?? "tool",
+                toolStatus: update.status ?? "completed",
+              });
+              break;
+          }
+        }
+
+        if (messages.length > 0 && onUpdateAgentMessages) {
+          onUpdateAgentMessages(activeAgent.id, messages);
+        }
+      })
+      .catch(() => {
+        // Silently fail — history loading is best-effort
+      });
+  }, [activeAgent, onUpdateAgentMessages]);
 
   if (agents.length === 0) {
     return (
@@ -275,8 +377,8 @@ export function CraftersView({
               title={agent.taskTitle}
             >
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusColor} ${agent.status === "running" ? "animate-pulse" : ""}`} />
-              <span className="truncate max-w-[120px]">
-                CRAFTER #{i + 1}
+              <span className="truncate max-w-30">
+                {agent.taskTitle || `CRAFTER #${i + 1}`}
               </span>
             </button>
           );
@@ -310,6 +412,13 @@ export function CraftersView({
                 <div className="space-y-2">
                   <div className="w-5 h-5 mx-auto border-2 border-gray-300 dark:border-gray-600 border-t-indigo-500 rounded-full animate-spin" />
                   <div>Agent is working...</div>
+                </div>
+              ) : activeAgent.status === "error" ? (
+                <div className="space-y-2 text-red-500 dark:text-red-400">
+                  <svg className="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <div>Agent failed to start</div>
                 </div>
               ) : (
                 "No messages yet."
@@ -401,6 +510,19 @@ function CrafterMessageBubble({ message }: { message: CrafterMessage }) {
     );
   }
 
+  if (message.role === "info") {
+    const isError = message.content.toLowerCase().startsWith("error") || message.content.toLowerCase().includes("failed");
+    return (
+      <div className={`px-2.5 py-2 rounded-md text-[11px] border ${
+        isError
+          ? "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/50 text-red-700 dark:text-red-300"
+          : "bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800/50 text-blue-700 dark:text-blue-300"
+      }`}>
+        <MarkdownViewer content={message.content} className="text-[11px]" />
+      </div>
+    );
+  }
+
   // Assistant message
   return (
     <div className="text-xs text-gray-900 dark:text-gray-100">
@@ -466,24 +588,24 @@ function TaskCard({
 
   const statusIcons = {
     pending: (
-      <div className="w-5 h-5 rounded-md border-2 border-gray-300 dark:border-gray-600 flex-shrink-0" />
+      <div className="w-5 h-5 rounded-md border-2 border-gray-300 dark:border-gray-600 shrink-0" />
     ),
     confirmed: (
-      <div className="w-5 h-5 rounded-md bg-blue-500 flex items-center justify-center flex-shrink-0">
+      <div className="w-5 h-5 rounded-md bg-blue-500 flex items-center justify-center shrink-0">
         <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
         </svg>
       </div>
     ),
     running: (
-      <div className="w-5 h-5 rounded-md bg-amber-500 flex items-center justify-center flex-shrink-0 animate-pulse">
+      <div className="w-5 h-5 rounded-md bg-amber-500 flex items-center justify-center shrink-0 animate-pulse">
         <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
       </div>
     ),
     completed: (
-      <div className="w-5 h-5 rounded-md bg-green-500 flex items-center justify-center flex-shrink-0">
+      <div className="w-5 h-5 rounded-md bg-green-500 flex items-center justify-center shrink-0">
         <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
         </svg>
@@ -495,7 +617,7 @@ function TaskCard({
     <div className={`rounded-lg border transition-all ${statusColors[task.status]}`}>
       {/* Header - always visible */}
       <div
-        className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors"
+        className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-black/2 dark:hover:bg-white/2 transition-colors"
         onClick={onToggleExpand}
       >
         {statusIcons[task.status]}
@@ -515,7 +637,7 @@ function TaskCard({
           )}
         </div>
         <svg
-          className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 mt-0.5 ${expanded ? "rotate-180" : ""}`}
+          className={`w-4 h-4 text-gray-400 transition-transform shrink-0 mt-0.5 ${expanded ? "rotate-180" : ""}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"

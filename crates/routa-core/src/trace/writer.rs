@@ -1,6 +1,6 @@
 //! TraceWriter — JSONL append-only writer for trace storage.
 //!
-//! Storage path: `<workspace>/.routa/traces/{day}/traces-{datetime}.jsonl`
+//! Storage path: `~/.routa/projects/{folder-slug}/traces/{day}/traces-{datetime}.jsonl`
 //!
 //! Features:
 //! - Thread-safe async append
@@ -8,19 +8,20 @@
 //! - Daily file rotation
 //! - Graceful error handling (never fails the main flow)
 
+use chrono::{Local, Utc};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
-use chrono::{Local, Utc};
 
 use super::TraceRecord;
+use crate::storage::get_traces_dir;
 
 /// TraceWriter manages JSONL file writing for trace records.
 #[derive(Clone)]
 pub struct TraceWriter {
-    /// Base directory for trace files (e.g., "/project/.routa/traces")
+    /// Base directory for trace files (e.g., "~/.routa/projects/{slug}/traces")
     base_dir: PathBuf,
     /// Current open file (lazy-initialized)
     current_file: Arc<Mutex<Option<CurrentFile>>>,
@@ -36,9 +37,10 @@ struct CurrentFile {
 impl TraceWriter {
     /// Create a new TraceWriter with the given workspace root.
     ///
-    /// Traces are stored in `<workspace_root>/.routa/traces/`.
+    /// Traces are stored in `~/.routa/projects/{folder-slug}/traces/`.
     pub fn new(workspace_root: impl AsRef<Path>) -> Self {
-        let base_dir = workspace_root.as_ref().join(".routa").join("traces");
+        let workspace_str = workspace_root.as_ref().to_string_lossy().to_string();
+        let base_dir = get_traces_dir(&workspace_str);
         Self {
             base_dir,
             current_file: Arc::new(Mutex::new(None)),
@@ -60,7 +62,7 @@ impl TraceWriter {
     /// - Automatically creates directories and rotates files
     pub async fn append(&self, record: &TraceRecord) -> Result<(), TraceWriteError> {
         let today = Local::now().format("%Y-%m-%d").to_string();
-        
+
         // Get or create the file path for today
         let file_path = self.get_file_path(&today).await?;
 
@@ -144,4 +146,3 @@ pub enum TraceWriteError {
     #[error("Serialization error: {0}")]
     Serialization(String),
 }
-

@@ -56,7 +56,11 @@ impl NoteStore {
             .await
     }
 
-    pub async fn get(&self, note_id: &str, workspace_id: &str) -> Result<Option<Note>, ServerError> {
+    pub async fn get(
+        &self,
+        note_id: &str,
+        workspace_id: &str,
+    ) -> Result<Option<Note>, ServerError> {
         let nid = note_id.to_string();
         let ws_id = workspace_id.to_string();
         self.db
@@ -171,9 +175,7 @@ fn row_to_note(row: &Row<'_>) -> Note {
             linked_task_id: row.get(9).unwrap_or(None),
             custom,
         },
-        created_at: chrono::DateTime::from_timestamp_millis(created_ms)
-            .unwrap_or_else(|| Utc::now()),
-        updated_at: chrono::DateTime::from_timestamp_millis(updated_ms)
-            .unwrap_or_else(|| Utc::now()),
+        created_at: chrono::DateTime::from_timestamp_millis(created_ms).unwrap_or_else(Utc::now),
+        updated_at: chrono::DateTime::from_timestamp_millis(updated_ms).unwrap_or_else(Utc::now),
     }
 }

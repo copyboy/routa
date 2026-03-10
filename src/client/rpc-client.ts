@@ -67,7 +67,7 @@ function nextId(): number {
 }
 
 async function tauriInvoke(request: JsonRpcRequest): Promise<JsonRpcResponse> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const win = window as any;
 
   // Try __TAURI_INTERNALS__ first (Tauri v2 internal API)

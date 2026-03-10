@@ -144,10 +144,29 @@ export class NoteTools {
     }
 
     note.content = params.content;
-    if (params.title) {
+    // Only update title for non-spec notes. Spec note title should remain constant.
+    if (params.title && params.noteId !== SPEC_NOTE_ID) {
       note.title = params.title;
     }
     note.updatedAt = new Date();
+
+    // When spec note content is replaced, remove old PENDING task notes derived from it
+    // so the left panel resets to reflect the new spec content.
+    if (params.noteId === SPEC_NOTE_ID) {
+      const effectiveSessionId = params.sessionId ?? note.sessionId;
+      const existingTaskNotes = await this.noteStore.listByType(params.workspaceId, "task");
+      const staleTasks = existingTaskNotes.filter(
+        (n) =>
+          n.metadata.parentNoteId === params.noteId &&
+          n.sessionId === effectiveSessionId &&
+          (!n.metadata.taskStatus || n.metadata.taskStatus === TaskStatus.PENDING)
+      );
+      for (const staleNote of staleTasks) {
+        await this.noteStore.delete(staleNote.id, params.workspaceId);
+        this.broadcaster?.notifyDeleted(staleNote.id, params.workspaceId, "agent");
+      }
+    }
+
     await this.saveNote(note, "agent");
 
     // Auto-convert @@@task blocks if enabled (default: true for spec note)
@@ -277,9 +296,24 @@ export class NoteTools {
     // Use provided sessionId, or inherit from parent note
     const effectiveSessionId = params.sessionId ?? note.sessionId;
 
+    // Fetch existing task notes in this session to deduplicate by title
+    const existingNotes = await this.noteStore.listByType(params.workspaceId, "task");
+    const existingTaskTitles = new Set(
+      existingNotes
+        .filter((n) => n.sessionId === effectiveSessionId && n.metadata.parentNoteId === params.noteId)
+        .map((n) => n.title)
+    );
+
     const createdTasks: Array<{ taskId: string; noteId: string; title: string }> = [];
+    let skippedCount = 0;
 
     for (const parsedTask of parseResult.tasks) {
+      // Skip if a task with the same title already exists in this session
+      if (existingTaskTitles.has(parsedTask.title)) {
+        skippedCount++;
+        continue;
+      }
+
       // Create Task record in TaskStore
       const taskId = uuidv4();
       const task = createTaskModel({
@@ -345,6 +379,7 @@ export class NoteTools {
 
     return successResult({
       blocksConverted: createdTasks.length,
+      skippedDuplicates: skippedCount,
       invalidBlocks: parseResult.invalidBlockCount,
       tasks: createdTasks,
     });
@@ -379,6 +414,7 @@ export class NoteTools {
     }
 
     await this.noteStore.delete(params.noteId, params.workspaceId);
+    this.broadcaster?.notifyDeleted(params.noteId, params.workspaceId, "agent");
     return successResult({ deleted: true, noteId: params.noteId });
   }
 }

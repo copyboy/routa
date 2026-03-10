@@ -50,7 +50,7 @@ import type {
 // this is expected. The types resolve correctly in apps/desktop/ where
 // the Tauri packages are installed.
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 
 async function getTauriCore(): Promise<any> {
   return await import("@tauri-apps/api/core");
@@ -76,7 +76,7 @@ async function getTauriPath(): Promise<any> {
   return await import("@tauri-apps/api/path");
 }
 
-/* eslint-enable @typescript-eslint/no-explicit-any */
+ 
 
 // ─── Tauri Process ────────────────────────────────────────────────────────
 
@@ -340,9 +340,7 @@ class TauriDb implements IPlatformDb {
       // Lazy-load the SQLite database using indirect require
       // to prevent webpack from bundling better-sqlite3 in web builds.
       try {
-        // eslint-disable-next-line no-eval
-        const dynamicRequire = eval("require") as NodeRequire;
-        const { getSqliteDatabase } = dynamicRequire("@/core/db/sqlite");
+        const { getSqliteDatabase } = require("@/core/db/sqlite") as typeof import("@/core/db/sqlite");
         this._db = getSqliteDatabase();
       } catch {
         throw new Error(

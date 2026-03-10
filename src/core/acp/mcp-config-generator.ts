@@ -15,6 +15,12 @@ export interface RoutaMcpConfig {
   /** Workspace ID for the MCP session */
   workspaceId?: string;
   /**
+   * ACP session ID to scope note/task creation to a specific session.
+   * When set, appended as ?sid= query param so the MCP server can associate
+   * notes and tasks with the originating session.
+   */
+  sessionId?: string;
+  /**
    * Direct MCP endpoint URL override.
    * When set, this is used instead of `routaServerUrl + "/api/mcp"`.
    * Used by the standalone RoutaMcpHttpServer which serves at /mcp (not /api/mcp).
@@ -111,15 +117,22 @@ export function generateMultipleRoutaMcpConfigs(
  * @param workspaceId - Optional workspace ID (defaults to "default")
  * @returns Default MCP configuration
  */
-export function getDefaultRoutaMcpConfig(workspaceId?: string): RoutaMcpConfig {
+export function getDefaultRoutaMcpConfig(workspaceId?: string, sessionId?: string): RoutaMcpConfig {
   const effectiveWorkspaceId = workspaceId || process.env.ROUTA_WORKSPACE_ID || "default";
 
-  // Helper to append workspace ID as a query param to the MCP endpoint URL
-  // so that AI agents calling the HTTP MCP server include the workspace context
-  const withWsParam = (url: string) =>
-    effectiveWorkspaceId && effectiveWorkspaceId !== "default"
-      ? `${url}?wsId=${encodeURIComponent(effectiveWorkspaceId)}`
-      : url;
+  // Build query string with workspace and session context so MCP server can scope notes correctly
+  const withContextParams = (url: string) => {
+    const params: string[] = [];
+    if (effectiveWorkspaceId && effectiveWorkspaceId !== "default") {
+      params.push(`wsId=${encodeURIComponent(effectiveWorkspaceId)}`);
+    }
+    if (sessionId) {
+      params.push(`sid=${encodeURIComponent(sessionId)}`);
+    }
+    return params.length > 0 ? `${url}?${params.join("&")}` : url;
+  };
+  // Keep backward-compat alias
+  const withWsParam = withContextParams;
 
   // Try to determine the server URL
   let routaServerUrl = process.env.ROUTA_SERVER_URL;
@@ -153,8 +166,9 @@ export function getDefaultRoutaMcpConfig(workspaceId?: string): RoutaMcpConfig {
   
   return {
     routaServerUrl,
-    mcpEndpoint: withWsParam(`${routaServerUrl}/api/mcp`),
+    mcpEndpoint: withContextParams(`${routaServerUrl}/api/mcp`),
     workspaceId: effectiveWorkspaceId,
+    sessionId,
   };
 }
 

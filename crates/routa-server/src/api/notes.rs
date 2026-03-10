@@ -14,9 +14,17 @@ use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/", get(list_notes).post(create_or_update_note).delete(delete_note_query))
+        .route(
+            "/",
+            get(list_notes)
+                .post(create_or_update_note)
+                .delete(delete_note_query),
+        )
         .route("/events", get(note_events_sse))
-        .route("/{workspace_id}/{note_id}", get(get_note).delete(delete_note_path))
+        .route(
+            "/{workspace_id}/{note_id}",
+            get(get_note).delete(delete_note_path),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,7 +133,9 @@ async fn delete_note_query(
         .note_store
         .delete(&query.note_id, workspace_id)
         .await?;
-    Ok(Json(serde_json::json!({ "deleted": true, "noteId": query.note_id })))
+    Ok(Json(
+        serde_json::json!({ "deleted": true, "noteId": query.note_id }),
+    ))
 }
 
 /// DELETE /api/notes/{workspace_id}/{note_id}  (REST-style)
@@ -134,7 +144,9 @@ async fn delete_note_path(
     axum::extract::Path((workspace_id, note_id)): axum::extract::Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     state.note_store.delete(&note_id, &workspace_id).await?;
-    Ok(Json(serde_json::json!({ "deleted": true, "noteId": note_id })))
+    Ok(Json(
+        serde_json::json!({ "deleted": true, "noteId": note_id }),
+    ))
 }
 
 /// GET /api/notes/events?workspaceId=xxx — SSE stream for note change events.

@@ -20,7 +20,8 @@ use crate::shell_env;
 use crate::state::AppState;
 
 /// ACP Registry URL
-const ACP_REGISTRY_URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
+const ACP_REGISTRY_URL: &str =
+    "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -150,8 +151,6 @@ async fn get_registry(
     })))
 }
 
-
-
 /// POST /api/acp/install - Install an agent
 async fn install_agent(
     State(state): State<AppState>,
@@ -206,22 +205,36 @@ async fn install_agent(
                     .acp_runtime_manager
                     .ensure_runtime(&RuntimeType::Npx)
                     .await
-                    .map_err(|e| ServerError::Internal(format!("Failed to ensure npx runtime: {}", e)))?;
+                    .map_err(|e| {
+                        ServerError::Internal(format!("Failed to ensure npx runtime: {}", e))
+                    })?;
             }
 
             // For npx, mark installed (runs on demand via npx)
-            let package = agent.distribution.get("npx")
+            let package = agent
+                .distribution
+                .get("npx")
                 .and_then(|v| v.get("package"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
 
-            state.acp_installation_state
-                .mark_installed(&req.agent_id, &version, DistributionType::Npx, None, package)
+            state
+                .acp_installation_state
+                .mark_installed(
+                    &req.agent_id,
+                    &version,
+                    DistributionType::Npx,
+                    None,
+                    package,
+                )
                 .await
                 .map_err(|e| ServerError::Internal(format!("Failed to save state: {}", e)))?;
 
             // Trigger background warmup to pre-cache the npm package
-            state.acp_warmup_service.warmup_in_background(&req.agent_id).await;
+            state
+                .acp_warmup_service
+                .warmup_in_background(&req.agent_id)
+                .await;
 
             Ok(Json(serde_json::json!({
                 "success": true,
@@ -239,22 +252,36 @@ async fn install_agent(
                     .acp_runtime_manager
                     .ensure_runtime(&RuntimeType::Uvx)
                     .await
-                    .map_err(|e| ServerError::Internal(format!("Failed to ensure uvx runtime: {}", e)))?;
+                    .map_err(|e| {
+                        ServerError::Internal(format!("Failed to ensure uvx runtime: {}", e))
+                    })?;
             }
 
             // For uvx, mark installed (runs on demand via uvx)
-            let package = agent.distribution.get("uvx")
+            let package = agent
+                .distribution
+                .get("uvx")
                 .and_then(|v| v.get("package"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
 
-            state.acp_installation_state
-                .mark_installed(&req.agent_id, &version, DistributionType::Uvx, None, package)
+            state
+                .acp_installation_state
+                .mark_installed(
+                    &req.agent_id,
+                    &version,
+                    DistributionType::Uvx,
+                    None,
+                    package,
+                )
                 .await
                 .map_err(|e| ServerError::Internal(format!("Failed to save state: {}", e)))?;
 
             // Trigger background warmup to pre-cache the Python package
-            state.acp_warmup_service.warmup_in_background(&req.agent_id).await;
+            state
+                .acp_warmup_service
+                .warmup_in_background(&req.agent_id)
+                .await;
 
             Ok(Json(serde_json::json!({
                 "success": true,
@@ -266,22 +293,31 @@ async fn install_agent(
         "binary" => {
             // For binary, download and extract
             let platform = AcpPaths::current_platform();
-            let binary_config = agent.distribution.get("binary")
+            let binary_config = agent
+                .distribution
+                .get("binary")
                 .and_then(|v| v.get(&platform))
-                .ok_or_else(|| ServerError::BadRequest(format!(
-                    "No binary available for platform: {}", platform
-                )))?;
+                .ok_or_else(|| {
+                    ServerError::BadRequest(format!(
+                        "No binary available for platform: {}",
+                        platform
+                    ))
+                })?;
 
             let binary_info: crate::acp::BinaryInfo = serde_json::from_value(binary_config.clone())
-                .map_err(|e| ServerError::Internal(format!("Failed to parse binary info: {}", e)))?;
+                .map_err(|e| {
+                    ServerError::Internal(format!("Failed to parse binary info: {}", e))
+                })?;
 
-            let exe_path = state.acp_binary_manager
+            let exe_path = state
+                .acp_binary_manager
                 .install_binary(&req.agent_id, &version, &binary_info)
                 .await
                 .map_err(|e| ServerError::Internal(format!("Binary installation failed: {}", e)))?;
 
             let exe_path_str = exe_path.to_string_lossy().to_string();
-            state.acp_installation_state
+            state
+                .acp_installation_state
                 .mark_installed(
                     &req.agent_id,
                     &version,
@@ -315,16 +351,26 @@ async fn uninstall_agent(
     tracing::info!("[ACP Install] Uninstalling agent: {}", req.agent_id);
 
     // Check if installed and get type
-    if let Some(info) = state.acp_installation_state.get_installed_info(&req.agent_id).await {
+    if let Some(info) = state
+        .acp_installation_state
+        .get_installed_info(&req.agent_id)
+        .await
+    {
         if info.dist_type == DistributionType::Binary {
             // Remove binary files
-            state.acp_binary_manager.uninstall(&req.agent_id).await
+            state
+                .acp_binary_manager
+                .uninstall(&req.agent_id)
+                .await
                 .map_err(|e| ServerError::Internal(format!("Failed to remove binary: {}", e)))?;
         }
     }
 
     // Remove from installation state
-    state.acp_installation_state.uninstall(&req.agent_id).await
+    state
+        .acp_installation_state
+        .uninstall(&req.agent_id)
+        .await
         .map_err(|e| ServerError::Internal(format!("Failed to update state: {}", e)))?;
 
     Ok(Json(serde_json::json!({
@@ -440,19 +486,16 @@ async fn get_runtime_status(
     let platform = current_platform();
 
     // Check version for each runtime too
-    let check_with_version = |rt: RuntimeType| {
-        let rm = rm;
-        async move {
-            let managed = rm.get_managed_runtime(&rt).await;
-            let system  = rm.get_system_runtime(&rt);
-            let version = rm.get_version(&rt).await;
-            serde_json::json!({
-                "available": managed.is_some() || system.is_some(),
-                "managed": managed.as_ref().map(|i| i.path.to_string_lossy().to_string()),
-                "system":  system.as_ref().map(|i| i.path.to_string_lossy().to_string()),
-                "version": version,
-            })
-        }
+    let check_with_version = |rt: RuntimeType| async move {
+        let managed = rm.get_managed_runtime(&rt).await;
+        let system = rm.get_system_runtime(&rt);
+        let version = rm.get_version(&rt).await;
+        serde_json::json!({
+            "available": managed.is_some() || system.is_some(),
+            "managed": managed.as_ref().map(|i| i.path.to_string_lossy().to_string()),
+            "system":  system.as_ref().map(|i| i.path.to_string_lossy().to_string()),
+            "version": version,
+        })
     };
 
     let (node, npx, uv, uvx) = tokio::join!(
@@ -482,10 +525,10 @@ async fn ensure_runtime(
 ) -> Result<Json<serde_json::Value>, ServerError> {
     let rt = match req.runtime.as_str() {
         "node" => RuntimeType::Node,
-        "npx"  => RuntimeType::Npx,
-        "uv"   => RuntimeType::Uv,
-        "uvx"  => RuntimeType::Uvx,
-        other  => {
+        "npx" => RuntimeType::Npx,
+        "uv" => RuntimeType::Uv,
+        "uvx" => RuntimeType::Uvx,
+        other => {
             return Err(ServerError::BadRequest(format!(
                 "Unknown runtime '{}'. Use node, npx, uv, or uvx.",
                 other
@@ -535,8 +578,9 @@ async fn get_warmup_status(
 ) -> Result<Json<serde_json::Value>, ServerError> {
     if let Some(agent_id) = query.id {
         let status = state.acp_warmup_service.get_status(&agent_id).await;
-        return Ok(Json(serde_json::to_value(status)
-            .map_err(|e| ServerError::Internal(e.to_string()))?));
+        return Ok(Json(
+            serde_json::to_value(status).map_err(|e| ServerError::Internal(e.to_string()))?,
+        ));
     }
     let statuses: Vec<WarmupStatus> = state.acp_warmup_service.get_all_statuses().await;
     Ok(Json(serde_json::json!({ "statuses": statuses })))
@@ -564,7 +608,10 @@ async fn warmup_agent(
         })));
     }
 
-    state.acp_warmup_service.warmup_in_background(&req.agent_id).await;
+    state
+        .acp_warmup_service
+        .warmup_in_background(&req.agent_id)
+        .await;
 
     Ok(Json(serde_json::json!({
         "agentId": req.agent_id,

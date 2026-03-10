@@ -55,10 +55,7 @@ async fn clone_skills(
                 .current_dir(&target_path)
                 .output();
         } else {
-            let clone_url = format!(
-                "https://github.com/{}/{}.git",
-                parsed.owner, parsed.repo
-            );
+            let clone_url = format!("https://github.com/{}/{}.git", parsed.owner, parsed.repo);
             let _ = std::process::Command::new("git")
                 .args([
                     "clone",
@@ -92,9 +89,7 @@ async fn clone_skills(
     let mut imported = Vec::new();
 
     for skill in &discovered {
-        let source_dir = Path::new(&skill.source)
-            .parent()
-            .unwrap_or(Path::new("."));
+        let source_dir = Path::new(&skill.source).parent().unwrap_or(Path::new("."));
         let skill_target = local_skills_base.join(&skill.name);
         if let Err(e) = git::copy_dir_recursive(source_dir, &skill_target) {
             tracing::warn!("Failed to copy skill '{}': {}", skill.name, e);
@@ -127,7 +122,10 @@ async fn discover_skills(
 
     let rp = Path::new(&repo_path);
     if !rp.exists() {
-        return Err(ServerError::NotFound(format!("Path not found: {}", repo_path)));
+        return Err(ServerError::NotFound(format!(
+            "Path not found: {}",
+            repo_path
+        )));
     }
 
     let discovered = git::discover_skills_from_path(rp);

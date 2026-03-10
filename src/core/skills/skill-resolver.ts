@@ -5,10 +5,10 @@
  *   1. Filesystem (project .claude/skills, .agents/skills, etc.)
  *   2. Repository path (user-selected repo)
  *   3. Postgres database (Vercel serverless)
- *   4. SQLite database (desktop)
+ *   4. SQLite database (local Node.js)
  *
  * Placed in src/core/skills/ so relative paths to ../db/* work correctly
- * for dynamic require (SQLite uses eval("require") to avoid webpack bundling).
+ * for dynamic require (SQLite relies on serverExternalPackages for better-sqlite3).
  */
 
 import { SkillRegistry } from "./skill-registry";
@@ -71,7 +71,7 @@ export async function resolveSkillContent(
     // Postgres load failed, continue
   }
 
-  // ── 4. SQLite database (desktop) ─────────────────────────────────────────
+  // ── 4. SQLite database (local Node.js) ───────────────────────────────────
   // Dynamically required to prevent webpack from bundling better-sqlite3
   // in web builds. Relative paths work here since we're in src/core/skills/.
   try {
@@ -79,11 +79,9 @@ export async function resolveSkillContent(
     const driver = getDatabaseDriver();
 
     if (driver === "sqlite") {
-      // eslint-disable-next-line no-eval
-      const dynamicRequire = eval("require") as NodeRequire;
-      const { getSqliteDatabase } = dynamicRequire("../db/sqlite");
-      const { SqliteSkillStore } = dynamicRequire("../db/sqlite-stores");
-      const db = getSqliteDatabase() as object;
+      const { getSqliteDatabase } = require("../db/sqlite") as typeof import("../db/sqlite");
+      const { SqliteSkillStore } = require("../db/sqlite-stores") as typeof import("../db/sqlite-stores");
+      const db = getSqliteDatabase();
       const store = new SqliteSkillStore(db) as {
         get(id: string): Promise<{ files: Array<{ path: string; content: string }> } | undefined>;
         toSkillDefinition(s: object): SkillDefinition;

@@ -161,7 +161,10 @@ async fn test_task_update_status() {
         }))
         .await;
 
-    let task_id = response["result"]["task"]["id"].as_str().unwrap().to_string();
+    let task_id = response["result"]["task"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // Update status
     let response = router

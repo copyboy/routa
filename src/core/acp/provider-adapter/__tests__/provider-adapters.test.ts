@@ -29,6 +29,12 @@ describe("Provider Adapter Factory", () => {
     expect(adapter.getBehavior().immediateToolInput).toBe(false);
   });
 
+  it("returns Docker OpenCode adapter for docker-opencode provider", () => {
+    const adapter = getProviderAdapter("docker-opencode");
+    expect(adapter.getBehavior().type).toBe("docker-opencode");
+    expect(adapter.getBehavior().immediateToolInput).toBe(false);
+  });
+
   it("returns StandardAcpAdapter for unknown providers", () => {
     const adapter = getProviderAdapter("some-unknown-provider");
     expect(adapter.getBehavior().type).toBe("standard");

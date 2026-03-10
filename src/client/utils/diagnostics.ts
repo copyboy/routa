@@ -44,6 +44,13 @@ export function toErrorMessage(err: unknown): string {
   return String(err);
 }
 
+export function shouldSuppressTeardownError(err: unknown): boolean {
+  const message = toErrorMessage(err);
+  if (!message.includes("Failed to fetch")) return false;
+  if (typeof document === "undefined") return false;
+  return document.visibilityState === "hidden";
+}
+
 async function emitToTauriLog(level: LogLevel, scope: string, message: string): Promise<void> {
   if (!isTauriRuntime()) return;
   try {

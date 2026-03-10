@@ -49,7 +49,7 @@ export {
   type ProviderCreateConfig,
 } from "./provider-registry";
 
-export { which } from "./utils";
+export { which, needsShell } from "./utils";
 
 // ACP Registry exports
 export {

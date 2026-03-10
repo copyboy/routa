@@ -10,11 +10,7 @@
 //! PUT    /api/mcp-servers              - Update an existing MCP server
 //! DELETE /api/mcp-servers?id=<id>      - Delete a MCP server
 
-use axum::{
-    extract::Query,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::Query, routing::get, Json, Router};
 use serde::Deserialize;
 
 use crate::state::AppState;

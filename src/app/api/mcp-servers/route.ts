@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     if (!isPostgres()) {
       return NextResponse.json(
-        { error: "MCP Servers API requires Postgres database" },
+        { error: "Custom MCP server persistence currently requires Postgres" },
         { status: 501 }
       );
     }
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
   try {
     if (!isPostgres()) {
       return NextResponse.json(
-        { error: "MCP Servers API requires Postgres database" },
+        { error: "Custom MCP server persistence currently requires Postgres" },
         { status: 501 }
       );
     }
@@ -139,7 +139,7 @@ export async function PUT(request: NextRequest) {
   try {
     if (!isPostgres()) {
       return NextResponse.json(
-        { error: "MCP Servers API requires Postgres database" },
+        { error: "Custom MCP server persistence currently requires Postgres" },
         { status: 501 }
       );
     }
@@ -200,7 +200,7 @@ export async function DELETE(request: NextRequest) {
   try {
     if (!isPostgres()) {
       return NextResponse.json(
-        { error: "MCP Servers API requires Postgres database" },
+        { error: "Custom MCP server persistence currently requires Postgres" },
         { status: 501 }
       );
     }

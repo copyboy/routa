@@ -17,6 +17,7 @@ impl WorkspaceStatus {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "archived" => Self::Archived,
@@ -38,11 +39,7 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn new(
-        id: String,
-        title: String,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Self {
+    pub fn new(id: String, title: String, metadata: Option<HashMap<String, String>>) -> Self {
         let now = Utc::now();
         Self {
             id,

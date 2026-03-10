@@ -25,7 +25,8 @@ fn parse_git_clone_error(stderr: &str, exit_code: Option<i32>) -> String {
         || stderr_lower.contains("could not read password")
         || stderr_lower.contains("terminal prompts disabled")
     {
-        return "Git credentials not configured. Set up a credential manager or use SSH.".to_string();
+        return "Git credentials not configured. Set up a credential manager or use SSH."
+            .to_string();
     }
 
     // SSH auth errors
@@ -66,7 +67,10 @@ fn parse_git_clone_error(stderr: &str, exit_code: Option<i32>) -> String {
 
     // If we have stderr content, extract the "fatal:" line
     if let Some(fatal_line) = stderr.lines().find(|l| l.starts_with("fatal:")) {
-        return format!("Clone failed: {}", fatal_line.trim_start_matches("fatal:").trim());
+        return format!(
+            "Clone failed: {}",
+            fatal_line.trim_start_matches("fatal:").trim()
+        );
     }
 
     // Fallback: include stderr content if available
@@ -86,7 +90,9 @@ struct CloneRequest {
     url: Option<String>,
 }
 
-async fn clone_repo(Json(body): Json<CloneRequest>) -> Result<Json<serde_json::Value>, ServerError> {
+async fn clone_repo(
+    Json(body): Json<CloneRequest>,
+) -> Result<Json<serde_json::Value>, ServerError> {
     let url = body
         .url
         .as_deref()

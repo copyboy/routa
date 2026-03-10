@@ -33,6 +33,7 @@ import type { NotificationHandler, JsonRpcMessage } from "@/core/acp/processer";
 import { isServerlessEnvironment } from "@/core/acp/api-based-providers";
 import { getMcpToolDefinitions, executeMcpTool } from "@/core/mcp/mcp-tool-executor";
 import { createRoutaMcpServer } from "@/core/mcp/routa-mcp-server";
+import { KanbanTools } from "@/core/tools/kanban-tools";
 import { getHttpSessionStore } from "@/core/acp/http-session-store";
 import { renameSessionInDb } from "@/core/acp/session-db-persister";
 
@@ -1105,7 +1106,9 @@ export class OpencodeSdkDirectAdapter {
             try {
               if (workspaceId) {
                 const { system } = createRoutaMcpServer({ workspaceId, toolMode: "essential" });
-                toolResult = await executeMcpTool(system.tools, tc.name, args, system.noteTools, system.workspaceTools);
+                const kanbanTools = new KanbanTools(system.kanbanBoardStore, system.taskStore);
+                kanbanTools.setEventBus(system.eventBus);
+                toolResult = await executeMcpTool(system.tools, tc.name, args, system.noteTools, system.workspaceTools, kanbanTools);
               } else {
                 toolResult = { content: [{ type: "text", text: JSON.stringify({ error: "workspaceId not available" }) }], isError: true };
               }

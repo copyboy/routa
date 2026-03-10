@@ -8,6 +8,7 @@
 import { AgentTools } from "@/core/tools/agent-tools";
 import { NoteTools } from "@/core/tools/note-tools";
 import { WorkspaceTools } from "@/core/tools/workspace-tools";
+import { KanbanTools } from "@/core/tools/kanban-tools";
 import { getRoutaOrchestrator } from "@/core/orchestration/orchestrator-singleton";
 import { ToolMode } from "./routa-mcp-tool-manager";
 
@@ -32,7 +33,8 @@ export async function executeMcpTool(
   name: string,
   args: Record<string, unknown>,
   noteTools?: NoteTools,
-  workspaceTools?: WorkspaceTools
+  workspaceTools?: WorkspaceTools,
+  kanbanTools?: KanbanTools,
 ) {
   // ── Tools that don't require workspaceId ─────────────────────────────
   // ── Tools that don't require workspaceId ─────────────────────────────
@@ -359,6 +361,83 @@ export async function executeMcpTool(
         await workspaceTools.createWorkspace({
           id: args.id as string,
           title: args.title as string,
+        })
+      );
+
+    // ── Kanban tools ──────────────────────────────────────────────────
+    case "create_board":
+      if (!kanbanTools) return formatResult({ success: false, error: "Kanban tools not available." });
+      return formatResult(
+        await kanbanTools.createBoard({
+          workspaceId: (args.workspaceId as string) ?? workspace,
+          name: args.name as string,
+          columns: args.columns as string[] | undefined,
+        })
+      );
+    case "list_boards":
+      if (!kanbanTools) return formatResult({ success: false, error: "Kanban tools not available." });
+      return formatResult(await kanbanTools.listBoards((args.workspaceId as string) ?? workspace));
+    case "get_board":
+      if (!kanbanTools) return formatResult({ success: false, error: "Kanban tools not available." });
+      return formatResult(await kanbanTools.getBoard(args.boardId as string));
+    case "create_card":
+      if (!kanbanTools) return formatResult({ success: false, error: "Kanban tools not available." });
+      return formatResult(
+        await kanbanTools.createCard({
+          boardId: args.boardId as string,
+          workspaceId: (args.workspaceId as string) ?? workspace,
+          title: args.title as string,
+          description: args.description as string | undefined,
+          columnId: (args.columnId as string) ?? "backlog",
+          priority: args.priority as "low" | "medium" | "high" | "urgent" | undefined,
+          labels: args.labels as string[] | undefined,
+        })
+      );
+    case "move_card":
+      if (!kanbanTools) return formatResult({ success: false, error: "Kanban tools not available." });
+      return formatResult(
+        await kanbanTools.moveCard({
+          cardId: args.cardId as string,
+          targetColumnId: args.targetColumnId as string,
+          position: args.position as number | undefined,
+        })
+      );
+    case "update_card":
+      if (!kanbanTools) return formatResult({ success: false, error: "Kanban tools not available." });
+      return formatResult(
+        await kanbanTools.updateCard({
+          cardId: args.cardId as string,
+          title: args.title as string | undefined,
+          description: args.description as string | undefined,
+          priority: args.priority as "low" | "medium" | "high" | "urgent" | undefined,
+          labels: args.labels as string[] | undefined,
+        })
+      );
+    case "delete_card":
+      if (!kanbanTools) return formatResult({ success: false, error: "Kanban tools not available." });
+      return formatResult(await kanbanTools.deleteCard(args.cardId as string));
+    case "search_cards":
+      if (!kanbanTools) return formatResult({ success: false, error: "Kanban tools not available." });
+      return formatResult(
+        await kanbanTools.searchCards({
+          query: args.query as string,
+          boardId: args.boardId as string | undefined,
+          workspaceId: (args.workspaceId as string) ?? workspace,
+        })
+      );
+    case "list_cards_by_column":
+      if (!kanbanTools) return formatResult({ success: false, error: "Kanban tools not available." });
+      return formatResult(
+        await kanbanTools.listCardsByColumn(args.columnId as string, args.boardId as string ?? "")
+      );
+    case "decompose_tasks":
+      if (!kanbanTools) return formatResult({ success: false, error: "Kanban tools not available." });
+      return formatResult(
+        await kanbanTools.decomposeTasks({
+          boardId: args.boardId as string,
+          workspaceId: (args.workspaceId as string) ?? workspace,
+          tasks: args.tasks as { title: string; description?: string; priority?: "low" | "medium" | "high" | "urgent"; labels?: string[] }[],
+          columnId: args.columnId as string | undefined,
         })
       );
 

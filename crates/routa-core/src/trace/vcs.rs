@@ -2,9 +2,9 @@
 //!
 //! Populates TraceVcs with Git information (revision, branch, repo_root).
 
+use super::types::TraceVcs;
 use std::path::Path;
 use std::process::Command;
-use super::types::TraceVcs;
 
 /// Get VCS context for a workspace directory.
 /// Returns Git information if the directory is a git repository.

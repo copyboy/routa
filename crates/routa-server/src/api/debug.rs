@@ -9,7 +9,7 @@ async fn debug_path() -> Json<Value> {
     let full_path = shell_env::full_path();
     let claude_path = shell_env::which("claude");
     let opencode_path = shell_env::which("opencode");
-    
+
     Json(json!({
         "full_path": full_path,
         "path_entries": full_path.split(':').collect::<Vec<_>>(),
@@ -22,4 +22,3 @@ async fn debug_path() -> Json<Value> {
 pub fn router() -> Router<AppState> {
     Router::new().route("/path", get(debug_path))
 }
-

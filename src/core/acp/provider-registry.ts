@@ -11,7 +11,8 @@
  * Ported from Intent 0.2.11's ProviderRegistry implementation.
  */
 
-import { AcpAgentPreset } from "./acp-presets";
+import { AcpAgentPreset, ACP_AGENT_PRESETS, getPresetById } from "./acp-presets";
+import { AgentRole, ModelTier } from "../models/agent";
 
 // ─── Model Tier Configuration ─────────────────────────────────────────────
 
@@ -256,4 +257,143 @@ export function extractProviderIdFromModel(model: string | undefined): string | 
   const { providerId } = parseCompoundModelId(model);
   // If the parsed provider is the default, treat it as "no provider specified"
   return providerId === getDefaultProviderId() ? undefined : providerId;
+}
+
+// ─── Provider Capability Query APIs ─────────────────────────────────────────
+
+export interface ProviderCapabilityInfo {
+  providerId: string;
+  providerName: string;
+  capabilities: string[];
+  supportedRoles: AgentRole[];
+  preferredTier: ModelTier;
+  nonStandardApi?: boolean;
+}
+
+/**
+ * Get the capabilities of a specific provider.
+ * Returns undefined if the provider is not found.
+ */
+export function getProviderCapabilities(providerId: string): ProviderCapabilityInfo | undefined {
+  const preset = getPresetById(providerId);
+  if (!preset) return undefined;
+
+  return {
+    providerId: preset.id,
+    providerName: preset.name,
+    capabilities: preset.capabilities ?? [],
+    supportedRoles: preset.supportedRoles ?? [],
+    preferredTier: preset.preferredTier ?? ModelTier.BALANCED,
+    nonStandardApi: preset.nonStandardApi,
+  };
+}
+
+/**
+ * Find all providers that support a specific capability.
+ * 
+ * @param capability - The capability to search for (e.g., "mcp_tool", "web_search")
+ * @param includeNonStandard - Whether to include non-standard API providers (default: true)
+ * @returns Array of providers that support the capability, sorted by preferred tier (SMART > BALANCED > FAST)
+ */
+export function findProvidersByCapability(
+  capability: string,
+  includeNonStandard = true
+): ProviderCapabilityInfo[] {
+  const tierOrder: Record<ModelTier, number> = {
+    [ModelTier.SMART]: 0,
+    [ModelTier.BALANCED]: 1,
+    [ModelTier.FAST]: 2,
+  };
+
+  const matchingProviders: ProviderCapabilityInfo[] = [];
+
+  for (const preset of ACP_AGENT_PRESETS) {
+    // Skip non-standard API providers unless explicitly included
+    if (!includeNonStandard && preset.nonStandardApi) {
+      continue;
+    }
+
+    if (preset.capabilities?.includes(capability)) {
+      matchingProviders.push({
+        providerId: preset.id,
+        providerName: preset.name,
+        capabilities: preset.capabilities ?? [],
+        supportedRoles: preset.supportedRoles ?? [],
+        preferredTier: preset.preferredTier ?? ModelTier.BALANCED,
+        nonStandardApi: preset.nonStandardApi,
+      });
+    }
+  }
+
+  // Sort by preferred tier (SMART > BALANCED > FAST)
+  return matchingProviders.sort(
+    (a, b) => tierOrder[a.preferredTier] - tierOrder[b.preferredTier]
+  );
+}
+
+/**
+ * Find the best provider for a specific agent role.
+ * 
+ * @param role - The agent role to find a provider for
+ * @param requiredCapabilities - Optional list of required capabilities
+ * @param preferredTier - Optional preferred model tier
+ * @returns The best matching provider, or undefined if none found
+ */
+export function findBestProviderForRole(
+  role: AgentRole,
+  requiredCapabilities?: string[],
+  preferredTier?: ModelTier
+): ProviderCapabilityInfo | undefined {
+  const tierOrder: Record<ModelTier, number> = {
+    [ModelTier.SMART]: 0,
+    [ModelTier.BALANCED]: 1,
+    [ModelTier.FAST]: 2,
+  };
+
+  const matchingProviders: ProviderCapabilityInfo[] = [];
+
+  for (const preset of ACP_AGENT_PRESETS) {
+    // Check if provider supports this role
+    if (!preset.supportedRoles?.includes(role)) {
+      continue;
+    }
+
+    // Check required capabilities
+    if (requiredCapabilities && requiredCapabilities.length > 0) {
+      const hasAllCapabilities = requiredCapabilities.every((cap) =>
+        preset.capabilities?.includes(cap)
+      );
+      if (!hasAllCapabilities) {
+        continue;
+      }
+    }
+
+    matchingProviders.push({
+      providerId: preset.id,
+      providerName: preset.name,
+      capabilities: preset.capabilities ?? [],
+      supportedRoles: preset.supportedRoles ?? [],
+      preferredTier: preset.preferredTier ?? ModelTier.BALANCED,
+      nonStandardApi: preset.nonStandardApi,
+    });
+  }
+
+  if (matchingProviders.length === 0) {
+    return undefined;
+  }
+
+  // Sort by preferred tier, then return the best match
+  matchingProviders.sort((a, b) => {
+    // First, if preferredTier is specified, prioritize that tier
+    if (preferredTier) {
+      const aHasPreferred = a.preferredTier === preferredTier;
+      const bHasPreferred = b.preferredTier === preferredTier;
+      if (aHasPreferred && !bHasPreferred) return -1;
+      if (!aHasPreferred && bHasPreferred) return 1;
+    }
+    // Then sort by tier order
+    return tierOrder[a.preferredTier] - tierOrder[b.preferredTier];
+  });
+
+  return matchingProviders[0];
 }

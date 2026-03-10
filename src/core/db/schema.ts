@@ -14,7 +14,9 @@ import {
   integer,
   boolean,
   primaryKey,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import type { KanbanColumn } from "../models/kanban";
 
 // ─── Workspaces ─────────────────────────────────────────────────────
 
@@ -68,6 +70,24 @@ export const tasks = pgTable("tasks", {
   verificationCommands: jsonb("verification_commands").$type<string[]>(),
   assignedTo: text("assigned_to"),
   status: text("status").notNull().default("PENDING"),
+  boardId: text("board_id"),
+  columnId: text("column_id"),
+  position: integer("position").notNull().default(0),
+  priority: text("priority"),
+  labels: jsonb("labels").$type<string[]>().default([]),
+  assignee: text("assignee"),
+  assignedProvider: text("assigned_provider"),
+  assignedRole: text("assigned_role"),
+  assignedSpecialistId: text("assigned_specialist_id"),
+  assignedSpecialistName: text("assigned_specialist_name"),
+  triggerSessionId: text("trigger_session_id"),
+  githubId: text("github_id"),
+  githubNumber: integer("github_number"),
+  githubUrl: text("github_url"),
+  githubRepo: text("github_repo"),
+  githubState: text("github_state"),
+  githubSyncedAt: timestamp("github_synced_at", { withTimezone: true }),
+  lastSyncError: text("last_sync_error"),
   dependencies: jsonb("dependencies").$type<string[]>().default([]),
   parallelGroup: text("parallel_group"),
   workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
@@ -78,6 +98,16 @@ export const tasks = pgTable("tasks", {
   verificationReport: text("verification_report"),
   /** Optimistic-locking version for atomic updates */
   version: integer("version").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const kanbanBoards = pgTable("kanban_boards", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  columns: jsonb("columns").$type<KanbanColumn[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -160,6 +190,8 @@ export const acpSessions = pgTable("acp_sessions", {
   /** User-editable display name */
   name: text("name"),
   cwd: text("cwd").notNull(),
+  /** Git branch the session is scoped to (optional) */
+  branch: text("branch"),
   workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   routaAgentId: text("routa_agent_id"),
   provider: text("provider"),
@@ -171,9 +203,23 @@ export const acpSessions = pgTable("acp_sessions", {
   firstPromptSent: boolean("first_prompt_sent").default(false),
   /** Message history stored as JSONB array */
   messageHistory: jsonb("message_history").$type<AcpSessionNotification[]>().default([]),
+  /** Parent session ID for child (CRAFTER/GATE) sessions */
+  parentSessionId: text("parent_session_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ─── Session Messages (per-message storage, split from JSONB) ─────────
+
+export const sessionMessages = pgTable("session_messages", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull().references(() => acpSessions.id, { onDelete: "cascade" }),
+  messageIndex: integer("message_index").notNull(),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 
 // ─── Traces ───────────────────────────────────────────────────────────
 
@@ -430,6 +476,26 @@ export const webhookTriggerLogs = pgTable("webhook_trigger_logs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ─── Worktrees ──────────────────────────────────────────────────────
+
+export const worktrees = pgTable("worktrees", {
+  id: text("id").primaryKey(),
+  codebaseId: text("codebase_id").notNull().references(() => codebases.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  worktreePath: text("worktree_path").notNull(),
+  branch: text("branch").notNull(),
+  baseBranch: text("base_branch").notNull(),
+  status: text("status").notNull().default("creating"), // creating | active | error | removing
+  sessionId: text("session_id"),
+  label: text("label"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_worktrees_codebase_branch").on(table.codebaseId, table.branch),
+  uniqueIndex("uq_worktrees_path").on(table.worktreePath),
+]);
+
 // ─── Specialists (user-defined agent specialist configurations) ───────────
 
 export const specialists = pgTable("specialists", {
@@ -458,5 +524,59 @@ export const specialists = pgTable("specialists", {
   /** Creation timestamp */
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Last update timestamp */
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Artifacts (agent-to-agent communication) ───────────────────────────
+
+export const artifacts = pgTable("artifacts", {
+  id: text("id").primaryKey(),
+  /** Type: screenshot | test_results | code_diff | logs */
+  type: text("type").notNull(),
+  /** Task this artifact is associated with */
+  taskId: text("task_id").notNull(),
+  /** Workspace ID */
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  /** Agent that provided this artifact */
+  providedByAgentId: text("provided_by_agent_id"),
+  /** Agent that requested this artifact */
+  requestedByAgentId: text("requested_by_agent_id"),
+  /** Request ID if this artifact fulfills a request */
+  requestId: text("request_id"),
+  /** Content (base64 for images, text for others) */
+  content: text("content"),
+  /** Context or description */
+  context: text("context"),
+  /** Status: pending | provided | expired */
+  status: text("status").notNull().default("pending"),
+  /** Expiration timestamp */
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  /** Additional metadata */
+  metadata: jsonb("metadata").$type<Record<string, string>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Artifact Requests (pending artifact requests) ───────────────────────
+
+export const artifactRequests = pgTable("artifact_requests", {
+  id: text("id").primaryKey(),
+  /** Agent requesting the artifact */
+  fromAgentId: text("from_agent_id").notNull(),
+  /** Agent that should provide the artifact */
+  toAgentId: text("to_agent_id").notNull(),
+  /** Type of artifact requested */
+  artifactType: text("artifact_type").notNull(),
+  /** Task this request is for */
+  taskId: text("task_id").notNull(),
+  /** Workspace ID */
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  /** Context for the request */
+  context: text("context"),
+  /** Status: pending | fulfilled | rejected | expired */
+  status: text("status").notNull().default("pending"),
+  /** ID of artifact that fulfilled this request */
+  artifactId: text("artifact_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

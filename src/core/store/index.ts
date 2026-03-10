@@ -5,6 +5,7 @@ export {
 } from "./conversation-store";
 export { type TaskStore, InMemoryTaskStore } from "./task-store";
 export { type NoteStore, InMemoryNoteStore } from "./note-store";
+export { type ArtifactStore, InMemoryArtifactStore } from "./artifact-store";
 export {
   type WorkspaceStore,
   InMemoryWorkspaceStore,
@@ -18,7 +19,7 @@ export type {
 } from "./specialist-store";
 export { PostgresSpecialistStore } from "./specialist-store";
 
-// SQLite stores — for desktop platforms (Tauri/Electron)
+// SQLite stores — for the local Node.js backend
 // NOTE: Only import these in environments where better-sqlite3 is available.
 // They are NOT exported from the barrel to avoid bundling SQLite in web builds.
 // Import directly from "@/core/db/sqlite-stores" when needed.

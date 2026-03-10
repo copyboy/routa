@@ -16,15 +16,14 @@
 //!
 //! Storage: `<workspace>/.routa/traces/{day}/traces-{datetime}.jsonl`
 
-mod types;
-mod writer;
-mod reader;
 mod file_extractor;
+mod reader;
+mod types;
 mod vcs;
+mod writer;
 
-pub use types::*;
-pub use writer::*;
+pub use file_extractor::{compute_content_hash, extract_files_from_tool_call};
 pub use reader::*;
-pub use file_extractor::{extract_files_from_tool_call, compute_content_hash};
+pub use types::*;
 pub use vcs::{get_vcs_context, get_vcs_context_light};
-
+pub use writer::*;

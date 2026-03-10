@@ -9,12 +9,14 @@ export * from "./types";
 export { BaseProviderAdapter } from "./base-adapter";
 export { ClaudeCodeAdapter } from "./claude-adapter";
 export { OpenCodeAdapter } from "./opencode-adapter";
+export { DockerOpenCodeProviderAdapter } from "./docker-opencode-adapter";
 export { StandardAcpAdapter } from "./standard-acp-adapter";
 export { WorkspaceAgentProviderAdapter } from "../workspace-agent/workspace-agent-provider";
 
 import type { IProviderAdapter, ProviderType } from "./types";
 import { ClaudeCodeAdapter } from "./claude-adapter";
 import { OpenCodeAdapter } from "./opencode-adapter";
+import { DockerOpenCodeProviderAdapter } from "./docker-opencode-adapter";
 import { StandardAcpAdapter } from "./standard-acp-adapter";
 import { WorkspaceAgentProviderAdapter } from "../workspace-agent/workspace-agent-provider";
 
@@ -59,6 +61,10 @@ function normalizeProviderType(provider: string): ProviderType {
     case "opencode-sdk":
       return "opencode";
 
+    case "docker-opencode":
+    case "docker_opencode":
+      return "docker-opencode";
+
     case "kimi":
       return "kimi";
 
@@ -102,6 +108,9 @@ function createAdapter(provider: ProviderType): IProviderAdapter {
     case "opencode":
       return new OpenCodeAdapter();
 
+    case "docker-opencode":
+      return new DockerOpenCodeProviderAdapter();
+
     case "workspace":
       return new WorkspaceAgentProviderAdapter();
 
@@ -132,6 +141,7 @@ export function getKnownProviderTypes(): ProviderType[] {
   return [
     "claude",
     "opencode",
+    "docker-opencode",
     "kimi",
     "gemini",
     "copilot",

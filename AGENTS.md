@@ -1,61 +1,78 @@
-# Routa.js Architecture Guide
+# Routa.js — Multi-agent coordination platform with dual-backend architecture (Next.js + Rust/Axum).
 
 ## Project Overview
 
-**Routa.js** is a multi-agent coordination platform with a **dual-backend architecture**:
-- **Next.js Backend** (TypeScript) — Web deployment on Vercel with Postgres/SQLite
-- **Rust Backend** (Axum) — Desktop application with embedded server and SQLite
-- `crates/routa-server` — the same logic of Next.js backend, but implemented in Rust
+- Product feature tree can be found in `docs/product-specs/FEATURE_TREE.md`
 
-Both backends implement **identical REST APIs** for seamless frontend compatibility.
+## Coding Standards
 
-## Testing
+- Limit file size to **1000 lines** as much as possible if the file is too large, split it into smaller files.
+- Unless explicitly asked, do not write additional documentation for your work.
+- **Linter**: ESLint 9 flat config (`eslint.config.mjs`) — TypeScript-ESLint + React Hooks + Next.js plugin. Run with `npm run lint`. Rust side uses `cargo clippy`. Fix all warnings before committing; do not disable rules inline without justification.
 
-- Use playwright tool (mcp) to test the web UI by youself if possible
-- Use playwright testing e2e
-- Test Tauri UI with `npm run tauri dev`, then use playwright to test the UI too.
+## Testing & Debugging
 
+- Use **Playwright MCP tool** or CLI (`playwright-cli`) or Skills to test the web UI directly.
+- Use **Playwright e2e** tests for automated coverage.
+- Test Tauri UI: `npm run tauri dev`, then use Playwright against `http://127.0.0.1:3210/`.
+- When changes span many files, do a full manual walkthrough in the browser:
+  - Home page → select claude code → enter a requirement → auto-redirect to detail page → trigger ACP session
+  - Visit a workspace detail page → click a session → switch to Trace UI to check history
+  - Open browser DevTools to inspect network requests
+- When debugging frontend bugs, use `console.log` and read output via Playwright.
+- After fixing, **always clean up** all debug `console.log` statements.
 
-## Issue Management
+## After generating or modifying code
 
-Building an agent is complex, and API or web interactions may fail unexpectedly.  
-Log issues in `issues/` as structured Markdown files (with YAML front-matter) to document **WHAT happened** and **WHY it might happen** — not how to fix it.  
-These files serve as context handoff between agents and humans.
+After generating or modifying **source code** (not docs, configs, or workflows), agents must run the following checks automatically.
 
-Local issues live in `issues/` as Markdown files with YAML front-matter. They serve as
-context handoff between agents (and humans) — focus on **WHAT** and **WHY**, not HOW to resolve.
+> If any step fails, fix and re-validate. Never skip.
+>
+> **Skip checks** for changes that only touch: `*.md`, `*.yml`, `*.yaml`, `.github/`, `docs/`, or other non-code files.
 
-- File Naming: `issues/YYYY-MM-DD-short-description.md`
+## Git Discipline
 
-### Format
+### Baby-Step Commits (Enforced)
 
-Use `issues/_template.md` as the base. Key rules:
+- Each commit does **one thing**: one feature, one bug fix, or one refactor. Each commit should less than 10 files and less than 1000 lines of code.
+- No "kitchen sink" commits. If changes span multiple concerns, split into multiple commits.
+- Always include the related **GitHub issue ID** when applicable.
 
-- **front-matter** is required: `title`, `date`, `status`, `severity`, `area`, `reported_by`
-- **What Happened**: objective facts only — error messages, observed behavior, deviation from expected
-- **Why This Might Happen**: possible causes, use hedging language ("可能", "疑似"), never prescribe solutions
-- **Relevant Files**: list file paths that a reader should look at, no need to explain why
-- **Do NOT include solutions or fix instructions** — the person picking this up should form their own judgment with the context provided
+### Co-Author Format
 
-### Status Lifecycle
-
-`open` → `investigating` → `resolved` / `wontfix`
-
-### When to Create an Issue
-
-- Encountered an unexpected error during a task
-- Observed behavior that deviates from the API contract or expected flow
-- Found a potential bug but it's not blocking your current work
-- Need to hand off an investigation to another agent or human
-
-## Commit
-
-- Follow the Baby-Step Commit principle — keep commits small, but not excessively granular.
-- Always include the related GitHub issue ID when applicable.
-- Make sure tests pass before pushing.
-- Append a co-author line in the following format: (YourName, like Copilot,Augment,Claude, etc.) <YourEmail, like, <claude@anthropic.com>, <auggie@augmentcode.com>)
+- If you want to add `closed issue` in commit message, should view issue against the main branch with `gh issue view <issue-id>` 
+- Append a co-author line in the following format: (YourName, like Copilot,Augment,Claude etc.) (Your model name) <YourEmail, like, <claude@anthropic.com>, <auggie@augmentcode.com>)
   for example:
-  ```
-  Co-authored-by: GitHub Copilot Agent <198982749+copilot@users.noreply.github.com>
-  Co-authored-by: Kiro <kiro@assistant.ai>
-  ```
+
+```
+Co-authored-by: Kiro AI (Claude Opus 4.6) <kiro@kiro.dev>
+Co-authored-by: GitHub Copilot Agent (GPT 5.4) <198982749+copilot@users.noreply.github.com>
+Co-authored-by: QoderAI (Qwen 3.5 Max) <qoder_ai@qoder.com>
+Co-authored-by: gemini-cli (...) <218195315+gemini-cli@users.noreply.github.com>
+```
+
+## Pull Request
+
+- PR body must include **Playwright screenshots** or recordings.
+- Attach e2e test screenshots or recordings when available.
+
+## Issue Management — Feedback-Driven Loop
+
+Building agents is complex — failures happen. Use a feedback-driven loop:
+
+### 1. Capture Feedback
+- Immediately log failures in `docs/issues/YYYY-MM-DD-short-description.md` (YAML front-matter).
+- Document **WHAT** happened and **WHY** — not HOW to fix it.
+- These files serve as context handoff between agents and humans.
+
+### 2. Search Before Creating
+- Always search `docs/issues/` first — someone may have already documented the same problem.
+
+### 3. Escalate to GitHub
+```bash
+gh issue create --label "Agent" --body "Agent: YourName\n\n[issue details]"
+```
+- Link the local issue file in the GitHub issue body.
+
+### 4. Close the Loop
+- Resolved? Update the local issue file with resolution notes and close the GitHub issue.

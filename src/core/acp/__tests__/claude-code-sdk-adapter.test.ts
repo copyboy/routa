@@ -257,7 +257,7 @@ describe("ClaudeCodeSdkAdapter", () => {
       const chunkNotifs = notifications.filter(
         (n) =>
           n.method === "session/update" &&
-          (n.params as Record<string, unknown>)?.update?.sessionUpdate === "agent_message_chunk"
+          (n.params as any)?.update?.sessionUpdate === "agent_message_chunk"
       );
       expect(chunkNotifs).toHaveLength(1);
       const update = (chunkNotifs[0].params as Record<string, unknown>).update as Record<string, unknown>;
@@ -287,7 +287,7 @@ describe("ClaudeCodeSdkAdapter", () => {
       const thoughtNotifs = notifications.filter(
         (n) =>
           n.method === "session/update" &&
-          (n.params as Record<string, unknown>)?.update?.sessionUpdate === "agent_thought_chunk"
+          (n.params as any)?.update?.sessionUpdate === "agent_thought_chunk"
       );
       expect(thoughtNotifs).toHaveLength(1);
     });
@@ -315,13 +315,125 @@ describe("ClaudeCodeSdkAdapter", () => {
       const toolNotifs = notifications.filter(
         (n) =>
           n.method === "session/update" &&
-          (n.params as Record<string, unknown>)?.update?.sessionUpdate === "tool_call"
+          (n.params as any)?.update?.sessionUpdate === "tool_call"
       );
       expect(toolNotifs).toHaveLength(1);
       const update = (toolNotifs[0].params as Record<string, unknown>).update as Record<string, unknown>;
       expect(update.title).toBe("Bash");
       expect(update.toolCallId).toBe("tool-id-1");
       expect(update.status).toBe("running");
+    });
+
+    it("pauses for AskUserQuestion and resumes after a UI response", async () => {
+      const toolUseId = "ask-user-1";
+      const questionInput = {
+        questions: [
+          {
+            header: "Format",
+            question: "How should I format the output?",
+            options: [
+              { label: "Summary", description: "Brief overview" },
+              { label: "Detailed", description: "Full explanation" },
+            ],
+            multiSelect: false,
+          },
+        ],
+      };
+      let permissionResult: unknown;
+
+      mockQuery.mockImplementation(({ options }: { options: { canUseTool?: (...args: unknown[]) => Promise<unknown> } }) => {
+        async function* stream(): AsyncGenerator<SDKMessage, void> {
+          permissionResult = await options.canUseTool?.(
+            "AskUserQuestion",
+            questionInput,
+            {
+              signal: new AbortController().signal,
+              toolUseID: toolUseId,
+            }
+          );
+
+          yield {
+            type: "assistant",
+            message: {
+              id: "msg-ask-user-complete",
+              type: "message",
+              role: "assistant",
+              model: "claude-sonnet",
+              content: [
+                { type: "tool_use", id: toolUseId, name: "AskUserQuestion", input: questionInput },
+              ],
+              stop_reason: "tool_use",
+              stop_sequence: null,
+              usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } as any,
+            } as any,
+            parent_tool_use_id: null,
+            uuid: "uuid-ask-user-tool" as `${string}-${string}-${string}-${string}-${string}`,
+            session_id: "sess-1",
+          };
+
+          yield {
+            type: "result",
+            subtype: "success",
+            duration_ms: 1000,
+            duration_api_ms: 900,
+            is_error: false,
+            num_turns: 1,
+            result: "Done!",
+            stop_reason: "end_turn",
+            total_cost_usd: 0.001,
+            usage: { input_tokens: 10, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } as any,
+            modelUsage: {},
+            permission_denials: [],
+            uuid: "uuid-ask-user" as `${string}-${string}-${string}-${string}-${string}`,
+            session_id: "sess-1",
+          };
+        }
+
+        return stream();
+      });
+
+      const { notifications, handler } = collectNotifications();
+      const adapter = new ClaudeCodeSdkAdapter("/cwd", handler);
+      await adapter.connect();
+
+      const promptPromise = adapter.prompt("help me choose");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const waitingNotif = notifications.find(
+        (n) =>
+          n.method === "session/update" &&
+          (n.params as any)?.update?.sessionUpdate === "tool_call" &&
+          (n.params as any)?.update?.title === "AskUserQuestion"
+      );
+      expect(waitingNotif).toBeTruthy();
+
+      const submitted = adapter.respondToUserInput(toolUseId, {
+        questions: questionInput.questions,
+        answers: { "How should I format the output?": "Summary" },
+      });
+      expect(submitted).toBe(true);
+
+      const result = await promptPromise;
+      expect(result.stopReason).toBe("end_turn");
+      expect(permissionResult).toEqual({
+        behavior: "allow",
+        updatedInput: {
+          questions: questionInput.questions,
+          answers: { "How should I format the output?": "Summary" },
+        },
+      });
+
+      const completedNotif = notifications.find(
+        (n) =>
+          n.method === "session/update" &&
+          (n.params as any)?.update?.sessionUpdate === "tool_call_update" &&
+          (n.params as any)?.update?.toolCallId === toolUseId
+      );
+      expect(completedNotif).toBeTruthy();
+      expect(((completedNotif!.params as Record<string, unknown>).update as Record<string, unknown>).rawInput).toEqual({
+        questions: questionInput.questions,
+        answers: { "How should I format the output?": "Summary" },
+      });
     });
 
     it("emits tool_call_update for tool_use blocks in assistant messages", async () => {
@@ -337,8 +449,8 @@ describe("ClaudeCodeSdkAdapter", () => {
           ],
           stop_reason: "tool_use",
           stop_sequence: null,
-          usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-        },
+          usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } as any,
+        } as any,
         parent_tool_use_id: null,
         uuid: "uuid-4" as `${string}-${string}-${string}-${string}-${string}`,
         session_id: "sess-1",
@@ -354,12 +466,66 @@ describe("ClaudeCodeSdkAdapter", () => {
       const updateNotifs = notifications.filter(
         (n) =>
           n.method === "session/update" &&
-          (n.params as Record<string, unknown>)?.update?.sessionUpdate === "tool_call_update"
+          (n.params as any)?.update?.sessionUpdate === "tool_call_update"
       );
       expect(updateNotifs).toHaveLength(1);
       const update = (updateNotifs[0].params as Record<string, unknown>).update as Record<string, unknown>;
       expect(update.title).toBe("Read");
       expect(update.status).toBe("completed");
+    });
+
+    it("does not emit a completed AskUserQuestion update while awaiting UI input", async () => {
+      const toolUseId = "ask-user-pending";
+      const assistantMsg: SDKMessage = {
+        type: "assistant",
+        message: {
+          id: "msg-ask-user-pending",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet",
+          content: [
+            {
+              type: "tool_use",
+              id: toolUseId,
+              name: "AskUserQuestion",
+              input: {
+                questions: [
+                  {
+                    header: "Format",
+                    question: "How should I format the output?",
+                    options: [
+                      { label: "Summary", description: "Brief overview" },
+                      { label: "Detailed", description: "Full explanation" },
+                    ],
+                    multiSelect: false,
+                  },
+                ],
+              },
+            },
+          ],
+          stop_reason: "tool_use",
+          stop_sequence: null,
+          usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } as any,
+        } as any,
+        parent_tool_use_id: null,
+        uuid: "uuid-ask-user-pending" as `${string}-${string}-${string}-${string}-${string}`,
+        session_id: "sess-1",
+      };
+
+      mockQuery.mockReturnValue(makeStream([assistantMsg]));
+
+      const { notifications, handler } = collectNotifications();
+      const adapter = new ClaudeCodeSdkAdapter("/cwd", handler);
+      await adapter.connect();
+      (adapter as unknown as { pendingUserInputRequests: Map<string, unknown> }).pendingUserInputRequests.set(toolUseId, {});
+      await adapter.prompt("ask me something");
+
+      const updateNotifs = notifications.filter(
+        (n) =>
+          n.method === "session/update" &&
+          (n.params as any)?.update?.sessionUpdate === "tool_call_update"
+      );
+      expect(updateNotifs).toHaveLength(0);
     });
 
     it("emits turn_complete notification after successful run", async () => {
@@ -373,7 +539,7 @@ describe("ClaudeCodeSdkAdapter", () => {
         result: "Done!",
         stop_reason: "end_turn",
         total_cost_usd: 0.001,
-        usage: { input_tokens: 10, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        usage: { input_tokens: 10, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } as any,
         modelUsage: {},
         permission_denials: [],
         uuid: "uuid-5" as `${string}-${string}-${string}-${string}-${string}`,
@@ -393,7 +559,7 @@ describe("ClaudeCodeSdkAdapter", () => {
       const completeNotifs = notifications.filter(
         (n) =>
           n.method === "session/update" &&
-          (n.params as Record<string, unknown>)?.update?.sessionUpdate === "turn_complete"
+          (n.params as any)?.update?.sessionUpdate === "turn_complete"
       );
       expect(completeNotifs).toHaveLength(1);
     });
@@ -408,7 +574,7 @@ describe("ClaudeCodeSdkAdapter", () => {
         num_turns: 30,
         stop_reason: null,
         total_cost_usd: 0.01,
-        usage: { input_tokens: 100, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        usage: { input_tokens: 100, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } as any,
         modelUsage: {},
         permission_denials: [],
         errors: ["Max turns reached"],

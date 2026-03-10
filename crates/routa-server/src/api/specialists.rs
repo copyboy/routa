@@ -9,7 +9,13 @@ use crate::error::ServerError;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(list_specialists).post(create_specialist).put(update_specialist).delete(delete_specialist))
+    Router::new().route(
+        "/",
+        get(list_specialists)
+            .post(create_specialist)
+            .put(update_specialist)
+            .delete(delete_specialist),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -18,7 +24,7 @@ struct SpecialistQuery {
 }
 
 /// GET /api/specialists — List all specialists or get a specific one.
-/// 
+///
 /// For desktop/SQLite version, we return bundled specialists only.
 /// Full CRUD operations require Postgres (Vercel deployment).
 async fn list_specialists(
@@ -27,7 +33,7 @@ async fn list_specialists(
 ) -> Result<Json<serde_json::Value>, ServerError> {
     // Return bundled specialists (hardcoded for now)
     let specialists = get_bundled_specialists();
-    
+
     if let Some(id) = query.id {
         let specialist = specialists.iter().find(|s| s["id"] == id);
         if let Some(s) = specialist {
@@ -35,43 +41,43 @@ async fn list_specialists(
         }
         return Err(ServerError::NotFound("Specialist not found".to_string()));
     }
-    
+
     Ok(Json(serde_json::json!({ "specialists": specialists })))
 }
 
 /// POST /api/specialists — Create a new specialist.
-/// 
+///
 /// Not supported in desktop/SQLite version.
 async fn create_specialist(
     State(_state): State<AppState>,
     Json(_body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     Err(ServerError::NotImplemented(
-        "Specialist creation requires Postgres database (Vercel deployment)".to_string()
+        "Specialist creation requires Postgres database (Vercel deployment)".to_string(),
     ))
 }
 
 /// PUT /api/specialists — Update a specialist.
-/// 
+///
 /// Not supported in desktop/SQLite version.
 async fn update_specialist(
     State(_state): State<AppState>,
     Json(_body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     Err(ServerError::NotImplemented(
-        "Specialist updates require Postgres database (Vercel deployment)".to_string()
+        "Specialist updates require Postgres database (Vercel deployment)".to_string(),
     ))
 }
 
 /// DELETE /api/specialists — Delete a specialist.
-/// 
+///
 /// Not supported in desktop/SQLite version.
 async fn delete_specialist(
     State(_state): State<AppState>,
     Query(_query): Query<SpecialistQuery>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     Err(ServerError::NotImplemented(
-        "Specialist deletion requires Postgres database (Vercel deployment)".to_string()
+        "Specialist deletion requires Postgres database (Vercel deployment)".to_string(),
     ))
 }
 
@@ -130,4 +136,3 @@ fn get_bundled_specialists() -> Vec<serde_json::Value> {
         }),
     ]
 }
-

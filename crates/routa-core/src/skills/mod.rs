@@ -74,6 +74,12 @@ pub struct SkillRegistry {
     skills: RwLock<HashMap<String, SkillDefinition>>,
 }
 
+impl Default for SkillRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SkillRegistry {
     pub fn new() -> Self {
         Self {
@@ -114,10 +120,7 @@ impl SkillRegistry {
 
     /// Get a skill by name.
     pub fn get_skill(&self, name: &str) -> Option<SkillDefinition> {
-        self.skills
-            .read()
-            .ok()
-            .and_then(|s| s.get(name).cloned())
+        self.skills.read().ok().and_then(|s| s.get(name).cloned())
     }
 
     /// List all discovered skills.
@@ -160,7 +163,11 @@ fn discover_skills_recursive(
             }
             // Recurse deeper (handles .system subdirs, nested structures)
             discover_skills_recursive(&path, out, depth + 1, max_depth);
-        } else if path.file_name().map(|f| f == SKILL_FILENAME).unwrap_or(false) {
+        } else if path
+            .file_name()
+            .map(|f| f == SKILL_FILENAME)
+            .unwrap_or(false)
+        {
             if let Some(skill) = parse_skill_file(&path) {
                 out.insert(skill.name.clone(), skill);
             }
@@ -209,10 +216,7 @@ fn parse_skill_file(path: &Path) -> Option<SkillDefinition> {
     // Try YAML frontmatter first
     if let Some((frontmatter_str, body)) = extract_frontmatter(&raw) {
         if let Ok(fm) = serde_yaml::from_str::<SkillFrontmatter>(&frontmatter_str) {
-            let short_desc = fm
-                .metadata
-                .short_description
-                .filter(|s| !s.is_empty());
+            let short_desc = fm.metadata.short_description.filter(|s| !s.is_empty());
 
             return Some(SkillDefinition {
                 name: fm.name,

@@ -1,11 +1,41 @@
-import React, {useState, useMemo} from "react";
+import React, {useEffect, useMemo, useState} from "react";
 import {TerminalBubble} from "@/client/components/terminal/terminal-bubble";
 import {ChatMessage, PlanEntry} from "@/client/components/chat-panel";
 import {MarkdownViewer} from "@/client/components/markdown/markdown-viewer";
 import {CodeViewer} from "@/client/components/codemirror/code-viewer";
 import {TaskProgressBar, TaskInfo} from "@/client/components/task-progress-bar";
 
-export function MessageBubble({message}: { message: ChatMessage }) {
+interface AskUserQuestionOption {
+    label: string;
+    description?: string;
+}
+
+interface AskUserQuestionItem {
+    question: string;
+    header: string;
+    options?: AskUserQuestionOption[];
+    multiSelect?: boolean;
+}
+
+interface AskUserQuestionPayload {
+    questions?: AskUserQuestionItem[];
+    answers?: Record<string, string>;
+}
+
+export function hasAskUserQuestionAnswers(message: ChatMessage): boolean {
+    const payload = message.toolRawInput as AskUserQuestionPayload | undefined;
+    const answers = payload?.answers;
+    if (!answers || typeof answers !== "object") return false;
+    return Object.values(answers).some((value) => typeof value === "string" && value.trim().length > 0);
+}
+
+export function MessageBubble({
+    message,
+    onSubmitAskUserQuestion,
+}: {
+    message: ChatMessage;
+    onSubmitAskUserQuestion?: (toolCallId: string, response: Record<string, unknown>) => Promise<void>;
+}) {
     const {role} = message;
     switch (role) {
         case "user":
@@ -25,7 +55,14 @@ export function MessageBubble({message}: { message: ChatMessage }) {
                     />
                 );
             }
-            console.log(message)
+            if (isAskUserQuestionMessage(message)) {
+                return (
+                    <AskUserQuestionBubble
+                        message={message}
+                        onSubmit={onSubmitAskUserQuestion}
+                    />
+                );
+            }
             return (
                 <ToolBubble
                     content={message.content}
@@ -59,7 +96,7 @@ export function MessageBubble({message}: { message: ChatMessage }) {
                     />
                 );
             }
-            return <InfoBubble content={message.content}/>;
+            return <InfoBubble content={message.content} rawData={message.rawData}/>;
         default:
             return null;
     }
@@ -74,6 +111,13 @@ function UserBubble({content}: { content: string }) {
             </div>
         </div>
     );
+}
+
+export function isAskUserQuestionMessage(message: ChatMessage): boolean {
+    if (message.toolKind === "ask-user-question") return true;
+    if (message.toolName === "AskUserQuestion") return true;
+    const payload = message.toolRawInput as AskUserQuestionPayload | undefined;
+    return Array.isArray(payload?.questions) && payload.questions.length > 0;
 }
 
 function AssistantBubble({content}: { content: string }) {
@@ -449,6 +493,132 @@ function ToolBubble({
     );
 }
 
+export function AskUserQuestionBubble({
+    message,
+    onSubmit,
+}: {
+    message: ChatMessage;
+    onSubmit?: (toolCallId: string, response: Record<string, unknown>) => Promise<void>;
+}) {
+    const rawInput = (message.toolRawInput ?? {}) as AskUserQuestionPayload;
+    const questions = Array.isArray(rawInput.questions) ? rawInput.questions : [];
+    const existingAnswers = rawInput.answers ?? {};
+    const [answers, setAnswers] = useState<Record<string, string>>(existingAnswers);
+    const [submitting, setSubmitting] = useState(false);
+    const [submitError, setSubmitError] = useState<string | null>(null);
+
+    useEffect(() => {
+        setAnswers(existingAnswers);
+    }, [message.id, rawInput.answers]);
+
+    const hasAnswers = hasAskUserQuestionAnswers(message);
+    const isCompleted = hasAnswers;
+    const isFailed = message.toolStatus === "failed";
+    const isAwaitingInput = !hasAnswers && !isFailed;
+
+    const updateSingleAnswer = (question: string, answer: string) => {
+        setAnswers((prev) => ({ ...prev, [question]: answer }));
+    };
+
+    const toggleMultiAnswer = (question: string, answer: string) => {
+        setAnswers((prev) => {
+            const current = prev[question]
+                ? prev[question].split(",").map((item) => item.trim()).filter(Boolean)
+                : [];
+            const next = current.includes(answer)
+                ? current.filter((item) => item !== answer)
+                : [...current, answer];
+            return { ...prev, [question]: next.join(", ") };
+        });
+    };
+
+    const handleSubmit = async () => {
+        if (!message.toolCallId || !onSubmit || submitting) return;
+
+        for (const item of questions) {
+            if (!answers[item.question]?.trim()) {
+                setSubmitError(`Please answer \"${item.header}\" before continuing.`);
+                return;
+            }
+        }
+
+        setSubmitting(true);
+        setSubmitError(null);
+        try {
+            await onSubmit(message.toolCallId, {
+                questions,
+                answers,
+            });
+        } catch (error) {
+            setSubmitError(error instanceof Error ? error.message : "Failed to submit answers");
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <div className="w-full rounded-md border border-amber-200/80 dark:border-amber-800/40 bg-amber-50/40 dark:bg-amber-950/10 overflow-hidden">
+            <div className="px-2.5 py-1.5 space-y-2">
+                {questions.map((item) => {
+                    const selectedValues = answers[item.question]
+                        ? answers[item.question].split(",").map((value) => value.trim()).filter(Boolean)
+                        : [];
+                    return (
+                        <div key={item.question}>
+                            <div className="flex items-center gap-1.5 mb-1">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isCompleted ? "bg-green-500" : isFailed ? "bg-red-500" : "bg-amber-500 animate-pulse"}`} />
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">{item.header}</span>
+                                <span className="text-xs text-gray-700 dark:text-gray-300">{item.question}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 pl-3">
+                                {(item.options ?? []).map((option) => {
+                                    const selected = selectedValues.includes(option.label);
+                                    return (
+                                        <button
+                                            key={`${item.question}-${option.label}`}
+                                            type="button"
+                                            disabled={!isAwaitingInput || submitting}
+                                            onClick={() => item.multiSelect
+                                                ? toggleMultiAnswer(item.question, option.label)
+                                                : updateSingleAnswer(item.question, option.label)}
+                                            title={option.description}
+                                            className={`rounded-md border px-2 py-0.5 text-[11px] transition-colors ${selected
+                                                ? "border-amber-500 bg-amber-500 text-white dark:bg-amber-600"
+                                                : "border-amber-200 dark:border-amber-700/50 bg-white/80 dark:bg-white/5 text-gray-700 dark:text-gray-300 hover:border-amber-400 dark:hover:border-amber-600"
+                                            } ${!isAwaitingInput ? "cursor-default" : "cursor-pointer"}`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })}
+
+                {submitError && (
+                    <div className="rounded-md border border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-950/20 px-2 py-1 text-[11px] text-red-700 dark:text-red-300">
+                        {submitError}
+                    </div>
+                )}
+
+                {isAwaitingInput && (
+                    <div className="flex justify-end">
+                        <button
+                            type="button"
+                            onClick={handleSubmit}
+                            disabled={submitting || questions.length === 0}
+                            className="rounded-md bg-amber-600 px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {submitting ? "..." : "Submit"}
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 function TaskBubble({
                         content, toolStatus, rawInput,
                     }: {
@@ -626,7 +796,28 @@ function UsageBadge({used, size, costAmount, costCurrency}: {
     );
 }
 
-function InfoBubble({content}: { content: string }) {
+function InfoBubble({content, rawData}: { content: string; rawData?: Record<string, unknown> }) {
+    const [expanded, setExpanded] = useState(false);
+    if (rawData) {
+        return (
+            <div className="flex justify-center my-1">
+                <div className="max-w-xl w-full rounded-lg bg-gray-50 dark:bg-[#161922] border border-gray-100 dark:border-gray-800 text-[11px] text-gray-500 dark:text-gray-400 overflow-hidden">
+                    <button
+                        className="w-full flex items-center gap-1.5 px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-[#1e2230] transition-colors text-left"
+                        onClick={() => setExpanded(v => !v)}
+                    >
+                        <span className="opacity-60">{expanded ? "▾" : "▸"}</span>
+                        <span className="font-mono">{content}</span>
+                    </button>
+                    {expanded && (
+                        <pre className="px-3 pb-2 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[10px] text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-800">
+                            {JSON.stringify(rawData, null, 2)}
+                        </pre>
+                    )}
+                </div>
+            </div>
+        );
+    }
     return (
         <div className="flex justify-center">
             <div

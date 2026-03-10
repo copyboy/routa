@@ -187,4 +187,3 @@ impl AcpAgentEntry {
         None
     }
 }
-

@@ -73,8 +73,7 @@ impl Default for ServerConfig {
 /// This is useful when you need to share the state between the HTTP server
 /// and other consumers (e.g. Tauri IPC commands, JSON-RPC router).
 pub async fn create_app_state(db_path: &str) -> Result<state::AppState, String> {
-    let db = db::Database::open(db_path)
-        .map_err(|e| format!("Failed to open database: {}", e))?;
+    let db = db::Database::open(db_path).map_err(|e| format!("Failed to open database: {}", e))?;
 
     let state: state::AppState = Arc::new(state::AppStateInner::new(db));
 

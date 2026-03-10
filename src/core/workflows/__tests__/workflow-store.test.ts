@@ -18,6 +18,7 @@ describe("InMemoryWorkflowRunStore", () => {
     workflowId: "wf-1",
     workflowName: "Test Workflow",
     workspaceId: "ws-1",
+    triggerSource: "manual",
     totalSteps: 3,
     ...overrides,
   });

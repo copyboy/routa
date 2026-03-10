@@ -9,8 +9,7 @@ use crate::error::ServerError;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/", get(list_skills).post(reload_skills))
+    Router::new().route("/", get(list_skills).post(reload_skills))
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,5 +38,7 @@ async fn reload_skills(
         .unwrap_or_else(|_| ".".to_string());
     state.skill_registry.reload(&cwd);
     let skills = state.skill_registry.list_skills();
-    Ok(Json(serde_json::json!({ "skills": skills, "reloaded": true })))
+    Ok(Json(
+        serde_json::json!({ "skills": skills, "reloaded": true }),
+    ))
 }

@@ -3,8 +3,8 @@
 //! Extracts file paths and line ranges from tool call parameters
 //! to populate TraceFile and TraceRange in trace records.
 
-use serde_json::Value;
 use super::types::{TraceFile, TraceRange};
+use serde_json::Value;
 
 /// File editing tools that we track for ranges.
 const FILE_EDIT_TOOLS: &[&str] = &[
@@ -18,10 +18,7 @@ const FILE_EDIT_TOOLS: &[&str] = &[
 
 /// Extract file information from tool call parameters.
 /// Returns a vector of TraceFile objects with ranges if applicable.
-pub fn extract_files_from_tool_call(
-    tool_name: &str,
-    params: &Value,
-) -> Vec<TraceFile> {
+pub fn extract_files_from_tool_call(tool_name: &str, params: &Value) -> Vec<TraceFile> {
     // Normalize tool name (strip MCP prefix)
     let base_tool_name = normalize_tool_name(tool_name);
 
@@ -37,7 +34,14 @@ pub fn extract_files_from_tool_call(
                 files.push(TraceFile {
                     path: file_path,
                     ranges: Vec::new(),
-                    operation: Some(if base_tool_name == "Read" { "read" } else { "write" }.to_string()),
+                    operation: Some(
+                        if base_tool_name == "Read" {
+                            "read"
+                        } else {
+                            "write"
+                        }
+                        .to_string(),
+                    ),
                     content_hash: None,
                 });
             }
@@ -74,7 +78,14 @@ pub fn extract_files_from_tool_call(
                 files.push(TraceFile {
                     path: file_path,
                     ranges: Vec::new(),
-                    operation: Some(if base_tool_name == "NotebookRead" { "read" } else { "edit" }.to_string()),
+                    operation: Some(
+                        if base_tool_name == "NotebookRead" {
+                            "read"
+                        } else {
+                            "edit"
+                        }
+                        .to_string(),
+                    ),
                     content_hash: None,
                 });
             }
@@ -88,7 +99,8 @@ pub fn extract_files_from_tool_call(
 /// Extract file path from tool parameters.
 /// Checks for both `file_path` and `path` fields.
 fn extract_file_path(params: &Value) -> Option<String> {
-    params.get("file_path")
+    params
+        .get("file_path")
         .or_else(|| params.get("path"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
@@ -101,7 +113,7 @@ fn extract_ranges_from_edit(params: &Value) -> Option<Vec<TraceRange>> {
     // Check for explicit line range
     if let (Some(start), Some(end)) = (
         params.get("startLine").and_then(|v| v.as_u64()),
-        params.get("endLine").and_then(|v| v.as_u64())
+        params.get("endLine").and_then(|v| v.as_u64()),
     ) {
         ranges.push(TraceRange {
             start_line: start as u32,
@@ -114,7 +126,7 @@ fn extract_ranges_from_edit(params: &Value) -> Option<Vec<TraceRange>> {
     // Check for oldStr/newStr with line numbers
     if let (Some(old), Some(new)) = (
         params.get("oldLine").and_then(|v| v.as_u64()),
-        params.get("newLine").and_then(|v| v.as_u64())
+        params.get("newLine").and_then(|v| v.as_u64()),
     ) {
         ranges.push(TraceRange {
             start_line: old as u32,

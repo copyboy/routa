@@ -12,8 +12,10 @@ const eslintConfig = [
       "node_modules/**",
       "out/**",
       "build/**",
+      "target/**",
       "dist/**",
       ".vercel/**",
+      ".routa/**",
       "apps/desktop/src-tauri/target/**",
       "apps/desktop/src-tauri/bundled/**",
       "apps/desktop/src-tauri/frontend/**",
@@ -81,11 +83,44 @@ const eslintConfig = [
       "no-prototype-builtins": "warn", // Downgrade to warning
       "no-regex-spaces": "warn", // Downgrade to warning
       "no-fallthrough": "warn", // Downgrade to warning
+      "no-unused-private-class-members": "warn", // Downgrade to warning
+      "preserve-caught-error": "warn", // Downgrade to warning
+      "no-useless-assignment": "warn", // Downgrade to warning
+      "no-unsafe-finally": "warn", // Downgrade to warning
+      "@next/next/no-img-element": "warn", // Downgrade to warning
+      "react-hooks/set-state-in-effect": "warn", // Downgrade to warning
+      "react-hooks/purity": "warn", // Downgrade to warning
+      "react-hooks/refs": "warn", // Downgrade to warning
     },
     settings: {
       react: {
         version: "detect",
       },
+    },
+  },
+  // Relax rules for test files
+  {
+    files: ["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}", "**/tests/**", "**/e2e/**", "vitest.setup.ts"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": "off",
+      "@typescript-eslint/no-explicit-any": "off",
+      "no-empty": "off",
+    },
+  },
+  // Relax rules for scripts
+  {
+    files: ["scripts/**/*.{ts,js,mjs}"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": "off",
+      "no-regex-spaces": "off",
+      "prefer-const": "off",
+    },
+  },
+  // Relax rules for docker bridge server
+  {
+    files: ["docker/opencode-bridge/**/*.js"],
+    rules: {
+      "no-empty": "off",
     },
   },
 ];

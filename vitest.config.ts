@@ -9,7 +9,7 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
     include: ["**/__tests__/**/*.test.ts", "**/__tests__/**/*.test.tsx"],
-    exclude: ["**/node_modules/**", "**/dist/**", "**/.next/**", "src/client/utils/__tests__/**"], // Exclude old test files that use custom framework
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.next/**", "src/client/utils/__tests__/**", "**/.routa/**"], // Exclude old test files and .routa cache
     css: true,
   },
   resolve: {

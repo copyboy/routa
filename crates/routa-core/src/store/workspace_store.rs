@@ -49,9 +49,7 @@ impl WorkspaceStore {
                     "SELECT id, title, status, metadata, created_at, updated_at
                      FROM workspaces WHERE id = ?1",
                 )?;
-                stmt.query_row(rusqlite::params![id], |row| {
-                        Ok(row_to_workspace(row))
-                    })
+                stmt.query_row(rusqlite::params![id], |row| Ok(row_to_workspace(row)))
                     .optional()
             })
             .await
@@ -72,7 +70,10 @@ impl WorkspaceStore {
             .await
     }
 
-    pub async fn list_by_status(&self, status: WorkspaceStatus) -> Result<Vec<Workspace>, ServerError> {
+    pub async fn list_by_status(
+        &self,
+        status: WorkspaceStatus,
+    ) -> Result<Vec<Workspace>, ServerError> {
         let status_str = status.as_str().to_string();
         self.db
             .with_conn_async(move |conn| {
@@ -81,7 +82,9 @@ impl WorkspaceStore {
                      FROM workspaces WHERE status = ?1 ORDER BY created_at DESC",
                 )?;
                 let rows = stmt
-                    .query_map(rusqlite::params![status_str], |row| Ok(row_to_workspace(row)))?
+                    .query_map(rusqlite::params![status_str], |row| {
+                        Ok(row_to_workspace(row))
+                    })?
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(rows)
             })
@@ -122,7 +125,10 @@ impl WorkspaceStore {
         let id = id.to_string();
         self.db
             .with_conn_async(move |conn| {
-                conn.execute("DELETE FROM workspaces WHERE id = ?1", rusqlite::params![id])?;
+                conn.execute(
+                    "DELETE FROM workspaces WHERE id = ?1",
+                    rusqlite::params![id],
+                )?;
                 Ok(())
             })
             .await
@@ -132,11 +138,7 @@ impl WorkspaceStore {
         if let Some(ws) = self.get("default").await? {
             return Ok(ws);
         }
-        let ws = Workspace::new(
-            "default".to_string(),
-            "Default Workspace".to_string(),
-            None,
-        );
+        let ws = Workspace::new("default".to_string(), "Default Workspace".to_string(), None);
         self.save(&ws).await?;
         Ok(ws)
     }
@@ -146,8 +148,7 @@ use rusqlite::Row;
 
 fn row_to_workspace(row: &Row<'_>) -> Workspace {
     let metadata_str: String = row.get(3).unwrap_or_default();
-    let metadata: HashMap<String, String> =
-        serde_json::from_str(&metadata_str).unwrap_or_default();
+    let metadata: HashMap<String, String> = serde_json::from_str(&metadata_str).unwrap_or_default();
     let created_ms: i64 = row.get(4).unwrap_or(0);
     let updated_ms: i64 = row.get(5).unwrap_or(0);
 
@@ -156,9 +157,7 @@ fn row_to_workspace(row: &Row<'_>) -> Workspace {
         title: row.get(1).unwrap_or_default(),
         status: WorkspaceStatus::from_str(&row.get::<_, String>(2).unwrap_or_default()),
         metadata,
-        created_at: chrono::DateTime::from_timestamp_millis(created_ms)
-            .unwrap_or_else(|| Utc::now()),
-        updated_at: chrono::DateTime::from_timestamp_millis(updated_ms)
-            .unwrap_or_else(|| Utc::now()),
+        created_at: chrono::DateTime::from_timestamp_millis(created_ms).unwrap_or_else(Utc::now),
+        updated_at: chrono::DateTime::from_timestamp_millis(updated_ms).unwrap_or_else(Utc::now),
     }
 }

@@ -90,7 +90,7 @@ export class TerminalManager {
       shell: true,
     });
 
-    let output = "";
+    const output = "";
     let exitResolve: (code: number) => void;
     const exitPromise = new Promise<number>((resolve) => {
       exitResolve = resolve;

@@ -79,7 +79,10 @@ impl ScheduleStore {
             .await
     }
 
-    pub async fn list_by_workspace(&self, workspace_id: &str) -> Result<Vec<Schedule>, ServerError> {
+    pub async fn list_by_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<Schedule>, ServerError> {
         let ws = workspace_id.to_string();
         self.db
             .with_conn_async(move |conn| {
@@ -113,19 +116,43 @@ impl ScheduleStore {
             .await
     }
 
-    pub async fn update(&self, id: &str, input: UpdateScheduleInput) -> Result<Option<Schedule>, ServerError> {
+    pub async fn update(
+        &self,
+        id: &str,
+        input: UpdateScheduleInput,
+    ) -> Result<Option<Schedule>, ServerError> {
         // Fetch first, then apply patches, then save
         let existing = self.get(id).await?;
-        let Some(mut s) = existing else { return Ok(None) };
-        if let Some(v) = input.name { s.name = v; }
-        if let Some(v) = input.cron_expr { s.cron_expr = v; }
-        if let Some(v) = input.task_prompt { s.task_prompt = v; }
-        if let Some(v) = input.agent_id { s.agent_id = v; }
-        if let Some(v) = input.enabled { s.enabled = v; }
-        if let Some(v) = input.next_run_at { s.next_run_at = Some(v); }
-        if let Some(v) = input.last_run_at { s.last_run_at = Some(v); }
-        if let Some(v) = input.last_task_id { s.last_task_id = Some(v); }
-        if let Some(v) = input.prompt_template { s.prompt_template = Some(v); }
+        let Some(mut s) = existing else {
+            return Ok(None);
+        };
+        if let Some(v) = input.name {
+            s.name = v;
+        }
+        if let Some(v) = input.cron_expr {
+            s.cron_expr = v;
+        }
+        if let Some(v) = input.task_prompt {
+            s.task_prompt = v;
+        }
+        if let Some(v) = input.agent_id {
+            s.agent_id = v;
+        }
+        if let Some(v) = input.enabled {
+            s.enabled = v;
+        }
+        if let Some(v) = input.next_run_at {
+            s.next_run_at = Some(v);
+        }
+        if let Some(v) = input.last_run_at {
+            s.last_run_at = Some(v);
+        }
+        if let Some(v) = input.last_task_id {
+            s.last_task_id = Some(v);
+        }
+        if let Some(v) = input.prompt_template {
+            s.prompt_template = Some(v);
+        }
         s.updated_at = Utc::now();
         let sc = s.clone();
         self.db
@@ -158,7 +185,8 @@ impl ScheduleStore {
         let id = id.to_string();
         self.db
             .with_conn_async(move |conn| {
-                let n = conn.execute("DELETE FROM schedules WHERE id = ?1", rusqlite::params![id])?;
+                let n =
+                    conn.execute("DELETE FROM schedules WHERE id = ?1", rusqlite::params![id])?;
                 Ok(n > 0)
             })
             .await
@@ -167,9 +195,7 @@ impl ScheduleStore {
 
 fn row_to_schedule(row: &rusqlite::Row<'_>) -> Schedule {
     use chrono::TimeZone;
-    let to_dt = |ms: Option<i64>| {
-        ms.and_then(|v| Utc.timestamp_millis_opt(v).single())
-    };
+    let to_dt = |ms: Option<i64>| ms.and_then(|v| Utc.timestamp_millis_opt(v).single());
 
     Schedule {
         id: row.get(0).unwrap_or_default(),

@@ -20,6 +20,7 @@ import {
   detectPlatformTarget,
 } from "./acp-registry";
 import { type DistributionType, buildAgentCommand } from "./acp-installer";
+import { AgentRole, ModelTier } from "../models/agent";
 
 /** Source of the preset configuration */
 export type PresetSource = "static" | "registry";
@@ -60,6 +61,12 @@ export interface AcpAgentPreset {
   repository?: string;
   /** License */
   license?: string;
+  /** Capabilities supported by this provider (e.g., "mcp_tool", "code_generation", "file_operations") */
+  capabilities?: string[];
+  /** Agent roles that this provider is suitable for (ROUTA, CRAFTER, GATE, DEVELOPER) */
+  supportedRoles?: AgentRole[];
+  /** Preferred model tier for this provider (SMART, BALANCED, FAST) */
+  preferredTier?: ModelTier;
 }
 
 /**
@@ -73,6 +80,20 @@ export const ACP_AGENT_PRESETS: readonly AcpAgentPreset[] = [
     args: ["acp"],
     description: "OpenCode AI coding agent",
     envBinOverride: "OPENCODE_BIN",
+    capabilities: ["mcp_tool", "code_generation", "file_operations", "web_search"],
+    supportedRoles: [AgentRole.CRAFTER, AgentRole.GATE, AgentRole.DEVELOPER],
+    preferredTier: ModelTier.BALANCED,
+  },
+  {
+    id: "docker-opencode",
+    name: "Docker OpenCode",
+    command: "docker",
+    args: [],
+    description: "OpenCode running in an isolated Docker container",
+    nonStandardApi: true,
+    capabilities: ["mcp_tool", "code_generation", "file_operations"],
+    supportedRoles: [AgentRole.CRAFTER, AgentRole.GATE, AgentRole.DEVELOPER],
+    preferredTier: ModelTier.BALANCED,
   },
   {
     id: "gemini",
@@ -81,6 +102,9 @@ export const ACP_AGENT_PRESETS: readonly AcpAgentPreset[] = [
     args: ["--experimental-acp"],
     description: "Google Gemini CLI",
     envBinOverride: "GEMINI_BIN",
+    capabilities: ["mcp_tool", "code_generation", "file_operations"],
+    supportedRoles: [AgentRole.CRAFTER, AgentRole.DEVELOPER],
+    preferredTier: ModelTier.BALANCED,
   },
   {
     id: "codex",
@@ -89,6 +113,9 @@ export const ACP_AGENT_PRESETS: readonly AcpAgentPreset[] = [
     args: [],
     description: "OpenAI Codex CLI (via codex-acp wrapper)",
     envBinOverride: "CODEX_ACP_BIN",
+    capabilities: ["code_generation", "file_operations"],
+    supportedRoles: [AgentRole.CRAFTER, AgentRole.DEVELOPER],
+    preferredTier: ModelTier.SMART,
   },
   {
     id: "copilot",
@@ -100,6 +127,9 @@ export const ACP_AGENT_PRESETS: readonly AcpAgentPreset[] = [
     args: ["--acp", "--allow-all-tools", "--no-ask-user"],
     description: "GitHub Copilot CLI",
     envBinOverride: "COPILOT_BIN",
+    capabilities: ["mcp_tool", "code_generation", "file_operations"],
+    supportedRoles: [AgentRole.CRAFTER, AgentRole.DEVELOPER],
+    preferredTier: ModelTier.BALANCED,
   },
   {
     id: "auggie",
@@ -108,6 +138,9 @@ export const ACP_AGENT_PRESETS: readonly AcpAgentPreset[] = [
     args: ["--acp"],
     description: "Augment Code's AI agent",
     envBinOverride: "AUGGIE_BIN",
+    capabilities: ["mcp_tool", "code_generation", "codebase_search", "file_operations"],
+    supportedRoles: [AgentRole.CRAFTER, AgentRole.GATE, AgentRole.DEVELOPER],
+    preferredTier: ModelTier.BALANCED,
   },
   {
     id: "kimi",
@@ -116,6 +149,9 @@ export const ACP_AGENT_PRESETS: readonly AcpAgentPreset[] = [
     args: ["acp"],
     description: "Moonshot AI's Kimi CLI",
     envBinOverride: "KIMI_BIN",
+    capabilities: ["mcp_tool", "code_generation", "file_operations", "web_search"],
+    supportedRoles: [AgentRole.CRAFTER, AgentRole.DEVELOPER],
+    preferredTier: ModelTier.BALANCED,
   },
   {
     id: "kiro",
@@ -124,6 +160,22 @@ export const ACP_AGENT_PRESETS: readonly AcpAgentPreset[] = [
     args: ["acp"],
     description: "Amazon Kiro AI coding agent",
     envBinOverride: "KIRO_BIN",
+    capabilities: ["mcp_tool", "code_generation", "file_operations"],
+    supportedRoles: [AgentRole.CRAFTER, AgentRole.DEVELOPER],
+    preferredTier: ModelTier.BALANCED,
+  },
+  {
+    id: "qoder",
+    name: "Qoder",
+    command: "qodercli",
+    // --acp: start as ACP server communicating via stdin/stdout
+    // --yolo: bypass permission checks (equivalent to --allow-all-tools in other agents)
+    args: ["--acp", "--yolo"],
+    description: "Qoder AI coding agent",
+    envBinOverride: "QODER_BIN",
+    capabilities: ["mcp_tool", "code_generation", "file_operations"],
+    supportedRoles: [AgentRole.CRAFTER, AgentRole.DEVELOPER],
+    preferredTier: ModelTier.BALANCED,
   },
   // Claude Code uses a non-standard API and requires separate handling
   {
@@ -133,6 +185,9 @@ export const ACP_AGENT_PRESETS: readonly AcpAgentPreset[] = [
     args: [],
     description: "Anthropic Claude Code (native ACP support)",
     nonStandardApi: true,
+    capabilities: ["mcp_tool", "code_generation", "file_operations", "web_search", "image_analysis"],
+    supportedRoles: [AgentRole.ROUTA, AgentRole.CRAFTER, AgentRole.GATE, AgentRole.DEVELOPER],
+    preferredTier: ModelTier.SMART,
   },
   // Workspace Agent runs natively via Vercel AI SDK (no external CLI)
   {
@@ -142,6 +197,9 @@ export const ACP_AGENT_PRESETS: readonly AcpAgentPreset[] = [
     args: [],
     description: "Native Routa workspace agent powered by Vercel AI SDK",
     nonStandardApi: true,
+    capabilities: ["code_generation", "file_operations"],
+    supportedRoles: [AgentRole.ROUTA, AgentRole.DEVELOPER],
+    preferredTier: ModelTier.BALANCED,
   },
 ] as const;
 
@@ -172,11 +230,16 @@ export function getStandardPresets(): AcpAgentPreset[] {
  * 1. Environment variable override (e.g., OPENCODE_BIN)
  * 2. node_modules/.bin (for locally installed packages)
  * 3. Default command (for globally installed or in PATH)
+ *
+ * On Windows, npm creates a bash wrapper (no extension) alongside a `.cmd`
+ * batch file in node_modules/.bin. The extensionless wrapper cannot be
+ * spawned directly by Node.js on Windows, so we prefer the `.cmd` version.
  */
 export function resolveCommand(preset: AcpAgentPreset): string {
   // Import bridge lazily to avoid circular dependencies at module load time
   const { getServerBridge } = require("@/core/platform");
   const bridge = getServerBridge();
+  const isWindows = bridge.env.osPlatform() === "win32";
 
   // 1. Check environment variable override
   if (preset.envBinOverride) {
@@ -186,10 +249,19 @@ export function resolveCommand(preset: AcpAgentPreset): string {
 
   // 2. Check node_modules/.bin (for locally installed packages)
   const path = require("path");
-  const localBinPath = path.join(bridge.env.currentDir(), "node_modules", ".bin", preset.command);
+  const localBinBase = path.join(bridge.env.currentDir(), "node_modules", ".bin", preset.command);
   try {
-    if (bridge.fs.existsSync(localBinPath)) {
-      return localBinPath;
+    if (isWindows) {
+      // On Windows prefer the .cmd batch file — the extensionless file is a
+      // bash wrapper that cannot be spawned directly by Node.js on Windows.
+      const cmdPath = localBinBase + ".cmd";
+      if (bridge.fs.existsSync(cmdPath)) {
+        return cmdPath;
+      }
+    } else {
+      if (bridge.fs.existsSync(localBinBase)) {
+        return localBinBase;
+      }
     }
   } catch {
     // Ignore errors, fall through to default

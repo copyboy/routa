@@ -73,9 +73,7 @@ pub fn router() -> Router<AppState> {
     Router::new().route("/models", get(list_models))
 }
 
-async fn list_models(
-    Query(query): Query<ModelsQuery>,
-) -> Json<serde_json::Value> {
+async fn list_models(Query(query): Query<ModelsQuery>) -> Json<serde_json::Value> {
     let provider = query.provider.as_str();
 
     // Check cache
@@ -90,7 +88,9 @@ async fn list_models(
 
     let configs = provider_model_configs();
     let Some(config) = configs.get(provider) else {
-        return Json(serde_json::json!({ "models": [], "error": "Provider does not support model listing" }));
+        return Json(
+            serde_json::json!({ "models": [], "error": "Provider does not support model listing" }),
+        );
     };
 
     let resolved = match crate::shell_env::which(config.command) {
@@ -122,11 +122,18 @@ async fn list_models(
                 .collect()
         }
         Ok(Err(e)) => {
-            tracing::warn!("[provider_models] Failed to run '{}': {}", config.command, e);
+            tracing::warn!(
+                "[provider_models] Failed to run '{}': {}",
+                config.command,
+                e
+            );
             return Json(serde_json::json!({ "models": [], "error": e.to_string() }));
         }
         Err(_) => {
-            tracing::warn!("[provider_models] Timeout listing models for '{}'", provider);
+            tracing::warn!(
+                "[provider_models] Timeout listing models for '{}'",
+                provider
+            );
             return Json(serde_json::json!({ "models": [], "error": "Timeout" }));
         }
     };

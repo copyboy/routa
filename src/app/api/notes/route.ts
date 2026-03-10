@@ -41,9 +41,7 @@ export async function GET(request: NextRequest) {
     ? await system.noteStore.listByType(workspaceId, type)
     : await system.noteStore.listByWorkspace(workspaceId);
 
-  // Filter by sessionId if provided — require exact match for all note types.
-  // Workspace-wide notes (no sessionId) are excluded when a session filter is given;
-  // they are only visible when listing notes without a sessionId filter.
+  // Filter by sessionId if provided — strict match only.
   if (sessionIdFilter) {
     notes = notes.filter((note) => note.sessionId === sessionIdFilter);
   }

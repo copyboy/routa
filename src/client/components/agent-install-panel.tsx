@@ -105,7 +105,7 @@ interface TauriInstalledAgentInfo {
  * In Tauri v2, the invoke function is exposed via __TAURI_INTERNALS__.invoke
  */
 async function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const win = window as any;
 
   // Try __TAURI_INTERNALS__ first (Tauri v2 internal API)

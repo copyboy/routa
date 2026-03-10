@@ -26,8 +26,20 @@ import { isServerlessEnvironment } from "@/core/acp/api-based-providers";
 import { isClaudeCodeSdkConfigured } from "@/core/acp/claude-code-sdk-adapter";
 import { isOpencodeServerConfigured } from "@/core/acp/opencode-sdk-adapter";
 import { persistSessionToDb, saveHistoryToDb } from "@/core/acp/session-db-persister";
+import { SessionWriteBuffer } from "@/core/acp/session-write-buffer";
 
 export const dynamic = "force-dynamic";
+
+// ─── Session write buffer singleton (shared pattern with acp route) ─────
+let _agUiWriteBuffer: SessionWriteBuffer | null = null;
+function getAgUiWriteBuffer(): SessionWriteBuffer {
+  if (!_agUiWriteBuffer) {
+    _agUiWriteBuffer = new SessionWriteBuffer({
+      persistFn: saveHistoryToDb,
+    });
+  }
+  return _agUiWriteBuffer;
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -130,6 +142,8 @@ export async function POST(request: NextRequest) {
     (input.forwardedProps?.workspaceId as string) ?? "default";
   const cwd =
     (input.forwardedProps?.cwd as string) ?? process.cwd();
+  const branch =
+    (input.forwardedProps?.branch as string) || undefined;
 
   const manager = getAcpProcessManager();
   const store = getHttpSessionStore();
@@ -188,6 +202,7 @@ export async function POST(request: NextRequest) {
       store.upsertSession({
         sessionId,
         cwd,
+        branch,
         workspaceId,
         provider,
         role: "CRAFTER",
@@ -197,6 +212,7 @@ export async function POST(request: NextRequest) {
       await persistSessionToDb({
         id: sessionId,
         cwd,
+        branch,
         workspaceId,
         routaAgentId: sessionId,
         provider,
@@ -389,7 +405,7 @@ export async function POST(request: NextRequest) {
         store.removeNotificationInterceptor(sessionId!, interceptor);
 
         // Save history
-        await saveHistoryToDb(sessionId!, store.getConsolidatedHistory(sessionId!));
+        { const wb = getAgUiWriteBuffer(); wb.replace(sessionId!, store.getConsolidatedHistory(sessionId!)); await wb.flush(sessionId!); }
 
         try {
           controller.close();

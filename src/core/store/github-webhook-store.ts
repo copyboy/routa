@@ -134,7 +134,7 @@ export class InMemoryGitHubWebhookStore {
   }
 
   async listLogs(configId?: string, limit = 50): Promise<WebhookTriggerLog[]> {
-    let filtered = configId ? this.logs.filter((l) => l.configId === configId) : this.logs;
+    const filtered = configId ? this.logs.filter((l) => l.configId === configId) : this.logs;
     return filtered.slice(-limit).reverse();
   }
 }
@@ -203,7 +203,7 @@ export class PgGitHubWebhookStore {
 
     await this.db
       .update(githubWebhookConfigs)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       .set(updateData as any)
       .where(eq(githubWebhookConfigs.id, input.id));
     return this.getConfig(input.id);
@@ -350,7 +350,7 @@ export class SqliteGitHubWebhookStore {
 
     this.db
       .update(githubWebhookConfigs)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       .set(updateData as any)
       .where(eq(githubWebhookConfigs.id, input.id))
       .run();

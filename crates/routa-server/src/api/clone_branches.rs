@@ -29,7 +29,9 @@ async fn get_branches(
         .ok_or_else(|| ServerError::BadRequest("Missing repoPath".into()))?;
 
     if !std::path::Path::new(&repo_path).exists() {
-        return Err(ServerError::BadRequest("Missing or invalid repoPath".into()));
+        return Err(ServerError::BadRequest(
+            "Missing or invalid repoPath".into(),
+        ));
     }
 
     let (current, local, remote, status) = tokio::task::spawn_blocking({
@@ -67,7 +69,9 @@ async fn fetch_branches(
         .ok_or_else(|| ServerError::BadRequest("Missing repoPath".into()))?;
 
     if !std::path::Path::new(&repo_path).exists() {
-        return Err(ServerError::BadRequest("Missing or invalid repoPath".into()));
+        return Err(ServerError::BadRequest(
+            "Missing or invalid repoPath".into(),
+        ));
     }
 
     let (current, local, remote, status) = tokio::task::spawn_blocking({

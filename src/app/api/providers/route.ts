@@ -18,6 +18,7 @@ import { fetchRegistry, detectPlatformTarget } from "@/core/acp/acp-registry";
 import { isServerlessEnvironment } from "@/core/acp/api-based-providers";
 import { isOpencodeServerConfigured } from "@/core/acp/opencode-sdk-adapter";
 import { isClaudeCodeSdkConfigured } from "@/core/acp/claude-code-sdk-adapter";
+import { getDockerDetector } from "@/core/acp/docker";
 
 type ProviderStatus = "available" | "unavailable" | "checking";
 
@@ -28,6 +29,7 @@ interface ProviderInfo {
   command: string;
   status: ProviderStatus;
   source: "static" | "registry";
+  unavailableReason?: string;
 }
 
 // In-memory cache with separate TTL for local and registry
@@ -50,12 +52,11 @@ async function getLocalProviders(shouldCheck = false): Promise<ProviderInfo[]> {
   }
 
   const providers: ProviderInfo[] = [];
+  const claudeSdkConfigured = isClaudeCodeSdkConfigured();
+  const opencodeSdkConfigured = isOpencodeServerConfigured();
 
   // In serverless environments (Vercel), show SDK-based providers only
   if (isServerlessEnvironment()) {
-    const claudeSdkConfigured = isClaudeCodeSdkConfigured();
-    const opencodeSdkConfigured = isOpencodeServerConfigured();
-
     // Claude Code SDK - recommended for serverless
     providers.push({
       id: "claude-code-sdk",
@@ -84,6 +85,45 @@ async function getLocalProviders(shouldCheck = false): Promise<ProviderInfo[]> {
     console.log(`[Providers API] Serverless environment: ${availableCount}/${providers.length} SDK providers available`);
     return providers;
   }
+
+  // In local development, expose configured SDK providers alongside CLI providers
+  // so SDK-specific features can be exercised in the normal UI.
+  if (claudeSdkConfigured) {
+    providers.push({
+      id: "claude-code-sdk",
+      name: "Claude Code SDK",
+      description: "Claude Code via SDK",
+      command: "sdk",
+      status: "available",
+      source: "static",
+    });
+  }
+
+  if (opencodeSdkConfigured) {
+    providers.push({
+      id: "opencode-sdk",
+      name: "OpenCode SDK",
+      description: "OpenCode via SDK",
+      command: "sdk",
+      status: "available",
+      source: "static",
+    });
+  }
+
+  const dockerStatus = await getDockerDetector().checkAvailability();
+  providers.push({
+    id: "docker-opencode",
+    name: "Docker OpenCode",
+    description: dockerStatus.available
+      ? "OpenCode in isolated Docker container"
+      : "Requires Docker/Colima daemon",
+    command: "docker run",
+    status: dockerStatus.available ? "available" : "unavailable",
+    source: "static",
+    unavailableReason: dockerStatus.available
+      ? undefined
+      : (dockerStatus.error ?? "Docker daemon unavailable. Start Docker Desktop or Colima."),
+  });
 
   // Non-serverless: show all CLI-based providers
   const allPresets = [...getStandardPresets()];

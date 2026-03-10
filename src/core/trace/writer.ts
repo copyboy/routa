@@ -1,7 +1,8 @@
 /**
  * TraceWriter - Append-only JSONL file writer for trace records.
  *
- * Writes traces to: <workspace>/.routa/traces/{day}/traces-{datetime}.jsonl
+ * Local storage: ~/.routa/projects/{folder-slug}/traces/{day}/traces-{datetime}.jsonl
+ * Serverless: Postgres via PgTraceStore
  *
  * In serverless environments (Vercel), traces are written to Postgres instead
  * of the filesystem (which is ephemeral in /tmp).
@@ -10,6 +11,7 @@
 import { TraceRecord } from "./types";
 import path from "path";
 import fs from "fs/promises";
+import { getTracesDir } from "../storage/folder-slug";
 
 /**
  * Check if running in a serverless environment (e.g., Vercel)
@@ -39,13 +41,14 @@ function formatDateTime(date: Date): string {
  * TraceWriter manages JSONL trace file writing with automatic directory creation
  * and daily file rotation.
  *
+ * Local traces are stored under ~/.routa/projects/{folder-slug}/traces/.
  * In serverless environments (Vercel), traces are written to Postgres since
  * the filesystem is ephemeral.
  */
 export class TraceWriter {
   private cwd: string;
-  private currentDay: string | null = null;
-  private currentFilePath: string | null = null;
+  /** Per-session file path cache: sessionId → filePath */
+  private sessionFiles = new Map<string, { day: string; filePath: string }>();
   private readonly isServerless: boolean;
 
   constructor(cwd: string) {
@@ -55,26 +58,31 @@ export class TraceWriter {
 
   /**
    * Get the trace directory path for a given day (local only).
+   * Now uses ~/.routa/projects/{folder-slug}/traces/{day}
    */
   private getTraceDir(day: string): string {
-    return path.join(this.cwd, ".routa", "traces", day);
+    return path.join(getTracesDir(this.cwd), day);
   }
 
   /**
-   * Get a trace file path for the current datetime (local only).
+   * Get a trace file path for a specific session.
+   * Each session gets its own JSONL file to avoid mixing traces.
    */
-  private async getTracePath(day: string): Promise<string> {
+  private async getTracePath(day: string, sessionId: string): Promise<string> {
     const dir = this.getTraceDir(day);
     await fs.mkdir(dir, { recursive: true });
 
-    if (this.currentDay === day && this.currentFilePath) {
-      return this.currentFilePath;
+    // Reuse existing file for same session + same day
+    const cached = this.sessionFiles.get(sessionId);
+    if (cached && cached.day === day) {
+      return cached.filePath;
     }
 
+    // Use session ID prefix (first 8 chars) + datetime for readability
     const datetime = formatDateTime(new Date());
-    const filePath = path.join(dir, `traces-${datetime}.jsonl`);
-    this.currentDay = day;
-    this.currentFilePath = filePath;
+    const shortId = sessionId.slice(0, 8);
+    const filePath = path.join(dir, `traces-${shortId}-${datetime}.jsonl`);
+    this.sessionFiles.set(sessionId, { day, filePath });
     return filePath;
   }
 
@@ -93,9 +101,9 @@ export class TraceWriter {
       }
     }
 
-    // Local: write to JSONL file
+    // Local: write to JSONL file under ~/.routa/projects/{slug}/traces/
     const day = formatDay(new Date());
-    const filePath = await this.getTracePath(day);
+    const filePath = await this.getTracePath(day, record.sessionId);
     const line = JSON.stringify(record) + "\n";
     await fs.appendFile(filePath, line, "utf-8");
   }
@@ -135,6 +143,13 @@ export function getTraceWriter(cwd: string): TraceWriter {
   if (!writer) {
     writer = new TraceWriter(cwd);
     cache.set(cwd, writer);
+
+    // Fire-and-forget: run trace migration on first writer creation (local only)
+    if (!isServerlessEnvironment()) {
+      import("../storage/migration-tool").then(({ MigrationTool }) => {
+        new MigrationTool(cwd).migrateTraces().catch(() => {});
+      }).catch(() => {});
+    }
   }
   return writer;
 }

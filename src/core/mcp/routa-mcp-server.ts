@@ -8,12 +8,30 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RoutaMcpToolManager, ToolMode } from "./routa-mcp-tool-manager";
 import { RoutaSystem, getRoutaSystem } from "../routa-system";
-import { getRoutaOrchestrator } from "../orchestration/orchestrator-singleton";
+import { initRoutaOrchestrator } from "../orchestration/orchestrator-singleton";
+import { KanbanTools } from "../tools/kanban-tools";
+import { KanbanWorkflowOrchestrator } from "../kanban/workflow-orchestrator";
 
 export interface RoutaMcpServerResult {
   server: McpServer;
   system: RoutaSystem;
   toolManager: RoutaMcpToolManager;
+}
+
+/** Singleton workflow orchestrator — started once per process */
+let workflowOrchestrator: KanbanWorkflowOrchestrator | null = null;
+
+/** Get or create the singleton KanbanWorkflowOrchestrator */
+export function getWorkflowOrchestrator(system: RoutaSystem): KanbanWorkflowOrchestrator {
+  if (!workflowOrchestrator) {
+    workflowOrchestrator = new KanbanWorkflowOrchestrator(
+      system.eventBus,
+      system.kanbanBoardStore,
+      system.taskStore,
+    );
+    workflowOrchestrator.start();
+  }
+  return workflowOrchestrator;
 }
 
 export interface CreateMcpServerOptions {
@@ -62,15 +80,22 @@ export function createRoutaMcpServer(
     toolManager.setSessionId(opts.sessionId);
   }
 
-  // Wire in orchestrator if available
-  const orchestrator = getRoutaOrchestrator();
-  if (orchestrator) {
-    toolManager.setOrchestrator(orchestrator);
-  }
+  // Wire in orchestrator — auto-initialize if not yet created (e.g. after server restart).
+  // initRoutaOrchestrator is idempotent: returns existing instance if already created.
+  const orchestrator = initRoutaOrchestrator();
+  toolManager.setOrchestrator(orchestrator);
 
   // Wire in note tools and workspace tools
   toolManager.setNoteTools(routaSystem.noteTools);
   toolManager.setWorkspaceTools(routaSystem.workspaceTools);
+
+  // Wire in kanban tools with event bus for column transition events
+  const kanbanTools = new KanbanTools(routaSystem.kanbanBoardStore, routaSystem.taskStore);
+  kanbanTools.setEventBus(routaSystem.eventBus);
+  toolManager.setKanbanTools(kanbanTools);
+
+  // Initialize the workflow orchestrator singleton (listens for column transitions)
+  getWorkflowOrchestrator(routaSystem);
 
   toolManager.registerTools(server);
 

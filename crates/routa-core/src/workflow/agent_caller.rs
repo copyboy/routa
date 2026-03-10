@@ -4,8 +4,8 @@
 //! the workflow engine calls the LLM API directly via HTTP.
 //! This is simpler and doesn't require agents to be installed locally.
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Configuration for calling an ACP-compatible agent via HTTP API.
 #[derive(Debug, Clone)]
@@ -78,6 +78,12 @@ pub struct AcpAgentCaller {
     client: reqwest::Client,
 }
 
+impl Default for AcpAgentCaller {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AcpAgentCaller {
     pub fn new() -> Self {
         Self {
@@ -98,9 +104,7 @@ impl AcpAgentCaller {
             "claude-code-sdk" | "anthropic" => {
                 self.call_anthropic_compatible(config, user_prompt).await
             }
-            "opencode-sdk" | "opencode" => {
-                self.call_opencode(config, user_prompt).await
-            }
+            "opencode-sdk" | "opencode" => self.call_opencode(config, user_prompt).await,
             other => Err(format!("Unknown adapter type: '{}'", other)),
         }
     }
@@ -187,7 +191,10 @@ impl AcpAgentCaller {
                 arr.iter()
                     .filter_map(|block| {
                         if block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                            block.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                            block
+                                .get("text")
+                                .and_then(|t| t.as_str())
+                                .map(|s| s.to_string())
                         } else {
                             None
                         }
@@ -228,10 +235,7 @@ impl AcpAgentCaller {
         config: &AgentCallConfig,
         user_prompt: &str,
     ) -> Result<AgentResponse, String> {
-        let url = format!(
-            "{}/chat/completions",
-            config.base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
 
         let mut messages = vec![];
 
@@ -363,10 +367,7 @@ mod tests {
             resolve_env_vars("prefix-${TEST_WORKFLOW_VAR}-suffix"),
             "prefix-hello-suffix"
         );
-        assert_eq!(
-            resolve_env_vars("${NONEXISTENT_VAR:-fallback}"),
-            "fallback"
-        );
+        assert_eq!(resolve_env_vars("${NONEXISTENT_VAR:-fallback}"), "fallback");
         std::env::remove_var("TEST_WORKFLOW_VAR");
     }
 }

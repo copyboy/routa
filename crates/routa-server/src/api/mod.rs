@@ -1,6 +1,9 @@
 pub mod a2a;
+pub mod a2ui;
+pub mod acp_docker;
 pub mod acp_registry;
 pub mod acp_routes;
+pub mod ag_ui;
 pub mod agents;
 pub mod background_tasks;
 pub mod clone;
@@ -10,11 +13,12 @@ pub mod codebases;
 pub mod debug;
 pub mod files;
 pub mod github;
-pub mod memory;
+pub mod kanban;
 pub mod mcp_routes;
 pub mod mcp_server_mgmt;
 pub mod mcp_servers;
 pub mod mcp_tools;
+pub mod memory;
 pub mod notes;
 pub mod polling;
 pub mod provider_models;
@@ -32,6 +36,7 @@ pub mod test_mcp;
 pub mod traces;
 pub mod webhooks;
 pub mod workspaces;
+pub mod worktrees;
 
 use axum::Router;
 
@@ -42,6 +47,7 @@ pub fn api_router() -> Router<AppState> {
     Router::new()
         .nest("/api/agents", agents::router())
         .nest("/api/notes", notes::router())
+        .nest("/api/kanban", kanban::router())
         .nest("/api/tasks", tasks::router())
         .nest("/api/workspaces", workspaces::router())
         .nest("/api", codebases::router())
@@ -54,6 +60,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/api/providers", provider_models::router())
         .nest("/api/acp", acp_routes::router())
         .nest("/api/acp", acp_registry::router())
+        .nest("/api/acp/docker", acp_docker::router())
         .nest("/api/mcp", mcp_routes::router())
         .nest("/api/mcp/tools", mcp_tools::router())
         .nest("/api/mcp-server", mcp_server_mgmt::router())
@@ -68,10 +75,13 @@ pub fn api_router() -> Router<AppState> {
         .nest("/api/files", files::router())
         .nest("/api/rpc", rpc::router())
         .nest("/api/a2a", a2a::router())
+        .nest("/api/ag-ui", ag_ui::router())
+        .nest("/api/a2ui", a2ui::router())
         .nest("/api/traces", traces::router())
         .nest("/api/schedules", schedules::router())
         .nest("/api/specialists", specialists::router())
         .nest("/api/memory", memory::router())
         .nest("/api/debug", debug::router())
         .nest("/api/polling", polling::router())
+        .nest("/api", worktrees::router())
 }

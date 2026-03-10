@@ -410,7 +410,7 @@ impl AgentTools {
     }
 
     // ─── Tool 7: Create Task ────────────────────────────────────────────
-
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_task(
         &self,
         title: &str,
@@ -548,6 +548,7 @@ impl AgentTools {
 
     // ─── Tool 11: Subscribe to Events ───────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn subscribe_to_events(
         &self,
         agent_id: &str,
@@ -621,7 +622,9 @@ impl AgentTools {
                 })
             })
             .collect();
-        Ok(ToolResult::success(serde_json::json!({ "events": event_data })))
+        Ok(ToolResult::success(
+            serde_json::json!({ "events": event_data }),
+        ))
     }
 
     // ─── Tool: Get Agent Status ───────────────────────────────────────
@@ -665,8 +668,7 @@ impl AgentTools {
 
         let last_response = last_messages
             .iter()
-            .filter(|m| m.role == MessageRole::Assistant)
-            .last();
+            .rfind(|m| m.role == MessageRole::Assistant);
 
         let all_messages = self.conversation_store.get_conversation(agent_id).await?;
         let tool_call_count = all_messages
@@ -692,4 +694,3 @@ impl AgentTools {
         })))
     }
 }
-

@@ -14,14 +14,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use regex::Regex;
-use serde::{Deserialize};
+use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::{broadcast, Mutex, oneshot};
+use tokio::sync::{broadcast, oneshot, Mutex};
 
-use crate::trace::{
-    TraceRecord, TraceWriter, TraceEventType, Contributor, TraceConversation,
-};
+use crate::trace::{Contributor, TraceConversation, TraceEventType, TraceRecord, TraceWriter};
 
 // ─── Claude Protocol Types ──────────────────────────────────────────────
 
@@ -129,6 +127,7 @@ impl Default for ClaudeCodeConfig {
 
 // ─── Process State ──────────────────────────────────────────────────────
 
+#[derive(Default)]
 struct ProcessState {
     tool_use_names: HashMap<String, String>,
     tool_use_inputs: HashMap<String, serde_json::Value>,
@@ -136,19 +135,6 @@ struct ProcessState {
     in_thinking: bool,
     in_text: bool,
     has_rendered_stream_content: bool,
-}
-
-impl Default for ProcessState {
-    fn default() -> Self {
-        Self {
-            tool_use_names: HashMap::new(),
-            tool_use_inputs: HashMap::new(),
-            rendered_tool_ids: HashSet::new(),
-            in_thinking: false,
-            in_text: false,
-            has_rendered_stream_content: false,
-        }
-    }
 }
 
 /// Claude Code process manager.
@@ -164,7 +150,10 @@ pub struct ClaudeCodeProcess {
 
 impl ClaudeCodeProcess {
     /// Create a new Claude Code process manager.
-    pub fn new(config: ClaudeCodeConfig, notification_tx: broadcast::Sender<serde_json::Value>) -> Self {
+    pub fn new(
+        config: ClaudeCodeConfig,
+        notification_tx: broadcast::Sender<serde_json::Value>,
+    ) -> Self {
         Self {
             config,
             session_id: Arc::new(Mutex::new(None)),
@@ -187,7 +176,10 @@ impl ClaudeCodeProcess {
     }
 
     /// Spawn the Claude Code process.
-    pub async fn spawn(config: ClaudeCodeConfig, notification_tx: broadcast::Sender<serde_json::Value>) -> Result<Self, String> {
+    pub async fn spawn(
+        config: ClaudeCodeConfig,
+        notification_tx: broadcast::Sender<serde_json::Value>,
+    ) -> Result<Self, String> {
         let process = Self::new(config, notification_tx);
         process.start().await?;
         Ok(process)
@@ -195,7 +187,12 @@ impl ClaudeCodeProcess {
 
     /// Start the Claude Code process with stream-json mode.
     async fn start(&self) -> Result<(), String> {
-        let mut cmd = Command::new(&self.config.command);
+        // Resolve the actual binary path using the full shell PATH
+        // (macOS GUI apps have a minimal PATH that won't find user CLI tools)
+        let resolved_command = crate::shell_env::which(&self.config.command)
+            .unwrap_or_else(|| self.config.command.clone());
+
+        let mut cmd = Command::new(&resolved_command);
         cmd.arg("-p");
         cmd.args(["--output-format", "stream-json"]);
         cmd.args(["--input-format", "stream-json"]);
@@ -203,7 +200,11 @@ impl ClaudeCodeProcess {
         cmd.arg("--verbose");
 
         // Permission mode
-        let permission_mode = self.config.permission_mode.as_deref().unwrap_or("bypassPermissions");
+        let permission_mode = self
+            .config
+            .permission_mode
+            .as_deref()
+            .unwrap_or("bypassPermissions");
         if permission_mode == "bypassPermissions" {
             cmd.arg("--dangerously-skip-permissions");
         } else {
@@ -219,6 +220,8 @@ impl ClaudeCodeProcess {
         }
 
         cmd.current_dir(&self.config.cwd);
+        cmd.env("PATH", crate::shell_env::full_path());
+        cmd.env("NODE_NO_READLINE", "1");
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
@@ -226,12 +229,15 @@ impl ClaudeCodeProcess {
         tracing::info!(
             "[ClaudeCode:{}] Spawning: {} -p --output-format stream-json ... (cwd: {})",
             self.config.display_name,
-            self.config.command,
+            resolved_command,
             self.config.cwd
         );
 
         let mut child = cmd.spawn().map_err(|e| {
-            format!("Failed to spawn Claude Code - is '{}' installed? Error: {}", self.config.command, e)
+            format!(
+                "Failed to spawn Claude Code - is '{}' installed? Error: {}. Resolved path: '{}'",
+                self.config.command, e, resolved_command
+            )
         })?;
 
         let stdin = child.stdin.take().ok_or("Failed to get stdin")?;
@@ -257,7 +263,7 @@ impl ClaudeCodeProcess {
             let mut agent_msg_buffer = String::new();
 
             while let Ok(Some(line)) = lines.next_line().await {
-                let line = clear_ansi(&line.trim().to_string());
+                let line = clear_ansi(line.trim());
                 if line.is_empty() || line.starts_with("[DEBUG]") || line.starts_with("[ERROR]") {
                     continue;
                 }
@@ -299,12 +305,18 @@ impl ClaudeCodeProcess {
                                     sid,
                                     TraceEventType::AgentMessage,
                                     Contributor::new("claude", None),
-                                ).with_conversation(TraceConversation {
-                                    turn: None,
-                                    role: Some("assistant".to_string()),
-                                    content_preview: Some(agent_msg_buffer[..agent_msg_buffer.len().min(200)].to_string()),
-                                    full_content: Some(agent_msg_buffer.clone()),
-                                });
+                                )
+                                .with_conversation(
+                                    TraceConversation {
+                                        turn: None,
+                                        role: Some("assistant".to_string()),
+                                        content_preview: Some(
+                                            agent_msg_buffer[..agent_msg_buffer.len().min(200)]
+                                                .to_string(),
+                                        ),
+                                        full_content: Some(agent_msg_buffer.clone()),
+                                    },
+                                );
                                 let writer = TraceWriter::new(&cwd_clone);
                                 let _ = writer.append_safe(&record).await;
                             }
@@ -317,10 +329,16 @@ impl ClaudeCodeProcess {
                             &notification_tx,
                             &state,
                             &prompt_complete_tx,
-                        ).await;
+                        )
+                        .await;
                     }
                     Err(e) => {
-                        tracing::debug!("[ClaudeCode:{}] Failed to parse: {} - {}", display_name, e, &line[..line.len().min(100)]);
+                        tracing::debug!(
+                            "[ClaudeCode:{}] Failed to parse: {} - {}",
+                            display_name,
+                            e,
+                            &line[..line.len().min(100)]
+                        );
                     }
                 }
             }
@@ -332,10 +350,13 @@ impl ClaudeCodeProcess {
                         sid,
                         TraceEventType::AgentMessage,
                         Contributor::new("claude", None),
-                    ).with_conversation(TraceConversation {
+                    )
+                    .with_conversation(TraceConversation {
                         turn: None,
                         role: Some("assistant".to_string()),
-                        content_preview: Some(agent_msg_buffer[..agent_msg_buffer.len().min(200)].to_string()),
+                        content_preview: Some(
+                            agent_msg_buffer[..agent_msg_buffer.len().min(200)].to_string(),
+                        ),
                         full_content: Some(agent_msg_buffer.clone()),
                     });
                     let writer = TraceWriter::new(&cwd_clone);
@@ -401,8 +422,14 @@ impl ClaudeCodeProcess {
         let mut stdin_guard = self.stdin_tx.lock().await;
         if let Some(ref mut stdin) = *stdin_guard {
             let msg = format!("{}\n", user_input);
-            stdin.write_all(msg.as_bytes()).await.map_err(|e| format!("Failed to write to stdin: {}", e))?;
-            stdin.flush().await.map_err(|e| format!("Failed to flush stdin: {}", e))?;
+            stdin
+                .write_all(msg.as_bytes())
+                .await
+                .map_err(|e| format!("Failed to write to stdin: {}", e))?;
+            stdin
+                .flush()
+                .await
+                .map_err(|e| format!("Failed to flush stdin: {}", e))?;
         } else {
             return Err("stdin not available".to_string());
         }
@@ -437,7 +464,11 @@ async fn handle_claude_message(
     state: &Arc<Mutex<ProcessState>>,
     prompt_complete_tx: &Arc<Mutex<Option<oneshot::Sender<String>>>>,
 ) {
-    let sid = session_id.lock().await.clone().unwrap_or_else(|| "claude-session".to_string());
+    let sid = session_id
+        .lock()
+        .await
+        .clone()
+        .unwrap_or_else(|| "claude-session".to_string());
 
     match msg.msg_type.as_str() {
         "system" => {
@@ -461,23 +492,31 @@ async fn handle_claude_message(
                     if c.content_type == "tool_use" {
                         let tool_id = c.id.clone().unwrap_or_default();
                         let tool_name = c.name.clone().unwrap_or_else(|| "unknown".to_string());
-                        state_guard.tool_use_names.insert(tool_id.clone(), tool_name.clone());
+                        state_guard
+                            .tool_use_names
+                            .insert(tool_id.clone(), tool_name.clone());
 
                         if let Some(input) = c.input.clone() {
-                            state_guard.tool_use_inputs.insert(tool_id.clone(), input.clone());
+                            state_guard
+                                .tool_use_inputs
+                                .insert(tool_id.clone(), input.clone());
                         }
 
                         if !state_guard.rendered_tool_ids.contains(&tool_id) {
                             let mapped_name = map_claude_tool_name(&tool_name);
                             let input = c.input.clone().unwrap_or(serde_json::json!({}));
-                            emit_session_update(notification_tx, &sid, serde_json::json!({
-                                "sessionUpdate": "tool_call",
-                                "toolCallId": tool_id,
-                                "title": format_tool_title(&tool_name, &input),
-                                "status": "running",
-                                "kind": mapped_name,
-                                "rawInput": input
-                            }));
+                            emit_session_update(
+                                notification_tx,
+                                &sid,
+                                serde_json::json!({
+                                    "sessionUpdate": "tool_call",
+                                    "toolCallId": tool_id,
+                                    "title": format_tool_title(&tool_name, &input),
+                                    "status": "running",
+                                    "kind": mapped_name,
+                                    "rawInput": input
+                                }),
+                            );
                             state_guard.rendered_tool_ids.insert(tool_id);
                         }
                     }
@@ -491,7 +530,9 @@ async fn handle_claude_message(
                 for c in message.content {
                     if c.content_type == "tool_result" {
                         let tool_id = c.tool_use_id.clone().unwrap_or_default();
-                        let tool_name = state_guard.tool_use_names.get(&tool_id)
+                        let tool_name = state_guard
+                            .tool_use_names
+                            .get(&tool_id)
                             .cloned()
                             .unwrap_or_else(|| "unknown".to_string());
                         let is_error = c.is_error.unwrap_or(false);
@@ -500,14 +541,18 @@ async fn handle_claude_message(
 
                         let status = if is_error { "failed" } else { "completed" };
 
-                        emit_session_update(notification_tx, &sid, serde_json::json!({
-                            "sessionUpdate": "tool_call_update",
-                            "toolCallId": tool_id,
-                            "title": tool_name,
-                            "status": status,
-                            "kind": mapped_kind,
-                            "rawOutput": output
-                        }));
+                        emit_session_update(
+                            notification_tx,
+                            &sid,
+                            serde_json::json!({
+                                "sessionUpdate": "tool_call_update",
+                                "toolCallId": tool_id,
+                                "title": tool_name,
+                                "status": status,
+                                "kind": mapped_kind,
+                                "rawOutput": output
+                            }),
+                        );
                     }
                 }
             }
@@ -518,10 +563,14 @@ async fn handle_claude_message(
             let has_rendered = state.lock().await.has_rendered_stream_content;
 
             if !result_text.is_empty() && !has_rendered {
-                emit_session_update(notification_tx, &sid, serde_json::json!({
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": { "type": "text", "text": result_text }
-                }));
+                emit_session_update(
+                    notification_tx,
+                    &sid,
+                    serde_json::json!({
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": { "type": "text", "text": result_text }
+                    }),
+                );
             }
 
             // Signal completion
@@ -565,20 +614,28 @@ async fn process_stream_event(
                     "thinking_delta" => {
                         if let Some(thinking) = delta.thinking {
                             state_guard.has_rendered_stream_content = true;
-                            emit_session_update(notification_tx, sid, serde_json::json!({
-                                "sessionUpdate": "agent_thought_chunk",
-                                "content": { "type": "text", "text": thinking }
-                            }));
+                            emit_session_update(
+                                notification_tx,
+                                sid,
+                                serde_json::json!({
+                                    "sessionUpdate": "agent_thought_chunk",
+                                    "content": { "type": "text", "text": thinking }
+                                }),
+                            );
                         }
                     }
                     "text_delta" => {
                         if let Some(text) = delta.text {
                             state_guard.has_rendered_stream_content = true;
                             state_guard.in_thinking = false;
-                            emit_session_update(notification_tx, sid, serde_json::json!({
-                                "sessionUpdate": "agent_message_chunk",
-                                "content": { "type": "text", "text": text }
-                            }));
+                            emit_session_update(
+                                notification_tx,
+                                sid,
+                                serde_json::json!({
+                                    "sessionUpdate": "agent_message_chunk",
+                                    "content": { "type": "text", "text": text }
+                                }),
+                            );
                         }
                     }
                     "input_json_delta" => {
@@ -600,7 +657,10 @@ async fn process_stream_event(
             // We can optionally emit a completion notification here
             if let Some(delta) = event.delta {
                 if delta.stop_reason.is_some() {
-                    tracing::debug!("[ClaudeCode] Message delta with stop_reason: {:?}", delta.stop_reason);
+                    tracing::debug!(
+                        "[ClaudeCode] Message delta with stop_reason: {:?}",
+                        delta.stop_reason
+                    );
                 }
             }
         }
@@ -610,7 +670,10 @@ async fn process_stream_event(
             // Check if delta has stop_reason
             if let Some(delta) = event.delta {
                 if delta.stop_reason.is_some() {
-                    tracing::debug!("[ClaudeCode] Message completed with stop_reason: {:?}", delta.stop_reason);
+                    tracing::debug!(
+                        "[ClaudeCode] Message completed with stop_reason: {:?}",
+                        delta.stop_reason
+                    );
                 }
             }
         }
@@ -680,24 +743,25 @@ fn format_tool_title(tool_name: &str, params: &serde_json::Value) -> String {
 
     match display_name.as_str() {
         "Read" | "Write" | "Edit" => {
-            let path = params.get("file_path")
+            let path = params
+                .get("file_path")
                 .or_else(|| params.get("path"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             format!("{}: {}", display_name, path)
         }
         "Bash" => {
-            let cmd = params.get("command")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let cmd = params.get("command").and_then(|v| v.as_str()).unwrap_or("");
             let truncated: String = cmd.chars().take(80).collect();
             format!("Bash: {}", truncated)
         }
         "Task" => {
-            let desc = params.get("description")
+            let desc = params
+                .get("description")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let sub_type = params.get("subagent_type")
+            let sub_type = params
+                .get("subagent_type")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             if !desc.is_empty() {

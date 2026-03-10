@@ -25,6 +25,7 @@ pub mod rpc;
 pub mod shell_env;
 pub mod skills;
 pub mod state;
+pub mod storage;
 pub mod store;
 pub mod tools;
 pub mod trace;
@@ -33,4 +34,4 @@ pub mod workflow;
 // Convenience re-exports
 pub use db::Database;
 pub use error::ServerError;
-pub use state::{AppState, AppStateInner};
+pub use state::{AppState, AppStateInner, DockerState};

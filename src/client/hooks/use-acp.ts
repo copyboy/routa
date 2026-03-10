@@ -13,18 +13,32 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
   BrowserAcpClient,
-  AcpSessionNotification,
   AcpNewSessionResult,
   AcpProviderInfo,
   AcpClientError,
   AcpAuthMethod,
+  AcpSessionNotification,
 } from "../acp-client";
 import {
   getDesktopApiBaseUrl,
-  desktopAwareFetch,
   logRuntime,
+  shouldSuppressTeardownError,
   toErrorMessage,
 } from "../utils/diagnostics";
+import { loadCustomAcpProviders, type CustomAcpProvider } from "../utils/custom-acp-providers";
+import { loadDockerOpencodeAuthJson } from "../components/settings-panel";
+
+/** Convert a custom ACP provider to AcpProviderInfo for the provider list. */
+function toAcpProviderInfo(cp: CustomAcpProvider): AcpProviderInfo {
+  return {
+    id: cp.id,
+    name: cp.name,
+    description: cp.description ?? `Custom: ${[cp.command, ...cp.args].join(" ")}`,
+    command: cp.command,
+    status: "available",
+    source: "static",
+  };
+}
 
 /**
  * Authentication error info for display in UI.
@@ -45,6 +59,8 @@ export interface UseAcpState {
   error: string | null;
   /** Authentication error with methods to authenticate */
   authError: AuthErrorInfo | null;
+  /** Docker OpenCode configuration error (shows config popup) */
+  dockerConfigError: string | null;
 }
 
 export interface UseAcpActions {
@@ -64,15 +80,20 @@ export interface UseAcpActions {
     baseUrl?: string,
     /** API key override */
     apiKey?: string,
+    /** Git branch to scope the session to */
+    branch?: string,
   ) => Promise<AcpNewSessionResult | null>;
   selectSession: (sessionId: string) => void;
   setProvider: (provider: string) => void;
   setMode: (modeId: string) => Promise<void>;
   prompt: (text: string, skillContext?: { skillName: string; skillContent: string }) => Promise<void>;
+  respondToUserInput: (toolCallId: string, response: Record<string, unknown>) => Promise<void>;
   cancel: () => Promise<void>;
   disconnect: () => void;
   /** Clear auth error (e.g., when user dismisses the popup) */
   clearAuthError: () => void;
+  /** Clear docker configuration error (e.g., when user dismisses the popup) */
+  clearDockerConfigError: () => void;
   /** List models available for a provider (e.g. opencode) */
   listProviderModels: (provider: string) => Promise<string[]>;
 }
@@ -80,6 +101,7 @@ export interface UseAcpActions {
 export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
   const clientRef = useRef<BrowserAcpClient | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const tearingDownRef = useRef(false);
 
   const [state, setState] = useState<UseAcpState>({
     connected: false,
@@ -90,13 +112,38 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
     loading: false,
     error: null,
     authError: null,
+    dockerConfigError: null,
   });
 
   // Clean up on unmount
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const markTearingDown = () => {
+        tearingDownRef.current = true;
+      };
+      window.addEventListener("pagehide", markTearingDown);
+      window.addEventListener("beforeunload", markTearingDown);
+
+      return () => {
+        tearingDownRef.current = true;
+        window.removeEventListener("pagehide", markTearingDown);
+        window.removeEventListener("beforeunload", markTearingDown);
+        clientRef.current?.disconnect();
+      };
+    }
+
     return () => {
+      tearingDownRef.current = true;
       clientRef.current?.disconnect();
     };
+  }, []);
+
+  const shouldSuppressPromptError = useCallback((err: unknown): boolean => {
+    if (tearingDownRef.current) return true;
+    const message = toErrorMessage(err) || "";
+    return message.includes("Failed to fetch") &&
+      typeof document !== "undefined" &&
+      document.visibilityState === "hidden";
   }, []);
 
   /** Connect (initialize only). Session creation is explicit. */
@@ -113,6 +160,10 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
       // Fast path: Load only local providers (instant, < 10ms)
       const localProviders = await client.listProviders(false, false);
 
+      // Merge in user-defined custom ACP providers
+      const customProviders = loadCustomAcpProviders().map(toAcpProviderInfo);
+      const allLocalProviders = [...localProviders, ...customProviders];
+
       client.onUpdate((update) => {
         setState((s) => ({
           ...s,
@@ -123,27 +174,33 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
       clientRef.current = client;
 
       // Auto-select first available provider (claude-code-sdk in serverless, or first available)
-      const firstAvailable = localProviders.find((p) => p.status === "available");
+      const firstAvailable = allLocalProviders.find((p) => p.status === "available");
 
       setState((s) => ({
         ...s,
         connected: true,
-        providers: localProviders,
+        providers: allLocalProviders,
         selectedProvider: firstAvailable?.id ?? s.selectedProvider,
         loading: false,
       }));
 
       // Background task 1: Check local provider status
       client.listProviders(true, false).then((checkedLocalProviders) => {
+        if (tearingDownRef.current) return;
         // Only update local providers (source === 'static'), keep existing registry providers
+        // Re-merge custom providers (they are always "available")
+        const customProvs = loadCustomAcpProviders().map(toAcpProviderInfo);
         setState((s) => {
           const existingRegistry = s.providers.filter((p) => p.source === "registry");
           return {
             ...s,
-            providers: [...checkedLocalProviders, ...existingRegistry],
+            providers: [...checkedLocalProviders, ...customProvs, ...existingRegistry],
           };
         });
       }).catch((err) => {
+        if (tearingDownRef.current || shouldSuppressTeardownError(err)) {
+          return;
+        }
         logRuntime("warn", "useAcp.connect", "Failed to check local provider status", err);
       });
 
@@ -151,6 +208,7 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
       // This runs in parallel and adds registry providers when ready
       // First, quickly load registry providers (without checking status)
       client.loadRegistryProviders().then((allProviders) => {
+        if (tearingDownRef.current) return;
         // loadRegistryProviders returns ALL providers (local + registry)
         // Filter to get only registry providers to avoid duplicates
         const registryProviders = allProviders.filter((p) => p.source === "registry");
@@ -167,6 +225,7 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
           // Background task 3: Check registry provider availability (slower)
           // This updates the status from "checking" to "available" or "unavailable"
           client.listProviders(true, true).then((checkedAllProviders) => {
+            if (tearingDownRef.current) return;
             const checkedRegistry = checkedAllProviders.filter((p) => p.source === "registry");
             if (checkedRegistry.length > 0) {
               setState((s) => {
@@ -178,14 +237,24 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
               });
             }
           }).catch((err) => {
+            if (tearingDownRef.current || shouldSuppressTeardownError(err)) {
+              return;
+            }
             logRuntime("info", "useAcp.connect", "Failed to check registry provider status", err);
           });
         }
       }).catch((err) => {
+        if (tearingDownRef.current || shouldSuppressTeardownError(err)) {
+          return;
+        }
         // Registry load failed (timeout or network error) - not critical
         logRuntime("info", "useAcp.connect", "Registry providers unavailable (network/timeout)", err);
       });
     } catch (err) {
+      if (tearingDownRef.current || shouldSuppressTeardownError(err)) {
+        setState((s) => ({ ...s, loading: false }));
+        return;
+      }
       logRuntime("error", "useAcp.connect", "Failed to connect ACP client", err);
       setState((s) => ({
         ...s,
@@ -200,6 +269,10 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
     setState((s) => ({ ...s, authError: null }));
   }, []);
 
+  const clearDockerConfigError = useCallback(() => {
+    setState((s) => ({ ...s, dockerConfigError: null }));
+  }, []);
+
   const createSession = useCallback(
     async (
       cwd?: string,
@@ -212,14 +285,23 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
       specialistId?: string,
       baseUrl?: string,
       apiKey?: string,
+      branch?: string,
     ): Promise<AcpNewSessionResult | null> => {
       const client = clientRef.current;
       if (!client) return null;
       try {
         setState((s) => ({ ...s, loading: true, error: null, authError: null, updates: [] }));
         const activeProvider = provider ?? state.selectedProvider;
+
+        // Look up custom provider inline config if the selected provider is custom
+        const customProvider = loadCustomAcpProviders().find((cp) => cp.id === activeProvider);
+
+        // For docker-opencode provider, load auth.json from localStorage
+        const authJson = activeProvider === "docker-opencode" ? loadDockerOpencodeAuthJson() : undefined;
+
         const result = await client.newSession({
           cwd,
+          branch,
           provider: activeProvider,
           modeId,
           role,
@@ -230,6 +312,9 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
           specialistId,
           baseUrl,
           apiKey,
+          customCommand: customProvider?.command,
+          customArgs: customProvider?.args,
+          authJson,
         });
         sessionIdRef.current = result.sessionId;
         setState((s) => ({
@@ -257,11 +342,21 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
           return null;
         }
 
-        setState((s) => ({
-          ...s,
-          loading: false,
-          error: toErrorMessage(err) || "Session creation failed",
-        }));
+        const errorMsg = toErrorMessage(err) || "Session creation failed";
+        // Docker session errors show as a config popup (not inline error)
+        if ((provider ?? state.selectedProvider) === "docker-opencode") {
+          setState((s) => ({
+            ...s,
+            loading: false,
+            dockerConfigError: errorMsg,
+          }));
+        } else {
+          setState((s) => ({
+            ...s,
+            loading: false,
+            error: errorMsg,
+          }));
+        }
         return null;
       }
     },
@@ -296,21 +391,10 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
 
     sessionIdRef.current = sessionId;
     client.attachSession(sessionId);
-    // Reset updates first, then restore history from server
+    // Reset live updates when switching sessions.
+    // Historical transcript hydration is owned by ChatPanel to avoid loading
+    // the same history both into `updates` and into the chat transcript state.
     setState((s) => ({ ...s, sessionId, updates: [] }));
-
-    // Restore message history so the chat panel shows previous messages
-    desktopAwareFetch(`/api/sessions/${sessionId}/history?consolidated=true`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        const history: AcpSessionNotification[] = data?.history ?? [];
-        if (history.length > 0) {
-          setState((s) => ({ ...s, updates: history }));
-        }
-      })
-      .catch((err) => {
-        logRuntime("warn", "useAcp.selectSession", "Failed to restore session history", err);
-      });
   }, []);
 
   /** Send a prompt to current session (content streams over SSE). */
@@ -327,6 +411,11 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
       await client.prompt(sessionId, text, skillContext);
       setState((s) => ({ ...s, loading: false }));
     } catch (err) {
+      if (shouldSuppressPromptError(err)) {
+        logRuntime("info", "useAcp.prompt", "Ignoring prompt fetch interruption during page teardown", err);
+        setState((s) => ({ ...s, loading: false }));
+        return;
+      }
       logRuntime("error", "useAcp.prompt", "Failed to send prompt", err);
       setState((s) => ({
         ...s,
@@ -334,13 +423,33 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
         error: toErrorMessage(err) || "Prompt failed",
       }));
     }
-  }, []);
+  }, [shouldSuppressPromptError]);
 
   const cancel = useCallback(async () => {
     const client = clientRef.current;
     const sessionId = sessionIdRef.current;
     if (!client || !sessionId) return;
     await client.cancel(sessionId);
+  }, []);
+
+  const respondToUserInput = useCallback(async (
+    toolCallId: string,
+    response: Record<string, unknown>,
+  ): Promise<void> => {
+    const client = clientRef.current;
+    const sessionId = sessionIdRef.current;
+    if (!client || !sessionId) return;
+
+    try {
+      await client.respondToUserInput(sessionId, toolCallId, response);
+    } catch (err) {
+      logRuntime("error", "useAcp.respondToUserInput", "Failed to send AskUserQuestion response", err);
+      setState((s) => ({
+        ...s,
+        error: toErrorMessage(err) || "Failed to submit question response",
+      }));
+      throw err;
+    }
   }, []);
 
   const disconnect = useCallback(() => {
@@ -356,6 +465,7 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
       loading: false,
       error: null,
       authError: null,
+      dockerConfigError: null,
     });
   }, []);
 
@@ -377,9 +487,11 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
     setProvider,
     setMode,
     prompt,
+    respondToUserInput,
     cancel,
     disconnect,
     clearAuthError,
+    clearDockerConfigError,
     listProviderModels,
   };
 }

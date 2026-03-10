@@ -19,7 +19,11 @@ pub async fn run(
     let workflow = WorkflowDefinition::from_file(workflow_file)?;
 
     println!("📄 Loaded workflow: {} ({})", workflow.name, workflow_file);
-    println!("   {} step(s), trigger: {}", workflow.steps.len(), workflow.trigger.trigger_type);
+    println!(
+        "   {} step(s), trigger: {}",
+        workflow.steps.len(),
+        workflow.trigger.trigger_type
+    );
     println!();
 
     // Create the executor

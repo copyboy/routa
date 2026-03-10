@@ -30,7 +30,8 @@ fn parse_git_error(stderr: &str, exit_code: Option<i32>) -> String {
         || stderr_lower.contains("could not read password")
         || stderr_lower.contains("terminal prompts disabled")
     {
-        return "Git credentials not configured. Set up a credential manager or use SSH.".to_string();
+        return "Git credentials not configured. Set up a credential manager or use SSH."
+            .to_string();
     }
 
     // SSH auth errors
@@ -172,15 +173,15 @@ async fn clone_with_progress(
             let reader = tokio::io::BufReader::new(stderr);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
 
+            let phase_re = regex::Regex::new(
+                r"(Counting objects|Compressing objects|Receiving objects|Resolving deltas):\s+(\d+)%",
+            );
             while let Ok(Some(text)) = lines.next_line().await {
                 // Accumulate all stderr for error reporting
                 stderr_buf.push_str(&text);
                 stderr_buf.push('\n');
 
-                let phase_re = regex::Regex::new(
-                    r"(Counting objects|Compressing objects|Receiving objects|Resolving deltas):\s+(\d+)%",
-                );
-                if let Ok(re) = phase_re {
+                if let Ok(ref re) = phase_re {
                     if let Some(caps) = re.captures(&text) {
                         let phase_name = match caps.get(1).map(|m| m.as_str()) {
                             Some("Counting objects") => "counting",
@@ -189,8 +190,10 @@ async fn clone_with_progress(
                             Some("Resolving deltas") => "resolving",
                             _ => "progress",
                         };
-                        let percent: i32 =
-                            caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                        let percent: i32 = caps
+                            .get(2)
+                            .and_then(|m| m.as_str().parse().ok())
+                            .unwrap_or(0);
                         let _ = tx
                             .send(Ok(Event::default().data(
                                 serde_json::json!({

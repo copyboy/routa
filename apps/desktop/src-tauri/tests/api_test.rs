@@ -21,9 +21,7 @@ async fn test_rust_backend_api() {
         .merge(routa_desktop_lib::server::api::api_router())
         .route(
             "/api/health",
-            axum::routing::get(|| async {
-                axum::Json(serde_json::json!({"status": "ok"}))
-            }),
+            axum::routing::get(|| async { axum::Json(serde_json::json!({"status": "ok"})) }),
         )
         .layer(cors)
         .with_state(state);
@@ -108,7 +106,11 @@ async fn test_rust_backend_api() {
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0]["name"], "Test ROUTA");
     assert_eq!(agents[0]["role"], "ROUTA");
-    println!("  PASS: {} agents, first is '{}'", agents.len(), agents[0]["name"]);
+    println!(
+        "  PASS: {} agents, first is '{}'",
+        agents.len(),
+        agents[0]["name"]
+    );
 
     // ── Test 6: Get Agent by query param (Next.js compatible) ───────
     println!("=== Test 6: Get Agent by ?id= ===");
@@ -223,7 +225,10 @@ async fn test_rust_backend_api() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
-    println!("  PASS: {} skills", body["skills"].as_array().unwrap().len());
+    println!(
+        "  PASS: {} skills",
+        body["skills"].as_array().unwrap().len()
+    );
 
     // ── Test 14: ACP Sessions ───────────────────────────────────────
     println!("=== Test 14: ACP Sessions ===");
@@ -397,7 +402,10 @@ async fn test_rust_backend_api() {
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert!(body["tools"].as_array().is_some());
-    println!("  PASS: {} tools from /api/mcp/tools", body["tools"].as_array().unwrap().len());
+    println!(
+        "  PASS: {} tools from /api/mcp/tools",
+        body["tools"].as_array().unwrap().len()
+    );
 
     // ── Test 24: /api/mcp/tools POST ─────────────────────────────
     println!("=== Test 24: /api/mcp/tools POST ===");
@@ -619,7 +627,11 @@ async fn test_rust_backend_api() {
     assert!(!content.is_empty());
     let text = content[0]["text"].as_str().unwrap();
     // Response contains "workspace" field with workspace details, or error message
-    assert!(text.contains("workspace") || text.contains("agentCount") || text.contains("Workspace not found"));
+    assert!(
+        text.contains("workspace")
+            || text.contains("agentCount")
+            || text.contains("Workspace not found")
+    );
     println!("  PASS: get_workspace_info tool works");
 
     // ── Test 36: MCP tools/call (subscribe_to_events) ─────────────────
@@ -650,8 +662,14 @@ async fn test_rust_backend_api() {
     assert!(text.contains("subscriptionId"));
     // Extract subscription ID for later unsubscribe test
     let sub_data: serde_json::Value = serde_json::from_str(text).unwrap_or_default();
-    let subscription_id = sub_data["subscriptionId"].as_str().unwrap_or("").to_string();
-    println!("  PASS: subscribe_to_events tool works, id={}", &subscription_id[..8.min(subscription_id.len())]);
+    let subscription_id = sub_data["subscriptionId"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    println!(
+        "  PASS: subscribe_to_events tool works, id={}",
+        &subscription_id[..8.min(subscription_id.len())]
+    );
 
     // ── Test 37: MCP tools/call (unsubscribe_from_events) ─────────────
     println!("=== Test 37: MCP tools/call (unsubscribe_from_events) ===");
@@ -718,7 +736,10 @@ async fn test_rust_backend_api() {
         .await
         .unwrap();
     let task_body: serde_json::Value = resp.json().await.unwrap();
-    let report_task_id = task_body["task"]["id"].as_str().unwrap_or("test-task").to_string();
+    let report_task_id = task_body["task"]["id"]
+        .as_str()
+        .unwrap_or("test-task")
+        .to_string();
 
     let resp = client
         .post(format!("{}/api/mcp", base_url))
@@ -758,7 +779,10 @@ async fn test_rust_backend_api() {
         .await
         .unwrap();
     let agent2_body: serde_json::Value = resp.json().await.unwrap();
-    let agent2_id = agent2_body["agentId"].as_str().unwrap_or("agent2").to_string();
+    let agent2_id = agent2_body["agentId"]
+        .as_str()
+        .unwrap_or("agent2")
+        .to_string();
 
     let resp = client
         .post(format!("{}/api/mcp", base_url))
@@ -945,19 +969,42 @@ async fn test_rust_backend_api() {
     let body: serde_json::Value = resp.json().await.unwrap();
     let tools = body["result"]["tools"].as_array().unwrap();
     // We added 14 new tools, so should have at least 20+ tools now
-    assert!(tools.len() >= 20, "Should have at least 20 tools, got {}", tools.len());
+    assert!(
+        tools.len() >= 20,
+        "Should have at least 20 tools, got {}",
+        tools.len()
+    );
 
     // Verify specific new tools exist
-    let tool_names: Vec<&str> = tools.iter()
-        .filter_map(|t| t["name"].as_str())
-        .collect();
-    assert!(tool_names.contains(&"delegate_task_to_agent"), "Missing delegate_task_to_agent");
-    assert!(tool_names.contains(&"report_to_parent"), "Missing report_to_parent");
-    assert!(tool_names.contains(&"send_message_to_agent"), "Missing send_message_to_agent");
-    assert!(tool_names.contains(&"get_agent_status"), "Missing get_agent_status");
-    assert!(tool_names.contains(&"subscribe_to_events"), "Missing subscribe_to_events");
-    assert!(tool_names.contains(&"list_specialists"), "Missing list_specialists");
-    println!("  PASS: {} MCP tools (including new coordination tools)", tools.len());
+    let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+    assert!(
+        tool_names.contains(&"delegate_task_to_agent"),
+        "Missing delegate_task_to_agent"
+    );
+    assert!(
+        tool_names.contains(&"report_to_parent"),
+        "Missing report_to_parent"
+    );
+    assert!(
+        tool_names.contains(&"send_message_to_agent"),
+        "Missing send_message_to_agent"
+    );
+    assert!(
+        tool_names.contains(&"get_agent_status"),
+        "Missing get_agent_status"
+    );
+    assert!(
+        tool_names.contains(&"subscribe_to_events"),
+        "Missing subscribe_to_events"
+    );
+    assert!(
+        tool_names.contains(&"list_specialists"),
+        "Missing list_specialists"
+    );
+    println!(
+        "  PASS: {} MCP tools (including new coordination tools)",
+        tools.len()
+    );
 
     println!("\n=== ALL 46 TESTS PASSED ===");
 }

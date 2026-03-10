@@ -51,7 +51,10 @@ impl CodebaseStore {
             .await
     }
 
-    pub async fn list_by_workspace(&self, workspace_id: &str) -> Result<Vec<Codebase>, ServerError> {
+    pub async fn list_by_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<Codebase>, ServerError> {
         let workspace_id = workspace_id.to_string();
         self.db
             .with_conn_async(move |conn| {
@@ -67,7 +70,12 @@ impl CodebaseStore {
             .await
     }
 
-    pub async fn update(&self, id: &str, branch: Option<&str>, label: Option<&str>) -> Result<(), ServerError> {
+    pub async fn update(
+        &self,
+        id: &str,
+        branch: Option<&str>,
+        label: Option<&str>,
+    ) -> Result<(), ServerError> {
         let id = id.to_string();
         let branch = branch.map(|s| s.to_string());
         let label = label.map(|s| s.to_string());
@@ -107,7 +115,11 @@ impl CodebaseStore {
             .await
     }
 
-    pub async fn set_default(&self, workspace_id: &str, codebase_id: &str) -> Result<(), ServerError> {
+    pub async fn set_default(
+        &self,
+        workspace_id: &str,
+        codebase_id: &str,
+    ) -> Result<(), ServerError> {
         let workspace_id = workspace_id.to_string();
         let codebase_id = codebase_id.to_string();
         let now = Utc::now().timestamp_millis();
@@ -128,7 +140,11 @@ impl CodebaseStore {
             .await
     }
 
-    pub async fn find_by_repo_path(&self, workspace_id: &str, repo_path: &str) -> Result<Option<Codebase>, ServerError> {
+    pub async fn find_by_repo_path(
+        &self,
+        workspace_id: &str,
+        repo_path: &str,
+    ) -> Result<Option<Codebase>, ServerError> {
         let workspace_id = workspace_id.to_string();
         let repo_path = repo_path.to_string();
         self.db
@@ -158,9 +174,7 @@ fn row_to_codebase(row: &Row<'_>) -> Codebase {
         branch: row.get(3).unwrap_or(None),
         label: row.get(4).unwrap_or(None),
         is_default: is_default_int != 0,
-        created_at: chrono::DateTime::from_timestamp_millis(created_ms)
-            .unwrap_or_else(|| Utc::now()),
-        updated_at: chrono::DateTime::from_timestamp_millis(updated_ms)
-            .unwrap_or_else(|| Utc::now()),
+        created_at: chrono::DateTime::from_timestamp_millis(created_ms).unwrap_or_else(Utc::now),
+        updated_at: chrono::DateTime::from_timestamp_millis(updated_ms).unwrap_or_else(Utc::now),
     }
 }

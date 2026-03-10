@@ -18,7 +18,12 @@ import type {SkillSummary} from "../skill-client";
 import {RepoPicker, type RepoSelection} from "./repo-picker";
 import {extractTaskBlocks, hasTaskBlocks, type ParsedTask,} from "../utils/task-block-parser";
 import {type TaskInfo, TaskProgressBar, type FileChangesSummary} from "./task-progress-bar";
-import {MessageBubble} from "@/client/components/message-bubble";
+import {
+  MessageBubble,
+  isAskUserQuestionMessage,
+  AskUserQuestionBubble,
+  hasAskUserQuestionAnswers,
+} from "@/client/components/message-bubble";
 import {TracePanel} from "@/client/components/trace-panel";
 import {type ChecklistItem, parseChecklist} from "../utils/checklist-parser";
 import type {WorkspaceData, CodebaseData} from "../hooks/use-workspaces";
@@ -50,6 +55,8 @@ export interface ChatMessage {
   delegatedTaskId?: string;
   /** Completion summary when a delegated task completes */
   completionSummary?: string;
+  /** Raw update payload for debug/info display */
+  rawData?: Record<string, unknown>;
   planEntries?: PlanEntry[];
   usageUsed?: number;
   usageSize?: number;
@@ -93,6 +100,10 @@ interface ChatPanelProps {
   activeWorkspaceId?: string | null;
   onWorkspaceChange?: (id: string) => void;
   codebases?: CodebaseData[];
+  /** When set, pre-fills the chat input (e.g. to restore text after a session error) */
+  inputPrefill?: string | null;
+  /** Called after inputPrefill has been consumed */
+  onInputPrefillConsumed?: () => void;
 }
 
 // ─── Main Component ────────────────────────────────────────────────────
@@ -115,6 +126,8 @@ export function ChatPanel({
   activeWorkspaceId,
   onWorkspaceChange,
   codebases = [],
+  inputPrefill,
+  onInputPrefillConsumed,
 }: ChatPanelProps) {
   const { connected, loading, error, authError, updates, prompt, clearAuthError } = acp;
   const [sessions, setSessions] = useState<Array<{
@@ -206,6 +219,17 @@ export function ChatPanel({
     if (planTasks.length > 0) return planTasks;
     return delegatedTasks;
   }, [checklistItems, planTasks, delegatedTasks]);
+
+  // Pending AskUserQuestion messages — shown sticky above input, not in chat stream
+  const pendingAskUserQuestions = useMemo(() => {
+    return visibleMessages.filter(
+      (msg) =>
+        msg.role === "tool" &&
+        isAskUserQuestionMessage(msg) &&
+        !hasAskUserQuestionAnswers(msg) &&
+        msg.toolStatus !== "failed",
+    );
+  }, [visibleMessages]);
 
   // File changes summary for TaskProgressBar
   const fileChangesSummary = useMemo<FileChangesSummary | undefined>(() => {
@@ -331,6 +355,40 @@ export function ChatPanel({
             });
             break;
           }
+          case "process_output": {
+            const processData = update.data as string | undefined;
+            const processSource = update.source as string | undefined;
+            const processDisplayName = update.displayName as string | undefined;
+            if (processData) {
+              const processTermId = `process-${sessionId}`;
+              const idx = messages.findIndex(
+                (m) => m.role === "terminal" && m.terminalId === processTermId
+              );
+              if (idx >= 0) {
+                messages[idx] = {
+                  ...messages[idx],
+                  content: messages[idx].content + processData,
+                };
+              } else {
+                messages.push({
+                  id: processTermId,
+                  role: "terminal",
+                  content: processData,
+                  timestamp: new Date(),
+                  terminalId: processTermId,
+                  terminalCommand: processDisplayName ?? "Agent Process",
+                  terminalArgs: processSource ? [processSource] : undefined,
+                  terminalExited: false,
+                  terminalExitCode: null,
+                });
+              }
+            }
+            break;
+          }
+          case "acp_status": {
+            // Docker/ACP errors are handled as a config popup, not inline messages
+            break;
+          }
         }
         lastKind = kind;
       }
@@ -443,6 +501,12 @@ export function ChatPanel({
         const update = (notification.update ?? notification) as Record<string, unknown>;
         const kind = update.sessionUpdate as string | undefined;
         if (!sid || !kind) continue;
+
+        // Skip child agent updates — these are pushed to the parent session's SSE
+        // but belong to the TaskPanel CrafterAgent view, not the main chat.
+        const rawNotification = notification as Record<string, unknown>;
+        const isChildAgentUpdate = !!(rawNotification.childAgentId ?? (update.childAgentId as unknown));
+        if (isChildAgentUpdate) continue;
 
         const arr = getSessionMessages(sid);
         const extractText = (): string => {
@@ -805,10 +869,13 @@ export function ChatPanel({
 
           case "available_commands_update":
           case "config_option_update":
-          case "session_info_update":
+          case "session_info_update": {
             break;
-
-          // ─── Input JSON Streaming ───────────────────────────────────
+          }
+          case "acp_status": {
+            // Docker/ACP errors are now handled as a popup in the session page
+            break;
+          }
           case "tool_call_start": {
             // Tool call streaming started - create placeholder entry
             const toolCallId = update.toolCallId as string | undefined;
@@ -1010,6 +1077,34 @@ export function ChatPanel({
   // ── Actions ──────────────────────────────────────────────────────────
 
   const handleRepoChange = onRepoChange;
+
+  const handleSubmitAskUserQuestion = useCallback(async (
+    toolCallId: string,
+    response: Record<string, unknown>,
+  ) => {
+    await acp.respondToUserInput(toolCallId, response);
+    // Optimistically mark as completed so the sticky card disappears immediately
+    if (activeSessionId) {
+      setMessagesBySession((prev) => {
+        const msgs = prev[activeSessionId] ?? [];
+        return {
+          ...prev,
+          [activeSessionId]: msgs.map((msg) =>
+            msg.toolCallId === toolCallId
+              ? {
+                  ...msg,
+                  toolStatus: "completed",
+                  toolRawInput: {
+                    ...((msg.toolRawInput as Record<string, unknown>) ?? {}),
+                    ...response,
+                  },
+                }
+              : msg,
+          ),
+        };
+      });
+    }
+  }, [acp, activeSessionId]);
 
   const handleSend = useCallback(async (text: string, context: InputContext) => {
     if (!text.trim()) return;
@@ -1262,7 +1357,7 @@ export function ChatPanel({
 
             {/* Header */}
             <div className="text-center">
-              <div className="w-10 h-10 mx-auto mb-2 rounded-xl bg-gradient-to-br from-indigo-500/20 to-blue-500/20 flex items-center justify-center">
+              <div className="w-10 h-10 mx-auto mb-2 rounded-xl bg-linear-to-br from-indigo-500/20 to-blue-500/20 flex items-center justify-center">
                 <svg className="w-5 h-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
                 </svg>
@@ -1316,7 +1411,7 @@ export function ChatPanel({
                           {/* Status dot */}
                           <span className={`w-1.5 h-1.5 rounded-full ${providerInfo?.status === "available" ? "bg-green-500" : "bg-gray-400"}`} />
                           {/* Provider name */}
-                          <span className="truncate max-w-[120px]">{providerInfo?.name ?? "Select..."}</span>
+                          <span className="truncate max-w-30">{providerInfo?.name ?? "Select..."}</span>
                           {/* Chevron */}
                           <svg className={`w-3 h-3 text-gray-400 transition-transform ${setupProviderDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -1328,7 +1423,7 @@ export function ChatPanel({
                           createPortal(
                             <div
                               ref={setupProviderDropdownRef}
-                              className="fixed w-64 max-h-80 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e2130] shadow-xl z-[9999]"
+                              className="fixed w-64 max-h-80 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e2130] shadow-xl z-9999"
                               style={{ left: setupProviderDropdownPos.left, bottom: setupProviderDropdownPos.bottom }}
                             >
                               {/* Group providers by availability */}
@@ -1364,7 +1459,7 @@ export function ChatPanel({
                                           >
                                             <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
                                             <span className="font-medium truncate flex-1">{p.name}</span>
-                                            <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate max-w-[140px]">{p.command}</span>
+                                            <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate max-w-35">{p.command}</span>
                                           </button>
                                         ))}
                                       </div>
@@ -1392,7 +1487,7 @@ export function ChatPanel({
                                           >
                                             <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
                                             <span className="font-medium truncate flex-1">{p.name}</span>
-                                            <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate max-w-[140px]">{p.command}</span>
+                                            <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate max-w-35">{p.command}</span>
                                           </button>
                                         ))}
                                       </div>
@@ -1420,7 +1515,7 @@ export function ChatPanel({
                                           >
                                             <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0" />
                                             <span className="font-medium truncate flex-1">{p.name}</span>
-                                            <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate max-w-[140px]">{p.command}</span>
+                                            <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate max-w-35">{p.command}</span>
                                           </button>
                                         ))}
                                       </div>
@@ -1448,7 +1543,7 @@ export function ChatPanel({
                                           >
                                             <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0" />
                                             <span className="font-medium truncate flex-1">{p.name}</span>
-                                            <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate max-w-[140px]">{p.command}</span>
+                                            <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate max-w-35">{p.command}</span>
                                           </button>
                                         ))}
                                       </div>
@@ -1506,7 +1601,7 @@ export function ChatPanel({
                       <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                       </svg>
-                      <span className="truncate max-w-[120px]">{setupModel ? setupModel.split("/").pop() : "Default model"}</span>
+                      <span className="truncate max-w-30">{setupModel ? setupModel.split("/").pop() : "Default model"}</span>
                       {setupModelLoading
                         ? <span className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
                         : <svg className={`w-3 h-3 text-gray-400 transition-transform ${setupModelDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1517,7 +1612,7 @@ export function ChatPanel({
                     {setupModelDropdownOpen && setupModelDropdownPos && typeof document !== "undefined" &&
                       createPortal(
                         <div
-                          className="fixed w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e2130] shadow-xl z-[9999] flex flex-col"
+                          className="fixed w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e2130] shadow-xl z-9999 flex flex-col"
                           style={{ left: setupModelDropdownPos.left, bottom: setupModelDropdownPos.bottom, maxHeight: "300px" }}
                         >
                           <div className="p-2 border-b border-gray-100 dark:border-gray-800">
@@ -1671,10 +1766,22 @@ export function ChatPanel({
                   if (msg.role === "plan" && msg.planEntries && msg.planEntries.length > 0) {
                     return false;
                   }
+                  // Hide task-type tool messages (delegated tasks) - they show in the right panel CraftersView
+                  if (msg.role === "tool" && msg.toolKind === "task") {
+                    return false;
+                  }
+                  // Hide pending AskUserQuestion from chat stream — shown sticky above input
+                  if (msg.role === "tool" && isAskUserQuestionMessage(msg) && !hasAskUserQuestionAnswers(msg) && msg.toolStatus !== "failed") {
+                    return false;
+                  }
                   return true;
                 })
                 .map((msg, index) => (
-                  <MessageBubble key={`${msg.id}-${index}`} message={msg} />
+                  <MessageBubble
+                    key={`${msg.id}-${index}`}
+                    message={msg}
+                    onSubmitAskUserQuestion={handleSubmitAskUserQuestion}
+                  />
                 ))}
               <div ref={messagesEndRef} />
             </div>
@@ -1683,6 +1790,18 @@ export function ChatPanel({
           {/* Input */}
           <div className="border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-[#0f1117]">
             <div className="max-w-3xl mx-auto px-5 py-3 space-y-2">
+              {/* AskUserQuestion sticky cards — displayed above input until user submits */}
+              {pendingAskUserQuestions.length > 0 && (
+                <div className="space-y-2">
+                  {pendingAskUserQuestions.map((msg) => (
+                    <AskUserQuestionBubble
+                      key={msg.id}
+                      message={msg}
+                      onSubmit={handleSubmitAskUserQuestion}
+                    />
+                  ))}
+                </div>
+              )}
               {/* Task Progress Bar - shows above input when tasks or file changes exist */}
               {(taskInfos.length > 0 || fileChangesSummary) && (
                 <TaskProgressBar tasks={taskInfos} fileChanges={fileChangesSummary} />
@@ -1712,6 +1831,8 @@ export function ChatPanel({
                   agentRole={agentRole}
                   usageInfo={usageInfo}
                   onFetchModels={acp.listProviderModels}
+                  prefillText={inputPrefill}
+                  onPrefillConsumed={onInputPrefillConsumed}
                 />
               </div>
             </div>

@@ -18,6 +18,7 @@
 
 pub mod binary_manager;
 pub mod claude_code_process;
+pub mod docker;
 pub mod installation_state;
 pub mod paths;
 pub mod process;
@@ -33,8 +34,8 @@ pub use installation_state::AcpInstallationState;
 pub use paths::AcpPaths;
 pub use registry_fetch::{fetch_registry, fetch_registry_json};
 pub use registry_types::*;
-pub use runtime_manager::{AcpRuntimeManager, RuntimeInfo, RuntimeType, current_platform};
-pub use warmup::{AcpWarmupService, WarmupStatus, WarmupState};
+pub use runtime_manager::{current_platform, AcpRuntimeManager, RuntimeInfo, RuntimeType};
+pub use warmup::{AcpWarmupService, WarmupState, WarmupStatus};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -42,10 +43,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, RwLock};
 
+use crate::trace::{Contributor, TraceConversation, TraceEventType, TraceRecord, TraceWriter};
 use process::AcpProcess;
-use crate::trace::{
-    Contributor, TraceConversation, TraceEventType, TraceRecord, TraceWriter,
-};
 
 // ─── Session Record ─────────────────────────────────────────────────────
 
@@ -66,6 +65,9 @@ pub struct AcpSessionRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     pub created_at: String,
+    /// Parent session ID for CRAFTER child sessions
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_session_id: Option<String>,
 }
 
 // ─── Managed Process ────────────────────────────────────────────────────
@@ -119,6 +121,12 @@ pub struct AcpManager {
     notification_channels: Arc<RwLock<HashMap<String, broadcast::Sender<serde_json::Value>>>>,
     /// Our sessionId → message history (session/update notifications)
     history: Arc<RwLock<HashMap<String, Vec<serde_json::Value>>>>,
+}
+
+impl Default for AcpManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AcpManager {
@@ -185,11 +193,24 @@ impl AcpManager {
     }
 
     /// Add a notification to session history.
+    /// Child agent notifications (those with `childAgentId`) are NOT stored in the
+    /// parent session's history — they would flood out the ROUTA coordinator's own
+    /// messages. Child messages are persisted in their own child session's history.
     pub async fn push_to_history(&self, session_id: &str, notification: serde_json::Value) {
+        // Skip child agent notifications to prevent flooding parent history
+        if notification.get("childAgentId").is_some() {
+            return;
+        }
         let mut history = self.history.write().await;
-        history.entry(session_id.to_string())
-            .or_insert_with(Vec::new)
-            .push(notification);
+        let entries = history
+            .entry(session_id.to_string())
+            .or_insert_with(Vec::new);
+        entries.push(notification);
+        // Cap at 500 entries (same limit as Next.js backend)
+        if entries.len() > 500 {
+            let drain_count = entries.len() - 500;
+            entries.drain(0..drain_count);
+        }
     }
 
     /// Create a new ACP session: spawn agent process, initialize, create session.
@@ -197,6 +218,7 @@ impl AcpManager {
     /// **Claude** uses stream-json protocol instead of ACP.
     ///
     /// Returns `(our_session_id, agent_session_id)`.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_session(
         &self,
         session_id: String,
@@ -205,6 +227,7 @@ impl AcpManager {
         provider: Option<String>,
         role: Option<String>,
         model: Option<String>,
+        parent_session_id: Option<String>,
     ) -> Result<(String, String), String> {
         let provider_name = provider.as_deref().unwrap_or("opencode");
 
@@ -280,6 +303,7 @@ impl AcpManager {
             mode_id: None,
             model: model.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
+            parent_session_id: parent_session_id.clone(),
         };
 
         self.sessions
@@ -311,7 +335,10 @@ impl AcpManager {
             Contributor::new(provider_name, None),
         )
         .with_workspace_id(&workspace_id)
-        .with_metadata("role", serde_json::json!(role.as_deref().unwrap_or("CRAFTER")))
+        .with_metadata(
+            "role",
+            serde_json::json!(role.as_deref().unwrap_or("CRAFTER")),
+        )
         .with_metadata("cwd", serde_json::json!(cwd));
 
         trace_writer.append_safe(&trace).await;
@@ -327,11 +354,7 @@ impl AcpManager {
     }
 
     /// Send a prompt to an existing session's agent process.
-    pub async fn prompt(
-        &self,
-        session_id: &str,
-        text: &str,
-    ) -> Result<serde_json::Value, String> {
+    pub async fn prompt(&self, session_id: &str, text: &str) -> Result<serde_json::Value, String> {
         let processes = self.processes.read().await;
         let managed = processes
             .get(session_id)
@@ -527,7 +550,11 @@ pub fn get_presets() -> Vec<AcpPreset> {
             id: "copilot".to_string(),
             name: "GitHub Copilot".to_string(),
             command: "copilot".to_string(),
-            args: vec!["--acp".to_string(), "--allow-all-tools".to_string(), "--no-ask-user".to_string()],
+            args: vec![
+                "--acp".to_string(),
+                "--allow-all-tools".to_string(),
+                "--no-ask-user".to_string(),
+            ],
             description: "GitHub Copilot CLI".to_string(),
         },
         AcpPreset {
@@ -564,7 +591,8 @@ pub fn get_presets() -> Vec<AcpPreset> {
 }
 
 /// ACP Registry URL
-const ACP_REGISTRY_URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
+const ACP_REGISTRY_URL: &str =
+    "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 
 /// Get a preset by ID, checking both static presets and registry.
 /// Static presets take precedence.
@@ -575,8 +603,7 @@ pub async fn get_preset_by_id_with_registry(id: &str) -> Result<AcpPreset, Strin
     // Handle suffixed IDs (e.g., "auggie-registry")
     // This allows explicit selection of registry version when both exist
     const REGISTRY_SUFFIX: &str = "-registry";
-    if id.ends_with(REGISTRY_SUFFIX) {
-        let base_id = &id[..id.len() - REGISTRY_SUFFIX.len()];
+    if let Some(base_id) = id.strip_suffix(REGISTRY_SUFFIX) {
         let mut preset = get_registry_preset(base_id).await?;
         // Keep the suffixed ID in the returned preset for consistency
         preset.id = id.to_string();

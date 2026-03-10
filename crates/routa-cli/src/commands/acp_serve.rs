@@ -39,11 +39,7 @@ struct SessionRecord {
 }
 
 /// Run Routa as an ACP server over stdio.
-pub async fn run(
-    state: &AppState,
-    workspace_id: &str,
-    provider: &str,
-) -> Result<(), String> {
+pub async fn run(state: &AppState, workspace_id: &str, provider: &str) -> Result<(), String> {
     let mut server = AcpServerState {
         state: state.clone(),
         router: RpcRouter::new(state.clone()),
@@ -74,23 +70,16 @@ pub async fn run(
         };
 
         let id = msg.get("id").cloned();
-        let method = msg
-            .get("method")
-            .and_then(|m| m.as_str())
-            .unwrap_or("");
-        let params = msg.get("params").cloned().unwrap_or(Value::Object(Default::default()));
+        let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
+        let params = msg
+            .get("params")
+            .cloned()
+            .unwrap_or(Value::Object(Default::default()));
 
         let response = match method {
             "initialize" => handle_initialize(id.clone()),
             "session/new" => {
-                handle_session_new(
-                    &mut server,
-                    id.clone(),
-                    &params,
-                    workspace_id,
-                    provider,
-                )
-                .await
+                handle_session_new(&mut server, id.clone(), &params, workspace_id, provider).await
             }
             "session/prompt" => {
                 handle_session_prompt(&mut server, id.clone(), &params, &mut stdout).await
@@ -176,7 +165,11 @@ async fn handle_session_new(
         .and_then(|v| v.as_str())
         .unwrap_or("coordinator");
 
-    let role = if mode == "developer" { "DEVELOPER" } else { "ROUTA" };
+    let role = if mode == "developer" {
+        "DEVELOPER"
+    } else {
+        "ROUTA"
+    };
 
     // Create agent
     let agent_name = format!("acp-{}", role.to_lowercase());
@@ -218,6 +211,7 @@ async fn handle_session_new(
             Some(provider.to_string()),
             Some(role.to_string()),
             None,
+            None, // branch
         )
         .await;
 
@@ -305,8 +299,7 @@ async fn handle_session_prompt(
 
     // Build the coordinator prompt with specialist system prompt
     let role = AgentRole::from_str("ROUTA").unwrap_or(AgentRole::Routa);
-    let specialist = SpecialistConfig::by_role(&role)
-        .unwrap_or_else(SpecialistConfig::crafter);
+    let specialist = SpecialistConfig::by_role(&role).unwrap_or_else(SpecialistConfig::crafter);
 
     let full_prompt = format!(
         "{}\n\n---\n\n\
@@ -341,11 +334,7 @@ async fn handle_session_prompt(
         .prompt(&record.routa_session_id, &full_prompt)
         .await
     {
-        return make_error_response(
-            id.clone(),
-            -32000,
-            &format!("Failed to send prompt: {}", e),
-        );
+        return make_error_response(id.clone(), -32000, &format!("Failed to send prompt: {}", e));
     }
 
     // Stream updates as session/update notifications to the ACP client

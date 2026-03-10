@@ -19,6 +19,7 @@ export async function GET(
 ) {
   const { sessionId } = await params;
   const store = getHttpSessionStore();
+  await store.hydrateFromDb();
   const session = store.getSession(sessionId);
 
   if (!session) {
@@ -33,6 +34,7 @@ export async function GET(
       sessionId: session.sessionId,
       name: session.name,
       cwd: session.cwd,
+      branch: session.branch,
       workspaceId: session.workspaceId,
       routaAgentId: session.routaAgentId,
       provider: session.provider,
