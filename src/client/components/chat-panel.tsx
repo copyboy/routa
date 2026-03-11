@@ -429,6 +429,7 @@ export function ChatPanel({
   // When active session changes, swap visible transcript and load history
   useEffect(() => {
     if (!activeSessionId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setVisibleMessages([]);
       return;
     }
