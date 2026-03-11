@@ -143,6 +143,8 @@ export function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // View mode: 'chat' or 'trace'
   const [viewMode, setViewMode] = useState<"chat" | "trace">("chat");
+  // Track if session is currently running (receiving updates)
+  const [isSessionRunning, setIsSessionRunning] = useState(false);
 
   const streamingMsgIdRef = useRef<Record<string, string | null>>({});
   const streamingThoughtIdRef = useRef<Record<string, string | null>>({});
@@ -394,6 +396,15 @@ export function ChatPanel({
       }
 
       loadedHistoryRef.current.add(sessionId);
+
+      // Check if session is still running (last update is not turn_complete)
+      if (history.length > 0) {
+        const lastUpdate = history[history.length - 1];
+        const lastKindFromHistory = ((lastUpdate.update ?? lastUpdate) as Record<string, unknown>).sessionUpdate as string | undefined;
+        const isRunning = lastKindFromHistory !== "turn_complete" && lastKindFromHistory !== "acp_status";
+        setIsSessionRunning(isRunning);
+      }
+
       if (messages.length > 0) {
         // Extract tasks from loaded history
         let detectedTasks: ParsedTask[] = [];
@@ -435,6 +446,8 @@ export function ChatPanel({
     }
     // Clear processed message IDs when switching sessions
     processedMessageIdsRef.current.clear();
+    // Reset running state when switching sessions (will be updated by SSE)
+    setIsSessionRunning(false);
     // Load history if not yet loaded
     fetchSessionHistory(activeSessionId);
   }, [activeSessionId, fetchSessionHistory]);
@@ -522,6 +535,15 @@ export function ChatPanel({
         };
 
         const lastKind = lastUpdateKindRef.current[sid];
+
+        // Track session running state for the active session
+        if (sid === activeSessionId) {
+          if (kind === "agent_message_chunk" || kind === "tool_call" || kind === "agent_reasoning_chunk") {
+            setIsSessionRunning(true);
+          } else if (kind === "turn_complete") {
+            setIsSessionRunning(false);
+          }
+        }
 
         switch (kind) {
           case "agent_message_chunk": {
@@ -1822,7 +1844,7 @@ export function ChatPanel({
                       : "Connect first..."
                   }
                   disabled={!connected}
-                  loading={loading}
+                  loading={loading || isSessionRunning}
                   skills={skills}
                   repoSkills={repoSkills}
                   providers={acp.providers}
