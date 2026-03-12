@@ -472,6 +472,15 @@ pub fn get_worktree_base_dir() -> PathBuf {
         .join("worktrees")
 }
 
+/// Default worktree root for a workspace: ~/.routa/workspace/{workspaceId}
+pub fn get_default_workspace_worktree_root(workspace_id: &str) -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".routa")
+        .join("workspace")
+        .join(workspace_id)
+}
+
 /// Sanitize a branch name for use as a directory name.
 pub fn branch_to_safe_dir_name(branch: &str) -> String {
     branch
