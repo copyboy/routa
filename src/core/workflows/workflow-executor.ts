@@ -10,11 +10,9 @@
  * The BackgroundWorker will automatically dispatch tasks when dependencies are completed.
  */
 
-import { v4 as uuidv4 } from "uuid";
 import type { WorkflowDefinition, WorkflowStep } from "./workflow-types";
 import type { WorkflowRunStore } from "./workflow-store";
 import type { BackgroundTaskStore } from "../store/background-task-store";
-import type { BackgroundTask } from "../models/background-task";
 import { createBackgroundTask } from "../models/background-task";
 
 export interface WorkflowExecutorDeps {
@@ -164,4 +162,3 @@ export class WorkflowExecutor {
     return prompt || `Execute step: ${step.name}`;
   }
 }
-
