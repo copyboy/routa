@@ -23,12 +23,20 @@ function makeRecord(sessionId: string, eventType: string = "session_start"): Tra
 
 describe("TraceWriter — per-session files", () => {
   let tmpDir: string;
+  let originalHome: string | undefined;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "trace-writer-test-"));
+    originalHome = process.env.HOME;
+    process.env.HOME = tmpDir;
   });
 
   afterEach(async () => {
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -42,12 +50,6 @@ describe("TraceWriter — per-session files", () => {
     await writer.append(r1);
     await writer.append(r2);
     await writer.append(r3);
-
-    // Find the day directory
-    const homeDir = process.env.HOME || os.homedir();
-    // TraceWriter uses getTracesDir which goes to ~/.routa/projects/{slug}/traces/
-    // For a tmp dir, the slug will be based on the tmpDir path
-    // Instead, let's just check the files were created by reading them back
     const reader = TraceReader.withBaseDir(tmpDir);
 
     const sessionA = await reader.query({ sessionId: "session-aaa" });

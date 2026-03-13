@@ -7,8 +7,11 @@ import nextPlugin from "@next/eslint-plugin-next";
 const eslintConfig = [
   {
     ignores: [
+      ".worktrees/**",
       ".next/**",
       ".next-desktop/**",
+      "**/.next/**",
+      "**/.next-desktop/**",
       "node_modules/**",
       "out/**",
       "build/**",

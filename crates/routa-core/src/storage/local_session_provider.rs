@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs;
 
-use super::folder_slug::get_sessions_dir;
+use super::folder_slug::{get_sessions_dir, to_folder_slug};
 use super::jsonl_writer::{list_jsonl_files, read_jsonl_file, JsonlWriter};
 
 /// Session metadata entry in JSONL file.
@@ -91,17 +91,34 @@ pub struct SessionRecord {
 
 pub struct LocalSessionProvider {
     project_path: String,
+    storage_root: Option<PathBuf>,
 }
 
 impl LocalSessionProvider {
     pub fn new(project_path: &str) -> Self {
         Self {
             project_path: project_path.to_string(),
+            storage_root: None,
+        }
+    }
+
+    pub fn new_with_storage_root(project_path: &str, storage_root: impl Into<PathBuf>) -> Self {
+        Self {
+            project_path: project_path.to_string(),
+            storage_root: Some(storage_root.into()),
         }
     }
 
     fn sessions_dir(&self) -> PathBuf {
-        get_sessions_dir(&self.project_path)
+        self.storage_root.as_ref().map_or_else(
+            || get_sessions_dir(&self.project_path),
+            |root| {
+                root.join(".routa")
+                    .join("projects")
+                    .join(to_folder_slug(&self.project_path))
+                    .join("sessions")
+            },
+        )
     }
 
     fn session_file_path(&self, session_id: &str) -> PathBuf {
@@ -328,7 +345,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let project_path = tmp.path().join("my-project");
         std::fs::create_dir_all(&project_path).unwrap();
-        let provider = LocalSessionProvider::new(project_path.to_str().unwrap());
+        let provider =
+            LocalSessionProvider::new_with_storage_root(project_path.to_str().unwrap(), tmp.path());
 
         let session = make_session("sess-1", project_path.to_str().unwrap());
         provider.save(&session).await.unwrap();
@@ -346,7 +364,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let project_path = tmp.path().join("my-project");
         std::fs::create_dir_all(&project_path).unwrap();
-        let provider = LocalSessionProvider::new(project_path.to_str().unwrap());
+        let provider =
+            LocalSessionProvider::new_with_storage_root(project_path.to_str().unwrap(), tmp.path());
 
         let s1 = make_session("sess-1", project_path.to_str().unwrap());
         let mut s2 = make_session("sess-2", project_path.to_str().unwrap());
@@ -370,7 +389,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let project_path = tmp.path().join("my-project");
         std::fs::create_dir_all(&project_path).unwrap();
-        let provider = LocalSessionProvider::new(project_path.to_str().unwrap());
+        let provider =
+            LocalSessionProvider::new_with_storage_root(project_path.to_str().unwrap(), tmp.path());
 
         let session = make_session("sess-1", project_path.to_str().unwrap());
         provider.save(&session).await.unwrap();
@@ -385,7 +405,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let project_path = tmp.path().join("my-project");
         std::fs::create_dir_all(&project_path).unwrap();
-        let provider = LocalSessionProvider::new(project_path.to_str().unwrap());
+        let provider =
+            LocalSessionProvider::new_with_storage_root(project_path.to_str().unwrap(), tmp.path());
 
         let session = make_session("sess-1", project_path.to_str().unwrap());
         provider.save(&session).await.unwrap();
@@ -407,14 +428,20 @@ mod tests {
     #[tokio::test]
     async fn test_get_nonexistent_returns_none() {
         let tmp = TempDir::new().unwrap();
-        let provider = LocalSessionProvider::new(tmp.path().to_str().unwrap());
+        let provider = LocalSessionProvider::new_with_storage_root(
+            tmp.path().to_str().unwrap(),
+            tmp.path(),
+        );
         assert!(provider.get("nonexistent").await.is_none());
     }
 
     #[tokio::test]
     async fn test_delete_nonexistent_is_ok() {
         let tmp = TempDir::new().unwrap();
-        let provider = LocalSessionProvider::new(tmp.path().to_str().unwrap());
+        let provider = LocalSessionProvider::new_with_storage_root(
+            tmp.path().to_str().unwrap(),
+            tmp.path(),
+        );
         assert!(provider.delete("nonexistent").await.is_ok());
     }
 }
