@@ -16,7 +16,7 @@
  *   GITHUB_REPOSITORY  # Optional, defaults to current repo from git remote
  */
 
-import { execSync } from "child_process";
+import { ghExec } from "@/core/utils/safe-exec";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -38,10 +38,13 @@ function findLinkedPRs(issueNumber: number, repo: string): PullRequest[] {
 
   // Method 1: Search via issue timeline for cross-referenced PRs
   try {
-    const timelineOutput = execSync(
-      `gh api "repos/${repo}/issues/${issueNumber}/timeline" --paginate --jq '.[] | select(.event == "cross-referenced") | select(.source.issue.pull_request != null) | {number: .source.issue.number, title: .source.issue.title, url: .source.issue.pull_request.html_url}'`,
-      { encoding: "utf-8", cwd: process.cwd() }
-    );
+    const timelineOutput = ghExec([
+      "api",
+      `repos/${repo}/issues/${issueNumber}/timeline`,
+      "--paginate",
+      "--jq",
+      '.[] | select(.event == "cross-referenced") | select(.source.issue.pull_request != null) | {number: .source.issue.number, title: .source.issue.title, url: .source.issue.pull_request.html_url}'
+    ], { cwd: process.cwd() });
 
     if (timelineOutput.trim()) {
       const refs = timelineOutput
@@ -59,10 +62,15 @@ function findLinkedPRs(issueNumber: number, repo: string): PullRequest[] {
       for (const ref of refs) {
         // Get PR details to check if it's a draft
         try {
-          const prDetails = execSync(
-            `gh pr view ${ref.number} --repo ${repo} --json number,title,isDraft,headRefName,url,body`,
-            { encoding: "utf-8", cwd: process.cwd() }
-          );
+          const prDetails = ghExec([
+            "pr",
+            "view",
+            ref.number.toString(),
+            "--repo",
+            repo,
+            "--json",
+            "number,title,isDraft,headRefName,url,body"
+          ], { cwd: process.cwd() });
           const pr = JSON.parse(prDetails) as PullRequest;
           if (!linkedPRs.find((p) => p.number === pr.number)) {
             linkedPRs.push(pr);
@@ -82,10 +90,16 @@ function findLinkedPRs(issueNumber: number, repo: string): PullRequest[] {
   // Method 2: Search open PRs that reference the issue in their body
   if (linkedPRs.length === 0) {
     try {
-      const searchOutput = execSync(
-        `gh pr list --repo ${repo} --state open --json number,title,isDraft,headRefName,url,body`,
-        { encoding: "utf-8", cwd: process.cwd() }
-      );
+      const searchOutput = ghExec([
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--state",
+        "open",
+        "--json",
+        "number,title,isDraft,headRefName,url,body"
+      ], { cwd: process.cwd() });
       const allPRs = JSON.parse(searchOutput) as PullRequest[];
       const issuePattern = new RegExp(
         `(closes|fixes|resolves|close|fix|resolve)\\s*#${issueNumber}\\b`,
@@ -130,10 +144,7 @@ function convertDraftToReady(prNumber: number, repo: string, dryRun: boolean): b
   }
 
   try {
-    execSync(`gh pr ready ${prNumber} --repo ${repo}`, {
-      encoding: "utf-8",
-      cwd: process.cwd(),
-    });
+    ghExec(["pr", "ready", prNumber.toString(), "--repo", repo], { cwd: process.cwd() });
     console.log(`   ✅ PR #${prNumber} is now ready for review`);
     return true;
   } catch (error) {
@@ -158,10 +169,7 @@ function addAugmentReviewComment(prNumber: number, repo: string, dryRun: boolean
   }
 
   try {
-    execSync(`gh pr comment ${prNumber} --repo ${repo} --body "${comment}"`, {
-      encoding: "utf-8",
-      cwd: process.cwd(),
-    });
+    ghExec(["pr", "comment", prNumber.toString(), "--repo", repo, "--body", comment], { cwd: process.cwd() });
     console.log(`   ✅ @augment review comment added to PR #${prNumber}`);
     return true;
   } catch (error) {
@@ -191,10 +199,7 @@ function main(): void {
   // Determine repo (from env or git remote)
   const repo =
     process.env.GITHUB_REPOSITORY ||
-    execSync("gh repo view --json nameWithOwner --jq '.nameWithOwner'", {
-      encoding: "utf-8",
-      cwd: process.cwd(),
-    }).trim();
+    ghExec(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { cwd: process.cwd() }).trim();
 
   console.log("═".repeat(80));
   console.log("🤖 Copilot Complete Handler");

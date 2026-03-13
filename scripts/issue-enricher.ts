@@ -18,7 +18,7 @@
  *   GH_TOKEN                                    # Required for gh CLI operations
  */
 
-import { execSync } from "child_process";
+import { ghExec } from "@/core/utils/safe-exec";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 
@@ -70,10 +70,16 @@ function ensureLabelsExist(): void {
   for (const label of allLabels) {
     try {
       // --force updates the label if it already exists, or creates it if not
-      execSync(
-        `gh label create "${label.name}" --color "${label.color}" --description "${label.description}" --force`,
-        { encoding: "utf-8", cwd: process.cwd(), stdio: "pipe" }
-      );
+      ghExec([
+        "label",
+        "create",
+        label.name,
+        "--color",
+        label.color,
+        "--description",
+        label.description,
+        "--force"
+      ], { cwd: process.cwd() });
     } catch {
       // Non-fatal: log but continue if a label operation fails (e.g., auth or network issue)
     }
@@ -84,10 +90,13 @@ function ensureLabelsExist(): void {
 
 function fetchIssue(issueNumber: number): IssueData | null {
   try {
-    const output = execSync(
-      `gh issue view ${issueNumber} --json number,title,body,labels,author`,
-      { encoding: "utf-8", cwd: process.cwd() }
-    );
+    const output = ghExec([
+      "issue",
+      "view",
+      issueNumber.toString(),
+      "--json",
+      "number,title,body,labels,author"
+    ], { cwd: process.cwd() });
     const data = JSON.parse(output);
     return {
       number: data.number,
@@ -234,7 +243,7 @@ Do NOT create a new issue - only analyze and update issue #${issue.number}.`;
 function reopenIssue(issueNumber: number): boolean {
   try {
     console.log(`\n🔄 Reopening issue #${issueNumber}...`);
-    execSync(`gh issue reopen ${issueNumber}`, { encoding: "utf-8", cwd: process.cwd() });
+    ghExec(["issue", "reopen", issueNumber.toString()], { cwd: process.cwd() });
     console.log(`   ✅ Issue #${issueNumber} reopened`);
     return true;
   } catch (error) {
@@ -248,10 +257,7 @@ function reopenIssue(issueNumber: number): boolean {
 function assignCopilot(issueNumber: number): boolean {
   try {
     console.log(`\n🤖 Assigning Copilot to issue #${issueNumber}...`);
-    execSync(`gh issue edit ${issueNumber} --add-assignee "copilot"`, {
-      encoding: "utf-8",
-      cwd: process.cwd(),
-    });
+    ghExec(["issue", "edit", issueNumber.toString(), "--add-assignee", "copilot"], { cwd: process.cwd() });
     console.log(`   ✅ Copilot assigned to issue #${issueNumber}`);
     return true;
   } catch (error) {
