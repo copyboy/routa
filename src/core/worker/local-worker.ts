@@ -104,8 +104,14 @@ export class LocalWorker implements Worker {
 
       let acpSessionId: string;
 
-      if (task.agentId === "claude" || task.agentId === "claude-code-sdk") {
+      if (task.agentId === "claude") {
         acpSessionId = await manager.createClaudeSession(
+          sessionId,
+          cwd,
+          noopNotification,
+        );
+      } else if (task.agentId === "claude-code-sdk") {
+        acpSessionId = await manager.createClaudeCodeSdkSession(
           sessionId,
           cwd,
           noopNotification,
