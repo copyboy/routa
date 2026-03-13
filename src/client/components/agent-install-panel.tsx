@@ -410,7 +410,7 @@ function AgentCard({
         {/* Icon */}
         <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
           {agent.icon ? (
-            <Image src={agent.icon} alt="" className="w-6 h-6" />
+            <Image src={agent.icon} alt="" width={24} height={24} className="w-6 h-6" />
           ) : (
             agent.name.charAt(0).toUpperCase()
           )}
