@@ -1,10 +1,10 @@
-# Code Review Workflow — multi-phase analysis with confidence filtering
+# Code Review Workflow — multi-phase review with confidence filtering
 #
 # Usage:
-#   routa workflow run resources/flows/code-review.yaml --trigger-payload "Review the changes in PR #42"
+#   routa workflow run resources/flows/code-review.yaml --trigger-payload "Review PR #42 in owner/repo"
 
 name: "Code Review Flow"
-description: "Multi-phase PR review: context, diff analysis, independent validation, and confidence-gated reporting"
+description: "Four-phase code review: context, diff analysis, false-positive filtering, final verdict"
 version: "2.0"
 
 trigger:
@@ -12,86 +12,74 @@ trigger:
 
 variables:
   model: "${ANTHROPIC_MODEL:-GLM-4.7}"
-  confidence_threshold: "7"
 
 steps:
-  - name: "Phase 1 - Context Gathering"
+  - name: "Phase 1 - Gather Context"
     specialist: "pr-reviewer"
     adapter: "claude-code-sdk"
     config:
       model: "${model}"
     input: |
-      Gather project context for a high-signal PR review.
+      You are running phase 1 only.
 
-      PR / Request:
+      Task:
       ${trigger.payload}
 
-      Required output:
-      1. Tech stack and key frameworks
-      2. What lint/type checks already enforce (avoid duplicate findings)
-      3. Existing project patterns to compare against
-      4. Custom rules from .routa/review-rules.md if available
-    output_key: "context"
+      Gather project context (tech stack, lint coverage, conventions, custom review rules).
+      Do not output review findings yet.
+    output_key: "project_context"
 
-  - name: "Phase 2 - Diff Analysis"
+  - name: "Phase 2 - Raw Diff Analysis"
     specialist: "pr-reviewer"
     adapter: "claude-code-sdk"
     config:
       model: "${model}"
     input: |
-      Analyze only the new changes from this PR against project context.
+      You are running phase 2 only.
 
-      ## Context
-      ${steps.Phase 1 - Context Gathering.output}
+      ## Phase 1 Context
+      ${steps.Phase 1 - Gather Context.output}
 
-      ## PR / Request
+      ## Task
       ${trigger.payload}
 
-      For every candidate finding include:
-      - file:line
-      - category
-      - severity
-      - raw_confidence (1-10)
-      - description
-      - suggestion
-
-      Reject low-value style findings already covered by linters.
+      Analyze only PR-introduced changes and return a raw findings list with confidence.
     output_key: "raw_findings"
 
-  - name: "Phase 3 - False Positive Filter"
-    specialist: "gate"
+  - name: "Phase 3 - Validate Findings"
+    specialist: "pr-reviewer"
     adapter: "claude-code-sdk"
     config:
       model: "${model}"
     input: |
-      Validate the candidate findings and suppress false positives.
+      You are running phase 3 only.
 
-      ## Context
-      ${steps.Phase 1 - Context Gathering.output}
+      ## Phase 1 Context
+      ${steps.Phase 1 - Gather Context.output}
 
-      ## Raw Findings
-      ${steps.Phase 2 - Diff Analysis.output}
+      ## Phase 2 Raw Findings
+      ${steps.Phase 2 - Raw Diff Analysis.output}
 
-      Apply hard exclusions and output verdict KEEP/REJECT with validated_confidence.
-      KEEP only findings with confidence >= ${confidence_threshold}.
+      Validate each finding with hard exclusions and confidence re-scoring.
+      Keep only findings with verdict=KEEP and confidence>=7.
     output_key: "validated_findings"
 
   - name: "Phase 4 - Final Review Report"
-    specialist: "pr-analyzer"
+    specialist: "pr-reviewer"
     adapter: "claude-code-sdk"
     config:
       model: "${model}"
     input: |
-      Produce the final PR review report.
+      You are running phase 4 only.
 
       ## Context
-      ${steps.Phase 1 - Context Gathering.output}
+      ${steps.Phase 1 - Gather Context.output}
+
+      ## Raw Findings
+      ${steps.Phase 2 - Raw Diff Analysis.output}
 
       ## Validated Findings
-      ${steps.Phase 3 - False Positive Filter.output}
+      ${steps.Phase 3 - Validate Findings.output}
 
-      ## Rules
-      - Report only findings with confidence >= ${confidence_threshold}
-      - Include filtered-out summary counts by reason
-      - If none remain, output: "No significant issues found"
+      Generate the final concise review report.
     output_key: "verdict"
