@@ -13,8 +13,10 @@ export interface KanbanSessionQueueJob {
 export interface KanbanBoardQueueSnapshot {
   boardId: string;
   runningCount: number;
+  runningCards: Array<{ cardId: string; cardTitle: string }>;
   queuedCount: number;
   queuedCardIds: string[];
+  queuedCards: Array<{ cardId: string; cardTitle: string }>;
   queuedPositions: Record<string, number>;
 }
 
@@ -103,8 +105,12 @@ export class KanbanSessionQueue {
     return {
       boardId,
       runningCount: this.countRunning(boardId),
+      runningCards: Array.from(this.jobsByCardId.values())
+        .filter((entry) => entry.boardId === boardId && entry.status === "running")
+        .map((entry) => ({ cardId: entry.cardId, cardTitle: entry.cardTitle })),
       queuedCount: queuedEntries.length,
       queuedCardIds: queuedEntries.map((entry) => entry.cardId),
+      queuedCards: queuedEntries.map((entry) => ({ cardId: entry.cardId, cardTitle: entry.cardTitle })),
       queuedPositions,
     };
   }

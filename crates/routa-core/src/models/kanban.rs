@@ -21,6 +21,15 @@ pub struct KanbanColumnAutomation {
     /// Specialist name (for display)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub specialist_name: Option<String>,
+    /// When to trigger: entry, exit, or both
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transition_type: Option<String>,
+    /// Required artifacts before advancing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_artifacts: Option<Vec<String>>,
+    /// Automatically advance card on session success
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_advance_on_success: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

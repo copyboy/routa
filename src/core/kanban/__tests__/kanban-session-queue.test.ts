@@ -62,8 +62,10 @@ describe("KanbanSessionQueue", () => {
     await expect(queue.getBoardSnapshot("board-1")).resolves.toEqual({
       boardId: "board-1",
       runningCount: 1,
+      runningCards: [{ cardId: "task-1", cardTitle: "First task" }],
       queuedCount: 1,
       queuedCardIds: ["task-2"],
+      queuedCards: [{ cardId: "task-2", cardTitle: "Second task" }],
       queuedPositions: { "task-2": 1 },
     });
 
@@ -81,8 +83,10 @@ describe("KanbanSessionQueue", () => {
     await expect(queue.getBoardSnapshot("board-1")).resolves.toEqual({
       boardId: "board-1",
       runningCount: 1,
+      runningCards: [{ cardId: "task-2", cardTitle: "Second task" }],
       queuedCount: 0,
       queuedCardIds: [],
+      queuedCards: [],
       queuedPositions: {},
     });
 
@@ -153,8 +157,10 @@ describe("KanbanSessionQueue", () => {
     await expect(queue.getBoardSnapshot("board-1")).resolves.toEqual({
       boardId: "board-1",
       runningCount: 0,
+      runningCards: [],
       queuedCount: 0,
       queuedCardIds: [],
+      queuedCards: [],
       queuedPositions: {},
     });
 
@@ -214,8 +220,10 @@ describe("KanbanSessionQueue", () => {
     await expect(queue.getBoardSnapshot("board-1")).resolves.toEqual({
       boardId: "board-1",
       runningCount: 1,
+      runningCards: [{ cardId: "task-1", cardTitle: "First task" }],
       queuedCount: 0,
       queuedCardIds: [],
+      queuedCards: [],
       queuedPositions: {},
     });
 

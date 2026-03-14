@@ -42,6 +42,45 @@ interface KanbanTabProps {
   ) => Promise<string | null>;
 }
 
+function QueueStatusBadge({
+  label,
+  count,
+  cards,
+  className,
+}: {
+  label: string;
+  count: number;
+  cards: Array<{ cardId: string; cardTitle: string }>;
+  className: string;
+}) {
+  const tooltip = cards.length > 0
+    ? `${label}\n${cards.map((card, index) => `${index + 1}. ${card.cardTitle}`).join("\n")}`
+    : `${label}\nNo cards`;
+
+  return (
+    <span
+      className={`group relative rounded-full px-2.5 py-1 ${className}`}
+      title={tooltip}
+    >
+      {label} {count}
+      <span className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-72 rounded-xl border border-gray-200 bg-white p-3 text-left text-xs text-gray-700 shadow-xl group-hover:block dark:border-gray-700 dark:bg-[#12141c] dark:text-gray-200">
+        <div className="mb-2 font-semibold text-gray-900 dark:text-gray-100">{label}</div>
+        {cards.length > 0 ? (
+          <div className="space-y-1">
+            {cards.map((card, index) => (
+              <div key={card.cardId} className="truncate">
+                {index + 1}. {card.cardTitle}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-gray-500 dark:text-gray-400">No cards</div>
+        )}
+      </span>
+    </span>
+  );
+}
+
 export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, specialists, codebases, onRefresh, acp, onAgentPrompt }: KanbanTabProps) {
   const defaultBoardId = useMemo(
     () => boards.find((board) => board.isDefault)?.id ?? boards[0]?.id ?? null,
@@ -871,12 +910,18 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
           <span className="rounded-full bg-gray-100 px-2.5 py-1 dark:bg-[#191c28]">
             Limit {board.sessionConcurrencyLimit ?? 1}
           </span>
-          <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">
-            Running {boardQueue?.runningCount ?? 0}
-          </span>
-          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-            Queued {boardQueue?.queuedCount ?? 0}
-          </span>
+          <QueueStatusBadge
+            label="Running"
+            count={boardQueue?.runningCount ?? 0}
+            cards={boardQueue?.runningCards ?? []}
+            className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+          />
+          <QueueStatusBadge
+            label="Queued"
+            count={boardQueue?.queuedCount ?? 0}
+            cards={boardQueue?.queuedCards ?? []}
+            className="bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+          />
         </div>
       )}
 

@@ -11,8 +11,10 @@ const board: KanbanBoardInfo = {
   sessionConcurrencyLimit: 1,
   queue: {
     runningCount: 0,
+    runningCards: [],
     queuedCount: 0,
     queuedCardIds: [],
+    queuedCards: [],
     queuedPositions: {},
   },
   columns: [

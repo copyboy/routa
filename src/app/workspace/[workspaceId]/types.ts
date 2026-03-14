@@ -57,8 +57,10 @@ export interface KanbanColumnAutomationInfo {
 
 export interface KanbanBoardQueueInfo {
   runningCount: number;
+  runningCards: Array<{ cardId: string; cardTitle: string }>;
   queuedCount: number;
   queuedCardIds: string[];
+  queuedCards: Array<{ cardId: string; cardTitle: string }>;
   queuedPositions: Record<string, number>;
 }
 
