@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
+import { EventBus, AgentEventType, type AgentEvent } from "../../events/event-bus";
 
 // We need to test the store in isolation. Import the class and types.
 // The singleton getter is module-scoped, so we test via the exported function.
@@ -100,6 +101,49 @@ describe("HttpSessionStore — ACP status", () => {
     // Should not throw
     store.updateSessionAcpStatus("nonexistent", "ready");
     expect(store.getSession("nonexistent")).toBeUndefined();
+  });
+
+  it("bridges agent completion lifecycle events onto the EventBus", () => {
+    const store = getHttpSessionStore();
+    const eventBus = new EventBus();
+    const received: AgentEvent[] = [];
+    store.setEventBus(eventBus);
+    eventBus.on("test-listener", (event) => {
+      received.push(event);
+    });
+
+    store.upsertSession({
+      sessionId: "test-complete",
+      cwd: "/tmp",
+      workspaceId: "ws-1",
+      provider: "opencode",
+      createdAt: new Date().toISOString(),
+    });
+
+    received.length = 0;
+
+    store.pushNotification({
+      sessionId: "test-complete",
+      update: {
+        sessionUpdate: "turn_complete",
+        stopReason: "end_turn",
+        usage: {
+          inputTokens: 10,
+          outputTokens: 20,
+        },
+      },
+    });
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      type: AgentEventType.AGENT_COMPLETED,
+      workspaceId: "ws-1",
+      data: {
+        sessionId: "test-complete",
+        success: true,
+        stopReason: "end_turn",
+      },
+    });
   });
 });
 

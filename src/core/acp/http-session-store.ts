@@ -19,6 +19,7 @@ import { AgentEventBridge, makeStartedEvent } from "./agent-event-bridge";
 import type { WorkspaceAgentEvent } from "./agent-event-bridge";
 import type { NormalizedSessionUpdate } from "./provider-adapter/types";
 import { getRoutaSystem } from "../routa-system";
+import { EventBus, AgentEventType } from "../events/event-bus";
 
 export type AcpSessionStatus = "connecting" | "ready" | "error";
 
@@ -137,6 +138,8 @@ class HttpSessionStore {
   private agentEventBridges = new Map<string, AgentEventBridge>();
   /** Subscribers for WorkspaceAgentEvents per session */
   private agentEventSubscribers = new Map<string, Set<(event: WorkspaceAgentEvent) => void>>();
+  /** Optional bridge to the global EventBus for lifecycle events. */
+  private eventBus?: EventBus;
   /** AG-UI notification interceptors per session (for protocol bridging) */
   private notificationInterceptors = new Map<string, Set<(n: SessionUpdateNotification) => void>>();
   /**
@@ -199,6 +202,10 @@ class HttpSessionStore {
 
     // Periodic cleanup check (runs every 5 minutes)
     this.maybeCleanup();
+  }
+
+  setEventBus(eventBus: EventBus): void {
+    this.eventBus = eventBus;
   }
 
   listSessions(): RoutaSessionRecord[] {
@@ -535,6 +542,8 @@ class HttpSessionStore {
   }
 
   private dispatchAgentEvent(sessionId: string, event: WorkspaceAgentEvent): void {
+    this.emitLifecycleEventToEventBus(sessionId, event);
+
     const subscribers = this.agentEventSubscribers.get(sessionId);
     if (!subscribers || subscribers.size === 0) return;
     for (const handler of subscribers) {
@@ -543,6 +552,58 @@ class HttpSessionStore {
       } catch {
         // subscriber errors must not break the notification pipeline
       }
+    }
+  }
+
+  private emitLifecycleEventToEventBus(sessionId: string, event: WorkspaceAgentEvent): void {
+    const eventBus = this.eventBus;
+    if (!eventBus) return;
+
+    const sessionRecord = this.sessions.get(sessionId);
+    if (!sessionRecord?.workspaceId) return;
+
+    const baseEvent = {
+      agentId: sessionRecord.routaAgentId ?? sessionId,
+      workspaceId: sessionRecord.workspaceId,
+      timestamp: event.timestamp,
+    };
+
+    switch (event.type) {
+      case "agent_started":
+        eventBus.emit({
+          ...baseEvent,
+          type: AgentEventType.AGENT_CREATED,
+          data: {
+            sessionId,
+            provider: event.provider,
+          },
+        });
+        break;
+      case "agent_completed":
+        eventBus.emit({
+          ...baseEvent,
+          type: AgentEventType.AGENT_COMPLETED,
+          data: {
+            sessionId,
+            success: true,
+            stopReason: event.stopReason,
+            usage: event.usage,
+          },
+        });
+        break;
+      case "agent_failed":
+        eventBus.emit({
+          ...baseEvent,
+          type: AgentEventType.AGENT_FAILED,
+          data: {
+            sessionId,
+            success: false,
+            error: event.message,
+          },
+        });
+        break;
+      default:
+        break;
     }
   }
 
@@ -817,7 +878,13 @@ export function getHttpSessionStore(): HttpSessionStore {
   if (!g[GLOBAL_KEY]) {
     g[GLOBAL_KEY] = new HttpSessionStore();
   }
-  return g[GLOBAL_KEY] as HttpSessionStore;
+  const store = g[GLOBAL_KEY] as HttpSessionStore;
+  try {
+    store.setEventBus(getRoutaSystem().eventBus);
+  } catch {
+    // Allow isolated tests / early boot without a RoutaSystem.
+  }
+  return store;
 }
 
 /**

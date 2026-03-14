@@ -1,5 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import type { Task } from "../models/task";
+import { getRoutaSystem } from "../routa-system";
+import { AgentEventType } from "../events/event-bus";
 
 export function getInternalApiOrigin(): string {
   const configuredOrigin = process.env.ROUTA_INTERNAL_API_ORIGIN
@@ -119,23 +121,65 @@ export async function triggerAssignedTaskAgent(params: {
     return { error: newSessionBody.error?.message ?? "Failed to create ACP session." };
   }
 
-  void fetch(`${origin}/api/acp`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: uuidv4(),
-      method: "session/prompt",
-      params: {
+  void (async () => {
+    const response = await fetch(`${origin}/api/acp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: uuidv4(),
+        method: "session/prompt",
+        params: {
+          sessionId,
+          workspaceId,
+          provider,
+          cwd,
+          prompt: [{ type: "text", text: buildTaskPrompt(task) }],
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`session/prompt HTTP ${response.status}`);
+    }
+
+    if (response.body) {
+      const reader = response.body.getReader();
+      try {
+        while (true) {
+          const { done } = await reader.read();
+          if (done) break;
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } else {
+      await response.arrayBuffer();
+    }
+
+    getRoutaSystem().eventBus.emit({
+      type: AgentEventType.AGENT_COMPLETED,
+      agentId: sessionId,
+      workspaceId,
+      data: {
         sessionId,
-        workspaceId,
-        provider,
-        cwd,
-        prompt: [{ type: "text", text: buildTaskPrompt(task) }],
+        success: true,
       },
-    }),
-  }).catch((error) => {
+      timestamp: new Date(),
+    });
+  })().catch((error) => {
     console.error("[kanban] Failed to auto-prompt ACP task session:", error);
+    getRoutaSystem().eventBus.emit({
+      type: AgentEventType.AGENT_FAILED,
+      agentId: sessionId,
+      workspaceId,
+      data: {
+        sessionId,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      timestamp: new Date(),
+    });
   });
 
   return { sessionId };
