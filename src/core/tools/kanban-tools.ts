@@ -207,6 +207,16 @@ export class KanbanTools {
       }
     }
 
+    // Preserve the current active session in history before clearing
+    // This allows the next column's automation to create a fresh session
+    if (task.triggerSessionId) {
+      if (!task.sessionIds) task.sessionIds = [];
+      if (!task.sessionIds.includes(task.triggerSessionId)) {
+        task.sessionIds.push(task.triggerSessionId);
+      }
+      task.triggerSessionId = undefined;
+    }
+
     task.columnId = params.targetColumnId;
     task.status = columnIdToTaskStatus(params.targetColumnId);
     task.position = params.position ?? task.position;

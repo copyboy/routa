@@ -47,6 +47,8 @@ export interface Task {
   assignedSpecialistId?: string;
   assignedSpecialistName?: string;
   triggerSessionId?: string;
+  /** All session IDs that have been associated with this task (history) */
+  sessionIds: string[];
   githubId?: string;
   githubNumber?: number;
   githubUrl?: string;
@@ -121,6 +123,7 @@ export function createTask(params: {
     assignedRole: params.assignedRole,
     assignedSpecialistId: params.assignedSpecialistId,
     assignedSpecialistName: params.assignedSpecialistName,
+    sessionIds: [],
     githubId: params.githubId,
     githubNumber: params.githubNumber,
     githubUrl: params.githubUrl,

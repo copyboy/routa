@@ -42,6 +42,15 @@ export class KanbanSessionQueue {
     return this.eventBus === eventBus && this.taskStore === taskStore;
   }
 
+  /** Remove a card's job entry (used when auto-advancing to prevent stale entries) */
+  removeCardJob(cardId: string): void {
+    const entry = this.jobsByCardId.get(cardId);
+    if (entry) {
+      this.removeQueuedEntry(entry.boardId, cardId);
+      this.jobsByCardId.delete(cardId);
+    }
+  }
+
   start(): void {
     if (this.started) {
       return;
@@ -71,7 +80,14 @@ export class KanbanSessionQueue {
 
     const existing = this.jobsByCardId.get(job.cardId);
     if (existing?.status === "running") {
-      return { sessionId: existing.sessionId, queued: false };
+      // Check if the task's triggerSessionId was already cleared (e.g. by auto-advance).
+      // If so, the old running entry is stale and should be replaced.
+      const task = await this.taskStore.get(job.cardId);
+      if (task && !task.triggerSessionId) {
+        this.jobsByCardId.delete(job.cardId);
+      } else {
+        return { sessionId: existing.sessionId, queued: false };
+      }
     }
     if (existing?.status === "queued") {
       return { queued: true };

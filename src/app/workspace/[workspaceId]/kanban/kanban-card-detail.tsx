@@ -19,6 +19,8 @@ export interface KanbanCardDetailProps {
   allCodebaseIds: string[];
   worktreeCache: Record<string, WorktreeInfo>;
   sessionInfo?: SessionInfo | null;
+  /** All sessions in the workspace (for session history lookup) */
+  sessions?: SessionInfo[];
   fullWidth?: boolean;
   onPatchTask: (taskId: string, payload: Record<string, unknown>) => Promise<TaskInfo>;
   onRetryTrigger: (taskId: string) => Promise<void>;
@@ -28,6 +30,8 @@ export interface KanbanCardDetailProps {
   onProviderChange?: (providerId: string | null) => void;
   /** Called when repository is changed to notify about cwd mismatch */
   onRepositoryChange?: (codebaseIds: string[]) => void;
+  /** Called when a historical session is selected */
+  onSelectSession?: (sessionId: string) => void;
 }
 
 const ROLE_OPTIONS = ["CRAFTER", "ROUTA", "GATE", "DEVELOPER"];
@@ -40,6 +44,7 @@ export function KanbanCardDetail({
   allCodebaseIds,
   worktreeCache,
   sessionInfo,
+  sessions,
   fullWidth,
   onPatchTask,
   onRetryTrigger,
@@ -47,6 +52,7 @@ export function KanbanCardDetail({
   onRefresh,
   onProviderChange,
   onRepositoryChange,
+  onSelectSession,
 }: KanbanCardDetailProps) {
   // Inline edit state - component is keyed by task.id so state resets on task change
   const [editTitle, setEditTitle] = useState(task.title);
@@ -143,6 +149,14 @@ export function KanbanCardDetail({
           onProviderChange={onProviderChange}
         />
 
+        {/* Session History */}
+        <SessionHistorySection
+          task={task}
+          sessions={sessions ?? []}
+          currentSessionId={task.triggerSessionId}
+          onSelectSession={onSelectSession}
+        />
+
         {/* GitHub Link */}
         <GitHubSection task={task} />
 
@@ -186,6 +200,66 @@ function LabelsSection({ labels }: { labels?: string[] }) {
             {label}
           </span>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function SessionHistorySection({
+  task,
+  sessions,
+  currentSessionId,
+  onSelectSession,
+}: {
+  task: TaskInfo;
+  sessions: SessionInfo[];
+  currentSessionId?: string;
+  onSelectSession?: (sessionId: string) => void;
+}) {
+  const allSessionIds = task.sessionIds ?? [];
+  // Include current triggerSessionId if not already in history
+  if (currentSessionId && !allSessionIds.includes(currentSessionId)) {
+    allSessionIds.push(currentSessionId);
+  }
+  if (allSessionIds.length === 0) return null;
+
+  const sessionMap = new Map(sessions.map((s) => [s.sessionId, s]));
+
+  return (
+    <div>
+      <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+        Sessions ({allSessionIds.length})
+      </div>
+      <div className="space-y-1 max-h-48 overflow-y-auto">
+        {allSessionIds.map((sid, index) => {
+          const session = sessionMap.get(sid);
+          const isCurrent = sid === currentSessionId;
+          return (
+            <button
+              key={sid}
+              onClick={() => onSelectSession?.(sid)}
+              className={`w-full text-left rounded-lg px-2 py-1.5 text-[11px] transition-colors ${
+                isCurrent
+                  ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                  : "bg-gray-50 text-gray-600 hover:bg-gray-100 dark:bg-[#0d1018] dark:text-gray-400 dark:hover:bg-[#191c28]"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="truncate font-medium">
+                  #{index + 1} {session?.provider ?? "session"}
+                </span>
+                {isCurrent && (
+                  <span className="shrink-0 rounded-full bg-amber-200 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800 dark:bg-amber-800/40 dark:text-amber-300">
+                    Active
+                  </span>
+                )}
+              </div>
+              <div className="truncate text-[10px] text-gray-400 dark:text-gray-500">
+                {sid.slice(0, 16)}... {session?.name ? `· ${session.name}` : ""}
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

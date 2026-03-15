@@ -450,7 +450,10 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
 
   const openTaskDetail = useCallback(async (task: TaskInfo) => {
     setActiveTaskId(task.id);
-    setActiveSessionId(task.triggerSessionId ?? null);
+    // Use triggerSessionId if available, otherwise show the latest session from history
+    const latestSession = task.triggerSessionId
+      ?? (task.sessionIds && task.sessionIds.length > 0 ? task.sessionIds[task.sessionIds.length - 1] : null);
+    setActiveSessionId(latestSession ?? null);
 
     if (task.codebaseIds?.length === 0 && defaultCodebase) {
       try {
@@ -461,8 +464,8 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
     }
 
     // Select the session in ACP if it exists
-    if (task.triggerSessionId && acp) {
-      acp.selectSession(task.triggerSessionId);
+    if (latestSession && acp) {
+      acp.selectSession(latestSession);
     }
   }, [acp, defaultCodebase, patchTask]);
 
@@ -1157,6 +1160,7 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
                     allCodebaseIds={allCodebaseIds}
                     worktreeCache={worktreeCache}
                     sessionInfo={sessionInfo}
+                    sessions={sessions}
                     fullWidth={!hasSessionPane}
                     onPatchTask={patchTask}
                     onRetryTrigger={retryTaskTrigger}
@@ -1171,6 +1175,10 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
                     onRepositoryChange={(codebaseIds) => {
                       // Repository changed - user should rerun to apply new working directory
                       console.log("[KanbanTab] Repository changed for task", task.id, "new codebaseIds:", codebaseIds);
+                    }}
+                    onSelectSession={(sessionId) => {
+                      setActiveSessionId(sessionId);
+                      acp?.selectSession(sessionId);
                     }}
                   />
                 );

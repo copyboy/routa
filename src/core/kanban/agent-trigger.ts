@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import type { Task } from "../models/task";
-import { AgentEventType } from "../events/event-bus";
+import { AgentEventType, type EventBus } from "../events/event-bus";
 import { isClaudeCodeSdkConfigured } from "../acp/claude-code-sdk-adapter";
 
 export function getInternalApiOrigin(): string {
@@ -19,7 +19,16 @@ export function getInternalApiOrigin(): string {
 
 export function buildTaskPrompt(task: Task): string {
   const labels = task.labels.length > 0 ? `Labels: ${task.labels.join(", ")}` : "Labels: none";
-  const isBacklogPlanning = (task.columnId ?? "backlog") === "backlog";
+  const currentColumnId = task.columnId ?? "backlog";
+  const isBacklogPlanning = currentColumnId === "backlog";
+
+  // Determine the next column for move_card guidance
+  const columnOrder = ["backlog", "todo", "dev", "review", "done"];
+  const currentIdx = columnOrder.indexOf(currentColumnId);
+  const nextColumnId = currentIdx >= 0 && currentIdx < columnOrder.length - 1
+    ? columnOrder[currentIdx + 1]
+    : undefined;
+
   const availableTools = isBacklogPlanning
     ? [
         `- **update_card**: Update this card's title, description, priority, or labels. Use cardId: "${task.id}"`,
@@ -27,27 +36,32 @@ export function buildTaskPrompt(task: Task): string {
         "- **create_card**: Create exactly one follow-up backlog card if the current card must be refined into a single user story",
         "- **decompose_tasks**: Create multiple backlog cards when the current card clearly contains multiple independent stories",
         "- **create_note**: Create notes for planning or refinement context",
+        `- **move_card**: Move this card to the next column when your work is complete. Use cardId: "${task.id}", targetColumnId: "${nextColumnId ?? "todo"}"`,
       ]
     : [
         `- **update_card**: Update this card's title, description, priority, or labels. Use cardId: "${task.id}"`,
         "- **create_note**: Create notes for documentation or progress tracking",
+        `- **move_card**: Move this card to the next column when your work is complete. Use cardId: "${task.id}", targetColumnId: "${nextColumnId ?? "done"}"`,
       ];
+  const moveInstruction = nextColumnId
+    ? `When your work for this column is complete, call \`move_card\` with cardId: "${task.id}" and targetColumnId: "${nextColumnId}" to advance the card. The next column's specialist will pick it up automatically.`
+    : "This card is in the final column. Update the card with your completion summary.";
+
   const instructions = isBacklogPlanning
     ? [
         "1. Treat backlog as planning and refinement, not implementation",
         "2. Clarify or decompose the work into backlog-ready stories when needed",
-        "3. Keep the original card in backlog unless the workflow explicitly requires another backlog card",
-        "4. Do not move the card out of backlog from this planning step",
-        "5. Do not use native tools such as Bash, Read, Write, Edit, Glob, or Grep in backlog planning",
-        "6. Do not use GitHub CLI commands such as gh issue create",
-        "7. Do not start implementation work in this column",
-        "8. Report what backlog story or stories were created or refined",
+        "3. Do not use native tools such as Bash, Read, Write, Edit, Glob, or Grep in backlog planning",
+        "4. Do not use GitHub CLI commands such as gh issue create",
+        "5. Do not start implementation work in this column",
+        "6. Report what backlog story or stories were created or refined",
+        `7. ${moveInstruction}`,
       ]
     : [
-        "1. Start implementation work immediately",
+        "1. Complete the work assigned to this column stage",
         "2. Use `update_card` to track progress in the card description",
         "3. Keep changes focused on this task",
-        "4. Do not move the card between columns yourself; Kanban workflow automation advances columns after your session completes",
+        `4. ${moveInstruction}`,
         "5. Do not call `report_to_parent`; this Kanban automation session is managed directly by the workflow",
       ];
 
@@ -97,8 +111,9 @@ export async function triggerAssignedTaskAgent(params: {
   cwd: string;
   branch?: string;
   task: Task;
+  eventBus?: EventBus;
 }): Promise<{ sessionId?: string; error?: string }> {
-  const { origin, workspaceId, cwd, branch, task } = params;
+  const { origin, workspaceId, cwd, branch, task, eventBus } = params;
   const provider = resolveKanbanAutomationProvider(task.assignedProvider);
   const role = task.assignedRole ?? "CRAFTER";
 
@@ -164,31 +179,33 @@ export async function triggerAssignedTaskAgent(params: {
       await response.arrayBuffer();
     }
 
-    const { getRoutaSystem } = require("../routa-system") as typeof import("../routa-system");
-    getRoutaSystem().eventBus.emit({
-      type: AgentEventType.AGENT_COMPLETED,
-      agentId: sessionId,
-      workspaceId,
-      data: {
-        sessionId,
-        success: true,
-      },
-      timestamp: new Date(),
-    });
+    if (eventBus) {
+      eventBus.emit({
+        type: AgentEventType.AGENT_COMPLETED,
+        agentId: sessionId,
+        workspaceId,
+        data: {
+          sessionId,
+          success: true,
+        },
+        timestamp: new Date(),
+      });
+    }
   })().catch((error) => {
     console.error("[kanban] Failed to auto-prompt ACP task session:", error);
-    const { getRoutaSystem } = require("../routa-system") as typeof import("../routa-system");
-    getRoutaSystem().eventBus.emit({
-      type: AgentEventType.AGENT_FAILED,
-      agentId: sessionId,
-      workspaceId,
-      data: {
-        sessionId,
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      },
-      timestamp: new Date(),
-    });
+    if (eventBus) {
+      eventBus.emit({
+        type: AgentEventType.AGENT_FAILED,
+        agentId: sessionId,
+        workspaceId,
+        data: {
+          sessionId,
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        timestamp: new Date(),
+      });
+    }
   });
 
   return { sessionId };

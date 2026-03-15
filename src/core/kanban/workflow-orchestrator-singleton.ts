@@ -160,10 +160,16 @@ async function startKanbanTaskSession(
     cwd: worktreeCwd,
     branch: worktreeBranch,
     task: nextTask,
+    eventBus: system.eventBus,
   });
 
   if (triggerResult.sessionId) {
     nextTask.triggerSessionId = triggerResult.sessionId;
+    // Track session in history
+    if (!nextTask.sessionIds) nextTask.sessionIds = [];
+    if (!nextTask.sessionIds.includes(triggerResult.sessionId)) {
+      nextTask.sessionIds.push(triggerResult.sessionId);
+    }
     nextTask.lastSyncError = undefined;
     if (nextTask.worktreeId) {
       await system.worktreeStore.assignSession(nextTask.worktreeId, triggerResult.sessionId);
@@ -233,6 +239,7 @@ export function startWorkflowOrchestrator(system: RoutaSystem): void {
   const orchestrator = getWorkflowOrchestrator(system);
   const queue = getKanbanSessionQueue(system);
   orchestrator.setCreateSession((params) => createAutomationSession(system, params));
+  orchestrator.setCleanupCardSession((cardId) => queue.removeCardJob(cardId));
   orchestrator.start();
   queue.start();
   g[STARTED_KEY] = true;

@@ -7,7 +7,7 @@ import { GitWorktreeService } from "@/core/git/git-worktree-service";
 import { getDefaultWorkspaceWorktreeRoot, getEffectiveWorkspaceMetadata } from "@/core/models/workspace";
 import type { ArtifactType } from "@/core/models/artifact";
 import { emitColumnTransition } from "@/core/kanban/column-transition";
-import { enqueueKanbanTaskSession, startWorkflowOrchestrator } from "@/core/kanban/workflow-orchestrator-singleton";
+import { enqueueKanbanTaskSession } from "@/core/kanban/workflow-orchestrator-singleton";
 
 export const dynamic = "force-dynamic";
 
@@ -197,6 +197,13 @@ export async function PATCH(
   }
 
   if (body.retryTrigger) {
+    // Preserve the current session in history before clearing for retry
+    if (nextTask.triggerSessionId) {
+      if (!nextTask.sessionIds) nextTask.sessionIds = [];
+      if (!nextTask.sessionIds.includes(nextTask.triggerSessionId)) {
+        nextTask.sessionIds.push(nextTask.triggerSessionId);
+      }
+    }
     nextTask.triggerSessionId = undefined;
     nextTask.lastSyncError = undefined;
   }
@@ -284,6 +291,11 @@ export async function PATCH(
     });
     if (triggerResult.sessionId) {
       nextTask.triggerSessionId = triggerResult.sessionId;
+      // Track session in history
+      if (!nextTask.sessionIds) nextTask.sessionIds = [];
+      if (!nextTask.sessionIds.includes(triggerResult.sessionId)) {
+        nextTask.sessionIds.push(triggerResult.sessionId);
+      }
       nextTask.lastSyncError = undefined;
     } else if (triggerResult.queued) {
       nextTask.lastSyncError = undefined;
@@ -301,7 +313,6 @@ export async function PATCH(
       const fromColumn = board.columns.find((c) => c.id === existing.columnId);
       const toColumn = board.columns.find((c) => c.id === nextTask.columnId);
 
-      startWorkflowOrchestrator(system);
       emitColumnTransition(system.eventBus, {
         cardId: nextTask.id,
         cardTitle: nextTask.title,

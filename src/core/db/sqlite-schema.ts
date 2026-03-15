@@ -83,6 +83,8 @@ export const tasks = sqliteTable("tasks", {
   assignedSpecialistId: text("assigned_specialist_id"),
   assignedSpecialistName: text("assigned_specialist_name"),
   triggerSessionId: text("trigger_session_id"),
+  /** All session IDs that have been associated with this task (history) */
+  sessionIds: text("session_ids", { mode: "json" }).$type<string[]>().default([]),
   githubId: text("github_id"),
   githubNumber: integer("github_number"),
   githubUrl: text("github_url"),

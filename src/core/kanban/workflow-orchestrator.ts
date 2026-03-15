@@ -37,10 +37,14 @@ export type CreateAutomationSession = (params: {
   automation: KanbanColumnAutomation;
 }) => Promise<string | null>;
 
+/** Callback to clean up a card's session queue entry before auto-advancing */
+export type CleanupCardSession = (cardId: string) => void;
+
 export class KanbanWorkflowOrchestrator {
   private handlerKey = "kanban-workflow-orchestrator";
   private activeAutomations = new Map<string, ActiveAutomation>();
   private started = false;
+  private cleanupCardSession?: CleanupCardSession;
 
   constructor(
     private eventBus: EventBus,
@@ -83,6 +87,11 @@ export class KanbanWorkflowOrchestrator {
   /** Set the session creation callback */
   setCreateSession(fn: CreateAutomationSession): void {
     this.createSession = fn;
+  }
+
+  /** Set the cleanup callback for session queue entries */
+  setCleanupCardSession(fn: CleanupCardSession): void {
+    this.cleanupCardSession = fn;
   }
 
   /** Get all active automations */
@@ -151,6 +160,8 @@ export class KanbanWorkflowOrchestrator {
       if (automation.status === "completed" || automation.status === "failed") continue;
 
       const eventSessionId = typeof event.data?.sessionId === "string" ? event.data.sessionId : undefined;
+      if (!eventSessionId) continue;
+
       const task = await this.taskStore.get(cardId);
       const sessionId = automation.sessionId ?? task?.triggerSessionId;
       if (!automation.sessionId && sessionId) {
@@ -158,6 +169,9 @@ export class KanbanWorkflowOrchestrator {
         automation.status = "running";
       }
 
+      // Match only by the automation's own sessionId or the card's current triggerSessionId.
+      // Do NOT match by sessionIds history to avoid a previous column's AGENT_COMPLETED
+      // event accidentally completing the current column's automation.
       const isRelated = Boolean(sessionId && eventSessionId === sessionId);
 
       if (!isRelated) continue;
@@ -188,6 +202,15 @@ export class KanbanWorkflowOrchestrator {
       const board = await this.kanbanBoardStore.get(automation.boardId);
       if (!board) return;
 
+      // Check if the card was already moved by the specialist (via move_card tool)
+      const task = await this.taskStore.get(cardId);
+      if (!task) return;
+
+      // If the card is no longer in the automation's column, it was already moved by the specialist
+      if (task.columnId !== automation.columnId) {
+        return;
+      }
+
       const currentColumn = board.columns.find((c) => c.id === automation.columnId);
       if (!currentColumn) return;
 
@@ -200,17 +223,22 @@ export class KanbanWorkflowOrchestrator {
 
       if (!nextColumn) return; // Already at last column
 
-      // Update the task
-      const task = await this.taskStore.get(cardId);
-      if (!task) return;
-
       task.columnId = nextColumn.id;
       task.status = columnIdToTaskStatus(nextColumn.id);
-      // The single-session task model should not carry the previous lane's
-      // session into the next automation run.
+      // Preserve the current session in history before clearing for next automation
+      if (task.triggerSessionId) {
+        if (!task.sessionIds) task.sessionIds = [];
+        if (!task.sessionIds.includes(task.triggerSessionId)) {
+          task.sessionIds.push(task.triggerSessionId);
+        }
+      }
       task.triggerSessionId = undefined;
       task.updatedAt = new Date();
       await this.taskStore.save(task);
+
+      // Clean up the session queue entry before emitting transition
+      // This prevents the queue from blocking the new automation with a stale entry
+      this.cleanupCardSession?.(cardId);
 
       // Emit transition event for the auto-advance (may trigger next column's automation)
       this.eventBus.emit({

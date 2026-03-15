@@ -22,11 +22,11 @@ describe("buildTaskPrompt", () => {
     const prompt = buildTaskPrompt(task);
 
     expect(prompt).toContain("Treat backlog as planning and refinement, not implementation");
-    expect(prompt).toContain("Do not move the card out of backlog from this planning step");
+    expect(prompt).toContain("move_card");
     expect(prompt).toContain("Do NOT create or sync GitHub issues during backlog planning.");
     expect(prompt).toContain("Do not use native tools such as Bash, Read, Write, Edit, Glob, or Grep in backlog planning");
     expect(prompt).toContain("decompose_tasks");
-    expect(prompt).not.toContain("Start implementation work immediately");
+    expect(prompt).not.toContain("Complete the work assigned to this column stage");
   });
 
   it("keeps dev automation in implementation mode", () => {
@@ -41,8 +41,9 @@ describe("buildTaskPrompt", () => {
 
     const prompt = buildTaskPrompt(task);
 
-    expect(prompt).toContain("Start implementation work immediately");
-    expect(prompt).toContain("Do not move the card between columns yourself");
+    expect(prompt).toContain("Complete the work assigned to this column stage");
+    expect(prompt).toContain("move_card");
+    expect(prompt).toContain("targetColumnId: \"review\"");
     expect(prompt).toContain("Do not call `report_to_parent`");
     expect(prompt).not.toContain("Tool: report_to_parent");
   });

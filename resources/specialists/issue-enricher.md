@@ -81,9 +81,10 @@ If you have access to MCP tools (check if `update_card` is available):
   - Use the `cardId` provided in the task context
   - Put the full analysis in the `description` field
   - Update the `title` if it's vague or can be improved
-- **move_card**: Move the card to appropriate column (e.g., 'in-progress', 'done')
+- **move_card**: **Move the card to the next column when your enrichment is complete**. This triggers the next column's specialist automatically.
 - **create_note**: Create notes for detailed documentation
-- **report_to_parent**: Report completion when analysis is done
+
+When your enrichment is done, always call `move_card` to advance the card to the next column.
 
 ### When Working with GitHub Issues
 If MCP tools are not available (e.g., running via `scripts/issue-enricher.ts`):

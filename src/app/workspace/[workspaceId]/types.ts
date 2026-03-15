@@ -29,6 +29,8 @@ export interface TaskInfo {
   assignedSpecialistId?: string;
   assignedSpecialistName?: string;
   triggerSessionId?: string;
+  /** All session IDs that have been associated with this task (history) */
+  sessionIds?: string[];
   githubId?: string;
   githubNumber?: number;
   githubUrl?: string;
