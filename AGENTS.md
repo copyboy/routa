@@ -17,7 +17,6 @@
 - Test Tauri UI: `npm run tauri dev`, then use Playwright against `http://127.0.0.1:3210/`.
 - **Tauri routing debug**: If Tauri shows wrong page, check `crates/routa-server/src/lib.rs` fallback service maps routes to correct `__placeholder__` files; verify with `ls -la out/workspace/__placeholder__/`.
 - For Rust test coverage work, follow this sequence: `AGENTS.md` -> `docs/fitness/README.md` -> `docs/fitness/unit-test.md`.
-- For Rust test coverage work, maintain progress and coverage metrics (line coverage when `llvm-cov` is available, otherwise file-level proxy) in `docs/fitness/unit-test.md`; progress checklist alone is insufficient.
 - When changes span many files, do a full manual walkthrough in the browser:
   - Home page → select claude code → enter a requirement → auto-redirect to detail page → trigger ACP session
   - Visit a workspace detail page → click a session → switch to Trace UI to check history
@@ -30,30 +29,15 @@
 Before any PR, verify fitness using [docs/fitness/README.md](docs/fitness/README.md):
 
 ```bash
-# 运行 fitness 检查
-python3 docs/fitness/scripts/fitness.py
-
-# 仅查看会执行什么
 python3 docs/fitness/scripts/fitness.py --dry-run
+python3 docs/fitness/scripts/fitness.py
 ```
-
-Hard gates (must all pass):
-- `npm run test:run` — TS tests
-- `cargo test --workspace` — Rust tests
-- `npm run api:check` — API contract parity
-- `npm run lint` — Lint
-
-Evidence files:
-- [docs/fitness/unit-test.md](docs/fitness/unit-test.md) — testability
-- [docs/fitness/rust-api-test.md](docs/fitness/rust-api-test.md) — maintainability
-- [docs/fitness/api-contract.md](docs/fitness/api-contract.md) — evolvability
 
 ## After generating or modifying code
 
 After generating or modifying **source code** (not docs, configs, or workflows), agents must run the following checks automatically.
 
 > If any step fails, fix and re-validate. Never skip.
->
 > **Skip checks** for changes that only touch: `*.md`, `*.yml`, `*.yaml`, `.github/`, `docs/`, or other non-code files.
 
 ## Git Discipline
