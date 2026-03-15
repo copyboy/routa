@@ -75,7 +75,6 @@ async fn rpc_call(
 
 /// Custom Tauri commands exposed to the frontend via `invoke`.
 /// These bridge the gap between the web frontend and native capabilities.
-
 /// Read an environment variable from the host system.
 #[tauri::command]
 fn get_env(key: String) -> Option<String> {
@@ -744,7 +743,7 @@ pub fn run() {
                     // 1. Tauri's built-in protocol doesn't support SPA fallback for dynamic routes
                     // 2. The Rust server can serve the correct placeholder HTML for each route
                     // 3. The `remote` capability allows IPC access from http://127.0.0.1:*
-                    match start_rust_server(&app.handle(), &api_host, port) {
+                    match start_rust_server(app.handle(), &api_host, port) {
                         Ok(_) => {
                             if let Some(window) = app.get_webview_window("main") {
                                 let js = format!("window.location.replace('{}');", api_url);
@@ -761,7 +760,7 @@ pub fn run() {
                     // Legacy: start Node.js server
                     let mut ready = wait_for_port(&api_host, port, 1);
                     if !ready {
-                        match start_embedded_next_server(&app.handle(), &api_host, port) {
+                        match start_embedded_next_server(app.handle(), &api_host, port) {
                             Ok(_child) => {}
                             Err(err) => {
                                 eprintln!("[desktop-server] {}", err);

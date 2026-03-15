@@ -77,7 +77,7 @@ async fn test_rust_backend_api() {
     let (status, body) = request_json(&app, Method::GET, "/api/workspaces", None).await;
     assert_eq!(status, 200);
     let workspaces = body["workspaces"].as_array().unwrap();
-    assert!(workspaces.len() >= 1, "Should have default workspace");
+    assert!(!workspaces.is_empty(), "Should have default workspace");
     println!("  PASS: {} workspace(s)", workspaces.len());
 
     // ── Test 3: List Agents (empty) ─────────────────────────────────
@@ -151,7 +151,7 @@ async fn test_rust_backend_api() {
         request_json(&app, Method::GET, "/api/notes?workspaceId=default", None).await;
     assert_eq!(status, 200);
     let notes = body["notes"].as_array().unwrap();
-    assert!(notes.len() >= 1);
+    assert!(!notes.is_empty());
     println!("  PASS: {} note(s)", notes.len());
 
     // ── Test 9: Get Note by query param (Next.js compatible) ────────

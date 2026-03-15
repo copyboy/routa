@@ -206,6 +206,12 @@ impl PtyManager {
     }
 }
 
+impl Default for PtyManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Information about a PTY session (for listing).
 #[derive(serde::Serialize, Clone)]
 pub struct PtySessionInfo {
@@ -224,6 +230,12 @@ impl PtyState {
         Self {
             manager: Arc::new(AsyncMutex::new(PtyManager::new())),
         }
+    }
+}
+
+impl Default for PtyState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -400,7 +412,7 @@ mod tests {
         // Note: Output may be None if process already exited, or contain the text
         if let Some(text) = output {
             // Just verify we got some output (terminal may add control sequences)
-            assert!(!text.is_empty() || true, "Got output: {}", text);
+            assert!(!text.is_empty(), "Got output: {}", text);
         }
 
         // Clean up
