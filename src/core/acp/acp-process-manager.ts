@@ -13,6 +13,7 @@ import {AgentInstanceFactory, getAgentInstanceManager, type AgentInstanceConfig}
 import {getDatabaseDriver, getPostgresDatabase} from "@/core/db/index";
 import {PgAcpSessionStore} from "@/core/db/pg-acp-session-store";
 import type { LifecycleNotifier } from "@/core/acp/lifecycle-notifier";
+import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 
 /**
  * A managed Claude Code process (separate from standard ACP).
@@ -577,7 +578,7 @@ export class AcpProcessManager {
         // Session exists but adapter not in memory - recreate it
         console.log(`[AcpProcessManager] Recreating Claude Code SDK adapter for session: ${sessionId}`);
 
-        let mcpServers: Record<string, unknown> | undefined;
+        let mcpServers: Record<string, McpServerConfig> | undefined;
         try {
             const mcpResult = await ensureMcpForProvider(
                 "claude",

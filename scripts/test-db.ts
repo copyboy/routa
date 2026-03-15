@@ -14,7 +14,7 @@ import { PgTaskStore } from "../src/core/db/pg-task-store";
 import { PgNoteStore } from "../src/core/db/pg-note-store";
 import { PgConversationStore } from "../src/core/db/pg-conversation-store";
 import { AgentRole, AgentStatus, ModelTier } from "../src/core/models/agent";
-import { TaskStatus } from "../src/core/models/task";
+import { createTask, TaskStatus } from "../src/core/models/task";
 import { MessageRole } from "../src/core/models/message";
 import { v4 as uuidv4 } from "uuid";
 
@@ -144,7 +144,7 @@ async function testTaskStore() {
   const taskId = uuidv4();
 
   try {
-    await store.save({
+    await store.save(createTask({
       id: taskId,
       title: "Implement login",
       objective: "Build the login page",
@@ -155,9 +155,7 @@ async function testTaskStore() {
       codebaseIds: [],
       workspaceId: "default",
       acceptanceCriteria: ["Has email field", "Has password field"],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    }));
     const task = await store.get(taskId);
     if (!task) throw new Error("task not found");
     if (task.title !== "Implement login") throw new Error(`Wrong title: ${task.title}`);

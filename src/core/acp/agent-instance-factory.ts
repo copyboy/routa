@@ -26,6 +26,7 @@ import {
 import type { NotificationHandler } from "./processer";
 import { type AgentRole } from "../models/agent";
 import type { LifecycleNotifier } from "./lifecycle-notifier";
+import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 
 // ─── Agent Instance Config ─────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ export interface AgentInstanceConfig {
   /** Optional allowlist for provider-native tools such as Bash/Read/Edit */
   allowedNativeTools?: string[];
   /** Optional MCP servers exposed to the adapter session */
-  mcpServers?: Record<string, unknown>;
+  mcpServers?: Record<string, McpServerConfig>;
 }
 
 /**

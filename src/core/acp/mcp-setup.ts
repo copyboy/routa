@@ -34,6 +34,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import TOML from "smol-toml";
+import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import {
   getDefaultRoutaMcpConfig,
   type RoutaMcpConfig,
@@ -633,16 +634,16 @@ export function isMcpConfigured(mcpConfigs?: string[]): boolean {
  * Parse Claude-style inline MCP config JSON into the SDK's `mcpServers` object.
  * Ignores unreadable entries so callers can fall back safely.
  */
-export function parseMcpServersFromConfigs(mcpConfigs?: string[]): Record<string, unknown> | undefined {
+export function parseMcpServersFromConfigs(mcpConfigs?: string[]): Record<string, McpServerConfig> | undefined {
   if (!mcpConfigs || mcpConfigs.length === 0) {
     return undefined;
   }
 
-  const merged: Record<string, unknown> = {};
+  const merged: Record<string, McpServerConfig> = {};
 
   for (const rawConfig of mcpConfigs) {
     try {
-      const parsed = JSON.parse(rawConfig) as { mcpServers?: Record<string, unknown> } | null;
+      const parsed = JSON.parse(rawConfig) as { mcpServers?: Record<string, McpServerConfig> } | null;
       if (parsed?.mcpServers && typeof parsed.mcpServers === "object") {
         Object.assign(merged, parsed.mcpServers);
       }

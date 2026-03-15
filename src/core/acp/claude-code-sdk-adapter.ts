@@ -25,7 +25,7 @@ import "@/core/platform/serverless-fs-patch";
 import type { NotificationHandler, JsonRpcMessage } from "@/core/acp/processer";
 import { isServerlessEnvironment } from "@/core/acp/api-based-providers";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { McpServerConfig, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { join } from "path";
 import type { LifecycleNotifier } from "@/core/acp/lifecycle-notifier";
 
@@ -127,7 +127,7 @@ export class ClaudeCodeSdkAdapter {
   /** Optional allowlist for provider-native tools such as Bash/Read/Edit. */
   private _allowedNativeTools: string[];
   /** Optional MCP servers exposed to Claude Code via the SDK. */
-  private _mcpServers?: Record<string, unknown>;
+  private _mcpServers?: Record<string, McpServerConfig>;
   /** Pending AskUserQuestion requests waiting for a UI response. */
   private pendingUserInputRequests = new Map<string, PendingUserInputRequest>();
   /** Completed AskUserQuestion responses keyed by tool call ID. */
@@ -144,7 +144,7 @@ export class ClaudeCodeSdkAdapter {
       baseUrl?: string;
       apiKey?: string;
       allowedNativeTools?: string[];
-      mcpServers?: Record<string, unknown>;
+      mcpServers?: Record<string, McpServerConfig>;
       lifecycleNotifier?: LifecycleNotifier;
     }
   ) {

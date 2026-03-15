@@ -71,9 +71,9 @@ export function safeExecSync(
     encoding: options?.encoding ?? "utf-8",
     cwd: options?.cwd ?? process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
-  });
+  }) as string;
 
-  return typeof output === "string" ? output : output.toString();
+  return output;
 }
 
 /**
