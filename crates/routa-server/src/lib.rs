@@ -158,6 +158,9 @@ pub async fn start_server_with_state(
             // - workspace/__placeholder__/kanban.html (for /workspace/[workspaceId]/kanban)
             // - workspace/__placeholder__/sessions/__placeholder__.html (for /workspace/[workspaceId]/sessions/[sessionId])
             //
+            // For static routes, Next.js generates direct HTML files:
+            // - traces.html, mcp-tools.html, settings.html, etc.
+            //
             // Additionally, Next.js client navigation requests .txt RSC payload files:
             // - workspace/default/sessions/abc123.txt → workspace/__placeholder__/sessions/__placeholder__.txt
             // - workspace/default/kanban.txt → workspace/__placeholder__/kanban.txt
@@ -175,6 +178,7 @@ pub async fn start_server_with_state(
 
                         // Determine which file to serve based on the route pattern.
                         let (target_file, content_type) = if path.starts_with("/workspace/") {
+                            // Handle dynamic workspace routes
                             // Strip .txt extension if present to analyze the path
                             let clean_path = path.trim_end_matches(".txt");
                             let segments: Vec<&str> = clean_path
@@ -212,7 +216,15 @@ pub async fn start_server_with_state(
                                 ("index.html".to_string(), "text/html; charset=utf-8")
                             }
                         } else {
-                            ("index.html".to_string(), "text/html; charset=utf-8")
+                            // Handle static routes (traces, mcp-tools, settings, etc.)
+                            // Try to serve the corresponding .html file
+                            let clean_path = path.trim_start_matches('/').trim_end_matches('/');
+                            if !clean_path.is_empty() && !clean_path.contains("..") {
+                                // For paths like /traces, /mcp-tools, /settings, etc.
+                                (format!("{}.html", clean_path), "text/html; charset=utf-8")
+                            } else {
+                                ("index.html".to_string(), "text/html; charset=utf-8")
+                            }
                         };
 
                         let file_path = std::path::Path::new(&static_dir).join(&target_file);
