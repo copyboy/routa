@@ -22,12 +22,15 @@ export type TerminalNotificationEmitter = (notification: {
 
 interface ManagedTerminal {
   terminalId: string;
+  sessionId: string;
   process: IProcessHandle;
   output: string;
   exitCode: number | null;
   exited: boolean;
   exitPromise: Promise<number>;
   createdAt: Date;
+  cols?: number;
+  rows?: number;
 }
 
 export class TerminalManager {
@@ -98,12 +101,15 @@ export class TerminalManager {
 
     const managed: ManagedTerminal = {
       terminalId,
+      sessionId,
       process: proc,
       output,
       exitCode: null,
       exited: false,
       exitPromise,
       createdAt: new Date(),
+      cols: typeof params.cols === "number" ? params.cols : undefined,
+      rows: typeof params.rows === "number" ? params.rows : undefined,
     };
 
     // Capture stdout
@@ -194,6 +200,33 @@ export class TerminalManager {
       return { output: "" };
     }
     return { output: terminal.output };
+  }
+
+  hasTerminal(sessionId: string, terminalId: string): boolean {
+    const terminal = this.terminals.get(terminalId);
+    return terminal?.sessionId === sessionId;
+  }
+
+  write(terminalId: string, data: string): void {
+    const terminal = this.terminals.get(terminalId);
+    if (!terminal || terminal.exited || !terminal.process.stdin?.writable) {
+      throw new Error("Terminal is not writable");
+    }
+
+    terminal.process.stdin.write(data);
+  }
+
+  resize(terminalId: string, cols?: number, rows?: number): void {
+    const terminal = this.terminals.get(terminalId);
+    if (!terminal || terminal.exited) {
+      throw new Error("Terminal not found");
+    }
+
+    // The web ACP terminal uses stdio pipes instead of a PTY, so resize is
+    // metadata-only for now. Keeping the call path allows the browser client
+    // to stay aligned with the desktop PTY API.
+    terminal.cols = typeof cols === "number" ? cols : terminal.cols;
+    terminal.rows = typeof rows === "number" ? rows : terminal.rows;
   }
 
   /**

@@ -32,9 +32,13 @@ export function hasAskUserQuestionAnswers(message: ChatMessage): boolean {
 export function MessageBubble({
     message,
     onSubmitAskUserQuestion,
+    onTerminalInput,
+    onTerminalResize,
 }: {
     message: ChatMessage;
     onSubmitAskUserQuestion?: (toolCallId: string, response: Record<string, unknown>) => Promise<void>;
+    onTerminalInput?: (terminalId: string, data: string) => Promise<void>;
+    onTerminalResize?: (terminalId: string, cols: number, rows: number) => Promise<void>;
 }) {
     const {role} = message;
     switch (role) {
@@ -81,6 +85,9 @@ export function MessageBubble({
                     data={message.content}
                     exited={message.terminalExited}
                     exitCode={message.terminalExitCode}
+                    interactive={!message.terminalExited && Boolean(onTerminalInput)}
+                    onInput={(data) => onTerminalInput?.(message.terminalId ?? message.id, data)}
+                    onResize={(cols, rows) => onTerminalResize?.(message.terminalId ?? message.id, cols, rows)}
                 />
             );
         case "plan":

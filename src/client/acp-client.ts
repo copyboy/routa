@@ -42,6 +42,10 @@ export interface AcpPromptResult {
   };
 }
 
+export interface AcpTerminalMutationResult {
+  ok: boolean;
+}
+
 export interface AcpProviderInfo {
   id: string;
   name: string;
@@ -414,6 +418,32 @@ export class BrowserAcpClient {
       sessionId,
       toolCallId,
       response,
+    });
+  }
+
+  async writeTerminal(
+    sessionId: string,
+    terminalId: string,
+    data: string,
+  ): Promise<AcpTerminalMutationResult> {
+    return this.rpc("terminal/write", {
+      sessionId,
+      terminalId,
+      data,
+    });
+  }
+
+  async resizeTerminal(
+    sessionId: string,
+    terminalId: string,
+    cols: number,
+    rows: number,
+  ): Promise<AcpTerminalMutationResult> {
+    return this.rpc("terminal/resize", {
+      sessionId,
+      terminalId,
+      cols,
+      rows,
     });
   }
 

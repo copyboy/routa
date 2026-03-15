@@ -158,6 +158,8 @@ describe("KanbanTab session terminal hint", () => {
       prompt: vi.fn(),
       promptSession: vi.fn(),
       respondToUserInput: vi.fn(),
+      writeTerminal: vi.fn(),
+      resizeTerminal: vi.fn(),
       cancel: vi.fn(),
       disconnect: vi.fn(),
       clearAuthError: vi.fn(),

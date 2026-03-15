@@ -261,6 +261,14 @@ export function ChatPanel({
     }
   }, [acp, activeSessionId, setMessagesBySession]);
 
+  const handleTerminalInput = useCallback(async (terminalId: string, data: string) => {
+    await acp.writeTerminal(terminalId, data);
+  }, [acp]);
+
+  const handleTerminalResize = useCallback(async (terminalId: string, cols: number, rows: number) => {
+    await acp.resizeTerminal(terminalId, cols, rows);
+  }, [acp]);
+
   const handleSend = useCallback(async (text: string, context: InputContext) => {
     if (!text.trim()) return;
 
@@ -507,6 +515,8 @@ export function ChatPanel({
                     key={`${msg.id}-${index}`}
                     message={msg}
                     onSubmitAskUserQuestion={handleSubmitAskUserQuestion}
+                    onTerminalInput={activeSessionId ? handleTerminalInput : undefined}
+                    onTerminalResize={activeSessionId ? handleTerminalResize : undefined}
                   />
                 ))}
               <div ref={messagesEndRef} />

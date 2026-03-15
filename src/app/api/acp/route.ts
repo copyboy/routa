@@ -49,6 +49,7 @@ import { persistSessionToDb, renameSessionInDb, saveHistoryToDb } from "@/core/a
 import { resolveSkillContent } from "@/core/skills/skill-resolver";
 import type { SessionUpdateNotification } from "@/core/acp/http-session-store";
 import { SessionWriteBuffer } from "@/core/acp/session-write-buffer";
+import { getTerminalManager } from "@/core/acp/terminal-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -1343,6 +1344,71 @@ export async function POST(request: NextRequest) {
         code: -32601,
         message: "session/load not supported - create a new session instead",
       });
+    }
+
+    // ── terminal/write ────────────────────────────────────────────────
+    if (method === "terminal/write") {
+      const p = (params ?? {}) as Record<string, unknown>;
+      const sessionId = p.sessionId as string | undefined;
+      const terminalId = p.terminalId as string | undefined;
+      const data = p.data as string | undefined;
+      if (!sessionId || !terminalId || typeof data !== "string") {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32602,
+          message: "Missing sessionId, terminalId, or data",
+        });
+      }
+
+      const terminalManager = getTerminalManager();
+      if (!terminalManager.hasTerminal(sessionId, terminalId)) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32000,
+          message: "Terminal not found for this session",
+        });
+      }
+
+      try {
+        terminalManager.write(terminalId, data);
+        return jsonrpcResponse(id ?? null, { ok: true });
+      } catch (err) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32000,
+          message: err instanceof Error ? err.message : "Failed to write terminal input",
+        });
+      }
+    }
+
+    // ── terminal/resize ───────────────────────────────────────────────
+    if (method === "terminal/resize") {
+      const p = (params ?? {}) as Record<string, unknown>;
+      const sessionId = p.sessionId as string | undefined;
+      const terminalId = p.terminalId as string | undefined;
+      const cols = typeof p.cols === "number" ? p.cols : undefined;
+      const rows = typeof p.rows === "number" ? p.rows : undefined;
+      if (!sessionId || !terminalId) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32602,
+          message: "Missing sessionId or terminalId",
+        });
+      }
+
+      const terminalManager = getTerminalManager();
+      if (!terminalManager.hasTerminal(sessionId, terminalId)) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32000,
+          message: "Terminal not found for this session",
+        });
+      }
+
+      try {
+        terminalManager.resize(terminalId, cols, rows);
+        return jsonrpcResponse(id ?? null, { ok: true });
+      } catch (err) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32000,
+          message: err instanceof Error ? err.message : "Failed to resize terminal",
+        });
+      }
     }
 
     // ── session/set_mode ───────────────────────────────────────────────

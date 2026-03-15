@@ -30,6 +30,12 @@ interface TerminalBubbleProps {
   exited?: boolean;
   /** Process exit code (if exited) */
   exitCode?: number | null;
+  /** Allow browser stdin for this terminal */
+  interactive?: boolean;
+  /** Send user input to the running terminal */
+  onInput?: (data: string) => void | Promise<void>;
+  /** Notify backend about terminal size changes */
+  onResize?: (cols: number, rows: number) => void | Promise<void>;
 }
 
 // Dark theme matching the reference TerminalAdapter
@@ -60,12 +66,15 @@ const TERMINAL_THEME = {
 };
 
 export function TerminalBubble({
-  terminalId: _terminalId,
+  terminalId,
   command,
   args,
   data,
   exited,
   exitCode,
+  interactive = false,
+  onInput,
+  onResize,
 }: TerminalBubbleProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerminal | null>(null);
@@ -101,7 +110,7 @@ export function TerminalBubble({
         allowTransparency: true,
         convertEol: true,
         drawBoldTextInBrightColors: true,
-        disableStdin: true, // Read-only terminal display
+        disableStdin: !interactive,
         theme: TERMINAL_THEME,
       });
 
@@ -129,14 +138,23 @@ export function TerminalBubble({
       observer.observe(containerRef.current);
       resizeObserverRef.current = observer;
 
+      if (interactive) {
+        terminal.onData((value) => {
+          void onInput?.(value);
+        });
+        terminal.onResize(({ cols, rows }) => {
+          void onResize?.(cols, rows);
+        });
+      }
+
       terminalRef.current = terminal;
       fitAddonRef.current = fitAddon;
       writtenLengthRef.current = 0;
       setInitialized(true);
     } catch (err) {
-      console.error("[TerminalBubble] Failed to initialize xterm:", err);
+      console.error(`[TerminalBubble:${terminalId}] Failed to initialize xterm:`, err);
     }
-  }, []);
+  }, [interactive, onInput, onResize, terminalId]);
 
   // Initialize when expanded
   useEffect(() => {
@@ -185,7 +203,9 @@ export function TerminalBubble({
     ? exitCode === 0
       ? "completed"
       : `failed (${exitCode})`
-    : "running";
+    : interactive
+      ? "interactive"
+      : "running";
 
   return (
     <div className="flex justify-start">

@@ -97,6 +97,8 @@ export interface UseAcpActions {
     skillContext?: { skillName: string; skillContent: string },
   ) => Promise<void>;
   respondToUserInput: (toolCallId: string, response: Record<string, unknown>) => Promise<void>;
+  writeTerminal: (terminalId: string, data: string) => Promise<void>;
+  resizeTerminal: (terminalId: string, cols: number, rows: number) => Promise<void>;
   cancel: () => Promise<void>;
   disconnect: () => void;
   /** Clear auth error (e.g., when user dismisses the popup) */
@@ -504,6 +506,38 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
     }
   }, []);
 
+  const writeTerminal = useCallback(async (terminalId: string, data: string): Promise<void> => {
+    const client = clientRef.current;
+    const sessionId = sessionIdRef.current;
+    if (!client || !sessionId || !terminalId || !data) return;
+
+    try {
+      await client.writeTerminal(sessionId, terminalId, data);
+    } catch (err) {
+      logRuntime("error", "useAcp.writeTerminal", "Failed to write terminal input", err);
+      setState((s) => ({
+        ...s,
+        error: toErrorMessage(err) || "Failed to write terminal input",
+      }));
+    }
+  }, []);
+
+  const resizeTerminal = useCallback(async (
+    terminalId: string,
+    cols: number,
+    rows: number,
+  ): Promise<void> => {
+    const client = clientRef.current;
+    const sessionId = sessionIdRef.current;
+    if (!client || !sessionId || !terminalId) return;
+
+    try {
+      await client.resizeTerminal(sessionId, terminalId, cols, rows);
+    } catch (err) {
+      logRuntime("warn", "useAcp.resizeTerminal", "Failed to resize terminal", err);
+    }
+  }, []);
+
   const disconnect = useCallback(() => {
     clientRef.current?.disconnect();
     clientRef.current = null;
@@ -541,6 +575,8 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
     prompt,
     promptSession,
     respondToUserInput,
+    writeTerminal,
+    resizeTerminal,
     cancel,
     disconnect,
     clearAuthError,
