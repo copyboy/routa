@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -74,8 +75,8 @@ pub fn run_scans(config: &ScanConfig) -> ScanReport {
         ToolSpec {
             id: "typescript-typecheck",
             category: ScanCategory::Typescript,
-            program: "npm",
-            args: &["run", "typecheck"],
+            program: "npx",
+            args: &["tsc", "--noEmit"],
         },
         ToolSpec {
             id: "rust-clippy",
@@ -159,7 +160,7 @@ fn run_tool(spec: &ToolSpec, project_dir: &Path) -> ScanResult {
         Err(err) => ScanResult {
             id: spec.id.to_string(),
             category: spec.category,
-            status: ScanStatus::Skipped,
+            status: ScanStatus::Failed,
             command: format!("{} {}", spec.program, spec.args.join(" ")),
             duration_ms: start.elapsed().as_millis(),
             stdout: String::new(),
@@ -169,11 +170,13 @@ fn run_tool(spec: &ToolSpec, project_dir: &Path) -> ScanResult {
     }
 }
 
-pub fn write_report(report: &ScanReport, output_dir: &Path) -> std::io::Result<(PathBuf, PathBuf)> {
+pub fn write_report(report: &ScanReport, output_dir: &Path) -> io::Result<(PathBuf, PathBuf)> {
     fs::create_dir_all(output_dir)?;
 
     let json_path = output_dir.join("scan-report.json");
-    fs::write(&json_path, serde_json::to_vec_pretty(report)?)?;
+    let json = serde_json::to_vec_pretty(report)
+        .map_err(|err| io::Error::other(format!("serialize report failed: {err}")))?;
+    fs::write(&json_path, json)?;
 
     let md_path = output_dir.join("scan-report.md");
     fs::write(&md_path, render_markdown(report))?;
@@ -186,6 +189,13 @@ pub fn has_failures(report: &ScanReport) -> bool {
         .scans
         .iter()
         .any(|result| result.status == ScanStatus::Failed)
+}
+
+pub fn has_strict_failures(report: &ScanReport) -> bool {
+    report
+        .scans
+        .iter()
+        .any(|result| result.status != ScanStatus::Passed)
 }
 
 fn render_markdown(report: &ScanReport) -> String {
@@ -256,5 +266,26 @@ mod tests {
         };
 
         assert!(has_failures(&report));
+    }
+
+    #[test]
+    fn strict_mode_treats_skipped_as_failure() {
+        let report = ScanReport {
+            generated_at: Utc::now(),
+            project_dir: ".".to_string(),
+            strict: true,
+            scans: vec![ScanResult {
+                id: "test".to_string(),
+                category: ScanCategory::Docker,
+                status: ScanStatus::Skipped,
+                command: "trivy config .".to_string(),
+                duration_ms: 0,
+                stdout: String::new(),
+                stderr: "Command not found: trivy".to_string(),
+                exit_code: None,
+            }],
+        };
+
+        assert!(has_strict_failures(&report));
     }
 }

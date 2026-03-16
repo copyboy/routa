@@ -557,7 +557,7 @@ async fn main() {
                 project_dir,
                 output_dir,
                 strict,
-            } => commands::scan::run(project_dir.as_deref(), &output_dir, strict).await,
+            } => commands::scan::run(project_dir.as_deref(), &output_dir, strict),
 
             Commands::Workflow { action } => {
                 let state = commands::init_state(&cli.db).await;
