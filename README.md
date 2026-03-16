@@ -251,6 +251,46 @@ changes inside a safe operating envelope:
   what agents should do, what they must not do, and how they report verifiable
   evidence.
 
+#### Fitness Function Dimensions
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '14px'}}}%%
+flowchart LR
+    subgraph HardGates["🚫 Hard Gates (阻断)"]
+        direction TB
+        TEST["🧪 Testability<br/>ts_test + rust_test"]
+        CONTRACT["📜 Evolvability<br/>API Contract Parity"]
+        LINT["✨ Maintainability<br/>ESLint + Clippy"]
+        SEC["🔒 Security<br/>Critical CVE = 0"]
+    end
+
+    subgraph SoftGates["⚠️ Soft Gates (警告)"]
+        direction TB
+        PERF["⚡ Performance<br/>p95 < 300ms"]
+        DEPLOY["📦 Deployability<br/>Build Success"]
+        OBS["👁️ Observability<br/>Trace ≥ 80%"]
+        COMPLY["📋 Compliance<br/>Policy Deny = 0"]
+    end
+
+    CODE["🤖 Agent Code Change"] --> FITNESS["fitness.py<br/>统一执行器"]
+    FITNESS --> HardGates
+    FITNESS --> SoftGates
+
+    HardGates -->|"Any ❌"| BLOCK["🛑 BLOCKED<br/>Cannot Proceed"]
+    HardGates -->|"All ✅"| SCORE["📊 Score Calculation"]
+    SoftGates --> SCORE
+    SCORE -->|"≥ 90%"| PASS["✅ PASS"]
+    SCORE -->|"80-90%"| WARN["⚠️ WARN"]
+    SCORE -->|"< 80%"| FAIL["❌ FAIL"]
+
+    style HardGates fill:#fee2e2,stroke:#dc2626
+    style SoftGates fill:#fef3c7,stroke:#d97706
+    style BLOCK fill:#dc2626,color:#fff
+    style PASS fill:#22c55e,color:#fff
+    style WARN fill:#f59e0b,color:#fff
+    style FAIL fill:#ef4444,color:#fff
+```
+
 ### 🔄 Automated Feedback Loops (自动化反馈回路)
 
 Routa closes the loop by collecting feedback from issue intake, review
