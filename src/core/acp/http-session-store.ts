@@ -864,6 +864,7 @@ class HttpSessionStore {
         // Mark task COMPLETED when the agent's turn finishes
         if (update.eventType === "turn_complete" || update.turnComplete) {
           didComplete = true;
+          const taskOutput = this.getSessionAssistantOutput(sessionId);
           try {
             await system.backgroundTaskStore.updateStatus(task.id, "COMPLETED", {
               completedAt: new Date(),
