@@ -42,6 +42,7 @@ export function KanbanPageClient() {
   const [specialists, setSpecialists] = useState<SpecialistOption[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const refreshBurstCleanupRef = useRef<(() => void) | null>(null);
+  const warmedupProvidersRef = useRef<Set<string>>(new Set());
 
   // Auto-connect ACP
   useEffect(() => {
@@ -67,6 +68,42 @@ export function KanbanPageClient() {
     })();
     return () => controller.abort();
   }, [workspaceId, refreshKey]);
+
+  // Warm up registry providers configured in column automations when the board is opened.
+  useEffect(() => {
+    const enabledAutomationProviderIds = new Set<string>();
+    for (const board of boards) {
+      for (const column of board.columns) {
+        if (!column.automation?.enabled || !column.automation?.providerId) {
+          continue;
+        }
+        enabledAutomationProviderIds.add(column.automation.providerId);
+      }
+    }
+
+    if (enabledAutomationProviderIds.size === 0 || acp.providers.length === 0) return;
+
+    const registryProviderIds = new Set(
+      acp.providers
+        .filter((provider) => provider.source === "registry")
+        .map((provider) => provider.id),
+    );
+
+    for (const providerId of enabledAutomationProviderIds) {
+      if (!registryProviderIds.has(providerId) || warmedupProvidersRef.current.has(providerId)) {
+        continue;
+      }
+
+      warmedupProvidersRef.current.add(providerId);
+      void fetch("/api/acp/warmup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: providerId }),
+      }).catch(() => {
+        warmedupProvidersRef.current.delete(providerId);
+      });
+    }
+  }, [boards, acp.providers]);
 
   // Fetch tasks
   useEffect(() => {
