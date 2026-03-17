@@ -1101,6 +1101,12 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
                       </>
                     )}
                   </button>
+                  <button
+                    onClick={() => setShowCreateModal(true)}
+                    className="inline-flex h-8 shrink-0 items-center rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-0 text-xs font-semibold leading-none text-white shadow-sm transition-all hover:from-amber-600 hover:to-orange-500"
+                  >
+                    Manual
+                  </button>
                 </div>
                 {agentSessionId && (
                   <button
@@ -1175,12 +1181,14 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
               >
                 Settings
               </button>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="rounded-[10px] bg-gradient-to-r from-amber-500 to-orange-500 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-all hover:from-amber-600 hover:to-orange-500"
-              >
-                Manual
-              </button>
+              {!onAgentPrompt && (
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="rounded-[10px] bg-gradient-to-r from-amber-500 to-orange-500 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-all hover:from-amber-600 hover:to-orange-500"
+                >
+                  Manual
+                </button>
+              )}
             </div>
           </div>
         </div>
