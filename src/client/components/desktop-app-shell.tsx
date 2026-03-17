@@ -109,16 +109,16 @@ export function DesktopAppShell({
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[#1e1e1e] overflow-hidden">
+    <div className="h-screen flex flex-col bg-[#f2f2f7] dark:bg-[#1e1e1e] overflow-hidden">
       {/* Title Bar - compact, native feel */}
-      <header className="h-9 shrink-0 flex items-center bg-[#323233] border-b border-[#252526] select-none">
+      <header className="h-9 shrink-0 flex items-center bg-[#f8f8f8] dark:bg-[#323233] border-b border-[#c4c7cc] dark:border-[#252526] select-none">
         {/* Drag region for window - macOS traffic lights area */}
         <div className="w-20 h-full app-drag-region" />
 
         {/* Logo + App Name */}
         <div className="flex items-center gap-2 px-2">
           <Image src="/logo.svg" alt="Routa" width={16} height={16} className="rounded" />
-          <span className="text-[11px] font-medium text-[#cccccc]">Routa</span>
+          <span className="text-[11px] font-medium text-[#3c3c43] dark:text-[#cccccc]">Routa</span>
         </div>
 
         {/* Workspace Switcher or Title */}
@@ -126,9 +126,9 @@ export function DesktopAppShell({
           {workspaceSwitcher ?? (
             <Link
               href={`/workspace/${workspaceId}`}
-              className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] text-[#cccccc] hover:bg-[#3c3c3c] transition-colors"
+              className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] text-[#3c3c43] hover:text-[#1d1d1f] dark:text-[#cccccc] dark:hover:bg-[#3c3c3c] transition-colors"
             >
-              <svg className="w-3 h-3 text-[#858585]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-3 h-3 text-[#8e8e93] dark:text-[#858585]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
               </svg>
               <span className="max-w-[120px] truncate">{workspaceTitle ?? workspaceId}</span>
@@ -150,7 +150,7 @@ export function DesktopAppShell({
       {/* Main Content Area */}
       <div className="flex-1 flex min-h-0">
         {/* Left Sidebar Navigation */}
-        <aside className="w-12 shrink-0 flex flex-col bg-[#1e1e1e] border-r border-[#333] h-full">
+        <aside className="w-12 shrink-0 flex flex-col bg-[#efeff2] dark:bg-[#1e1e1e] border-r border-[#c4c7cc] dark:border-[#333] h-full">
           {/* Primary Navigation */}
           <nav className="flex-1 flex flex-col items-center py-2 gap-0.5">
             {navItems.map((item) => {
@@ -162,15 +162,15 @@ export function DesktopAppShell({
                   className={`
                     relative w-10 h-10 flex items-center justify-center rounded-md transition-colors
                     ${active
-                      ? "text-white bg-[#37373d]"
-                      : "text-[#858585] hover:text-white hover:bg-[#2a2a2a]"
+                      ? "text-[#0a84ff] bg-[#dce8ff] dark:text-white dark:bg-[#37373d]"
+                      : "text-[#6e6e73] hover:text-[#1d1d1f] hover:bg-[#d7d7dc] dark:text-[#858585] dark:hover:text-white dark:hover:bg-[#2a2a2a]"
                     }
                   `}
                   title={item.label}
                 >
                   {/* Active indicator */}
                   {active && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-white rounded-r" />
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-[#0a84ff] dark:bg-white rounded-r" />
                   )}
                   {item.icon}
                 </Link>
@@ -179,7 +179,7 @@ export function DesktopAppShell({
           </nav>
 
           {/* Divider */}
-          <div className="mx-2 border-t border-[#333]" />
+          <div className="mx-2 border-t border-[#c4c7cc] dark:border-[#333]" />
 
           {/* Secondary Actions */}
           <div className="flex flex-col items-center py-2 gap-0.5">
@@ -188,14 +188,14 @@ export function DesktopAppShell({
               className={`
                 w-10 h-10 flex items-center justify-center rounded-md transition-colors
                 ${pathname === "/settings"
-                  ? "text-white bg-[#37373d]"
-                  : "text-[#858585] hover:text-white hover:bg-[#2a2a2a]"
+                  ? "text-[#0a84ff] bg-[#dce8ff] dark:text-white dark:bg-[#37373d]"
+                  : "text-[#6e6e73] hover:text-[#1d1d1f] hover:bg-[#d7d7dc] dark:text-[#858585] dark:hover:text-white dark:hover:bg-[#2a2a2a]"
                 }
               `}
               title="Settings"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </Link>
@@ -203,7 +203,7 @@ export function DesktopAppShell({
         </aside>
 
         {/* Content */}
-        <main className="flex-1 min-w-0 bg-[#1e1e1e] overflow-hidden dark">
+        <main className="flex-1 min-w-0 bg-[#f2f2f7] dark:bg-[#1e1e1e] overflow-hidden dark">
           {children}
         </main>
       </div>
