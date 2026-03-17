@@ -131,6 +131,16 @@ export function getServerBridge(): IPlatformBridge {
 function detectPlatform(): "tauri" | "electron" | "web" {
   if (typeof window !== "undefined") {
     if ("__TAURI_INTERNALS__" in window) return "tauri";
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("runtime") === "tauri") {
+        localStorage.setItem("routa.runtime", "tauri");
+        return "tauri";
+      }
+      if (localStorage.getItem("routa.runtime") === "tauri") return "tauri";
+    } catch {
+      // Ignore storage/query failures and continue with structural detection.
+    }
     if ("electronAPI" in window) return "electron";
   }
   return "web";

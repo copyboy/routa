@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useWorkspaces } from "@/client/hooks/use-workspaces";
+import { desktopAwareFetch } from "@/client/utils/diagnostics";
 
 interface FeaturedSkill {
   name: string;
@@ -527,7 +528,7 @@ export function HomeTodoPreview({
 
     const fetchTasks = async () => {
       try {
-        const res = await fetch(`/api/tasks?workspaceId=${encodeURIComponent(workspaceId)}`, {
+        const res = await desktopAwareFetch(`/api/tasks?workspaceId=${encodeURIComponent(workspaceId)}`, {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -698,7 +699,7 @@ export function WorkspaceCards({
   refreshKey: number;
   onWorkspaceSelect: (id: string) => void;
   onWorkspaceCreate: (title: string) => void;
-  onSessionClick: (id: string) => void;
+  onSessionClick: (workspaceId: string, sessionId: string) => void;
   showWorkspacesMenu: boolean;
   setShowWorkspacesMenu: (v: boolean) => void;
   workspacesMenuRef: RefObject<HTMLDivElement | null>;
@@ -732,7 +733,7 @@ export function WorkspaceCards({
       const cards: WorkspaceCardData[] = await Promise.all(
         workspaces.slice(0, 9).map(async (workspace) => {
           try {
-            const res = await fetch(`/api/sessions?workspaceId=${encodeURIComponent(workspace.id)}&limit=3`, {
+            const res = await desktopAwareFetch(`/api/sessions?workspaceId=${encodeURIComponent(workspace.id)}&limit=3`, {
               cache: "no-store",
             });
             const data = await res.json();
@@ -897,7 +898,7 @@ export function WorkspaceCards({
                       className="flex cursor-pointer items-center gap-2 rounded-xl bg-white/72 px-3 py-2 dark:bg-[#131722]"
                       onClick={(event) => {
                         event.stopPropagation();
-                        onSessionClick(session.sessionId);
+                        onSessionClick(workspace.id, session.sessionId);
                       }}
                     >
                       <svg className="h-3.5 w-3.5 shrink-0 text-[#1d6fd6] dark:text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

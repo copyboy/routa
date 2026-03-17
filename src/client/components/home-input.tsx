@@ -19,6 +19,7 @@ import { useWorkspaces, useCodebases } from "../hooks/use-workspaces";
 import type { RepoSelection } from "./repo-picker";
 import { storePendingPrompt } from "../utils/pending-prompt";
 import { loadProviderConnectionConfig, getModelDefinitionByAlias, DockerConfigModal } from "./settings-panel";
+import { desktopAwareFetch } from "../utils/diagnostics";
 
 type AgentRole = "ROUTA" | "DEVELOPER";
 
@@ -103,7 +104,7 @@ export function HomeInput({
 
   // Load specialists
   useEffect(() => {
-    fetch("/api/specialists")
+    desktopAwareFetch("/api/specialists")
       .then((r) => r.ok ? r.json() : { specialists: [] })
       .then((data) => setSpecialists(data.specialists ?? []))
       .catch(() => {});

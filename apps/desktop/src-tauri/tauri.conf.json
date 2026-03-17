@@ -5,7 +5,7 @@
   "identifier": "com.routa.desktop",
   "build": {
     "beforeDevCommand": "cd ../.. && npm run dev",
-    "devUrl": "http://localhost:3000",
+    "devUrl": "http://localhost:3000/?runtime=tauri",
     "beforeBuildCommand": "node ../../scripts/prepare-frontend.mjs",
     "frontendDist": "../../../out"
   },

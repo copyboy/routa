@@ -1,5 +1,8 @@
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
+const TAURI_RUNTIME_MARKER_KEY = "routa.runtime";
+const TAURI_RUNTIME_MARKER_VALUE = "tauri";
+
 declare global {
   interface Window {
     __TAURI__?: {
@@ -16,8 +19,27 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function hasPersistedTauriMarker(): boolean {
+  if (typeof window === "undefined") return false;
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("runtime") === TAURI_RUNTIME_MARKER_VALUE) {
+      localStorage.setItem(TAURI_RUNTIME_MARKER_KEY, TAURI_RUNTIME_MARKER_VALUE);
+      return true;
+    }
+
+    return localStorage.getItem(TAURI_RUNTIME_MARKER_KEY) === TAURI_RUNTIME_MARKER_VALUE;
+  } catch {
+    return false;
+  }
+}
+
 export function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+  return typeof window !== "undefined" && (
+    !!(window.__TAURI__ || window.__TAURI_INTERNALS__) ||
+    hasPersistedTauriMarker()
+  );
 }
 
 export function isHttpLikeRuntime(): boolean {
