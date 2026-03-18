@@ -4,6 +4,7 @@
 //! function that takes `AppState` + params and returns a `serde_json::Value`.
 
 pub mod agents;
+pub mod kanban;
 pub mod notes;
 pub mod skills;
 pub mod tasks;

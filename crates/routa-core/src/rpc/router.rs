@@ -179,6 +179,73 @@ impl RpcRouter {
                 Ok(serde_json::to_value(r).unwrap())
             }
 
+            // ----- Kanban -----
+            "kanban.listBoards" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::list_boards(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            "kanban.createBoard" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::create_board(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            "kanban.getBoard" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::get_board(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            "kanban.updateBoard" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::update_board(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            "kanban.createCard" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::create_card(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            "kanban.moveCard" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::move_card(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            "kanban.updateCard" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::update_card(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            "kanban.deleteCard" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::delete_card(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            "kanban.createColumn" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::create_column(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            "kanban.deleteColumn" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::delete_column(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            "kanban.searchCards" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::search_cards(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            "kanban.listCardsByColumn" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::list_cards_by_column(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            "kanban.decomposeTasks" => {
+                let p = parse_params(params)?;
+                let r = methods::kanban::decompose_tasks(&self.state, p).await?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+
             // ----- Notes -----
             "notes.list" => {
                 let p = parse_params(params)?;
@@ -260,6 +327,19 @@ impl RpcRouter {
             "tasks.delete",
             "tasks.updateStatus",
             "tasks.findReady",
+            "kanban.listBoards",
+            "kanban.createBoard",
+            "kanban.getBoard",
+            "kanban.updateBoard",
+            "kanban.createCard",
+            "kanban.moveCard",
+            "kanban.updateCard",
+            "kanban.deleteCard",
+            "kanban.createColumn",
+            "kanban.deleteColumn",
+            "kanban.searchCards",
+            "kanban.listCardsByColumn",
+            "kanban.decomposeTasks",
             "notes.list",
             "notes.get",
             "notes.create",
