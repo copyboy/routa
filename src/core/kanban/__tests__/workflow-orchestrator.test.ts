@@ -80,6 +80,11 @@ describe("KanbanWorkflowOrchestrator", () => {
         cardTitle: task.title,
         columnId: "todo",
         columnName: "Todo",
+        stepIndex: 0,
+        step: expect.objectContaining({
+          providerId: "codex",
+          role: "DEVELOPER",
+        }),
         automation: expect.objectContaining({
           enabled: true,
           providerId: "codex",
@@ -92,8 +97,150 @@ describe("KanbanWorkflowOrchestrator", () => {
     expect(orchestrator.getAutomationForCard(task.id)).toMatchObject({
       cardId: task.id,
       columnId: "todo",
+      currentStepIndex: 0,
       status: "running",
       sessionId: "session-todo-1",
+    });
+  });
+
+  it("runs lane automation steps sequentially within the same column", async () => {
+    const eventBus = new EventBus();
+    const boardStore = new InMemoryKanbanBoardStore();
+    const taskStore = new InMemoryTaskStore();
+    const createSession = vi
+      .fn()
+      .mockResolvedValueOnce("session-todo-1")
+      .mockResolvedValueOnce("session-todo-2");
+
+    const board = createKanbanBoard({
+      id: "board-steps-1",
+      workspaceId: "default",
+      name: "Main Board",
+      isDefault: true,
+      columns: [
+        { id: "backlog", name: "Backlog", stage: "backlog", position: 0 },
+        {
+          id: "todo",
+          name: "Todo",
+          stage: "todo",
+          position: 1,
+          automation: {
+            enabled: true,
+            steps: [
+              {
+                id: "triage",
+                providerId: "claude",
+                role: "CRAFTER",
+                specialistId: "todo-triage",
+                specialistName: "Todo Triage",
+              },
+              {
+                id: "plan",
+                providerId: "codex",
+                role: "ROUTA",
+                specialistId: "todo-plan",
+                specialistName: "Todo Plan",
+              },
+            ],
+            transitionType: "entry",
+            autoAdvanceOnSuccess: false,
+          },
+        },
+        { id: "dev", name: "Dev", stage: "dev", position: 2 },
+      ],
+    });
+    await boardStore.save(board);
+
+    const task = createTask({
+      id: "task-steps-1",
+      title: "Run todo steps",
+      objective: "Verify lane steps stay in the same column until the last step completes",
+      workspaceId: "default",
+      boardId: board.id,
+      columnId: "backlog",
+    });
+    await taskStore.save(task);
+
+    const orchestrator = new KanbanWorkflowOrchestrator(
+      eventBus,
+      boardStore,
+      taskStore,
+      createSession,
+    );
+    orchestrator.start();
+
+    eventBus.emit({
+      type: AgentEventType.COLUMN_TRANSITION,
+      agentId: "test",
+      workspaceId: "default",
+      data: {
+        cardId: task.id,
+        cardTitle: task.title,
+        boardId: board.id,
+        workspaceId: "default",
+        fromColumnId: "backlog",
+        toColumnId: "todo",
+      },
+      timestamp: new Date(),
+    });
+
+    await vi.waitFor(() => {
+      expect(createSession).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        cardId: task.id,
+        columnId: "todo",
+        stepIndex: 0,
+        step: expect.objectContaining({
+          id: "triage",
+          specialistId: "todo-triage",
+        }),
+      }));
+    });
+
+    const runningTask = await taskStore.get(task.id);
+    runningTask!.columnId = "todo";
+    runningTask!.triggerSessionId = "session-todo-1";
+    await taskStore.save(runningTask!);
+
+    eventBus.emit({
+      type: AgentEventType.AGENT_COMPLETED,
+      agentId: "session-todo-1",
+      workspaceId: "default",
+      data: {
+        sessionId: "session-todo-1",
+        success: true,
+      },
+      timestamp: new Date(),
+    });
+
+    await vi.waitFor(async () => {
+      expect(createSession).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        cardId: task.id,
+        columnId: "todo",
+        stepIndex: 1,
+        step: expect.objectContaining({
+          id: "plan",
+          specialistId: "todo-plan",
+        }),
+      }));
+
+      const updatedTask = await taskStore.get(task.id);
+      expect(updatedTask).toMatchObject({
+        id: task.id,
+        columnId: "todo",
+        triggerSessionId: undefined,
+      });
+      expect(updatedTask?.sessionIds).toContain("session-todo-1");
+      expect(updatedTask?.laneSessions).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: "session-todo-1",
+          status: "completed",
+        }),
+      ]));
+      expect(orchestrator.getAutomationForCard(task.id)).toMatchObject({
+        currentStepIndex: 1,
+        sessionId: "session-todo-2",
+        status: "running",
+      });
     });
   });
 
@@ -181,6 +328,7 @@ describe("KanbanWorkflowOrchestrator", () => {
       expect(createSession).toHaveBeenNthCalledWith(1, expect.objectContaining({
         cardId: task.id,
         columnId: "backlog",
+        stepIndex: 0,
       }));
     });
 
@@ -199,6 +347,7 @@ describe("KanbanWorkflowOrchestrator", () => {
       expect(createSession).toHaveBeenNthCalledWith(2, expect.objectContaining({
         cardId: task.id,
         columnId: "todo",
+        stepIndex: 0,
       }));
 
       const updatedTask = await taskStore.get(task.id);

@@ -11,6 +11,7 @@ import {
 } from "./workflow-orchestrator";
 import type { RoutaSystem } from "../routa-system";
 import type {
+  KanbanAutomationStep,
   KanbanColumnAutomation,
   KanbanColumnStage,
 } from "../models/kanban";
@@ -42,6 +43,8 @@ async function createAutomationSession(
     cardId: string;
     columnId: string;
     automation: KanbanColumnAutomation;
+    step: KanbanAutomationStep;
+    stepIndex: number;
     supervision?: AutomationSessionSupervisionContext;
   },
 ): Promise<string | null> {
@@ -52,14 +55,16 @@ async function createAutomationSession(
     expectedColumnId: params.columnId,
     mutateTask: (nextTask) => {
       nextTask.assignedProvider =
-        params.automation.providerId ?? task.assignedProvider ?? "opencode";
+        params.step.providerId ?? task.assignedProvider ?? "opencode";
       nextTask.assignedRole =
-        params.automation.role ?? task.assignedRole ?? "DEVELOPER";
+        params.step.role ?? task.assignedRole ?? "DEVELOPER";
       nextTask.assignedSpecialistId =
-        params.automation.specialistId ?? task.assignedSpecialistId;
+        params.step.specialistId ?? task.assignedSpecialistId;
       nextTask.assignedSpecialistName =
-        params.automation.specialistName ?? task.assignedSpecialistName;
+        params.step.specialistName ?? task.assignedSpecialistName;
     },
+    step: params.step,
+    stepIndex: params.stepIndex,
     supervision: params.supervision,
   });
   return result.sessionId ?? null;
@@ -72,6 +77,8 @@ export async function enqueueKanbanTaskSession(
     expectedColumnId?: string;
     ignoreExistingTrigger?: boolean;
     mutateTask?: (task: NonNullable<Awaited<ReturnType<RoutaSystem["taskStore"]["get"]>>>) => void;
+    step?: KanbanAutomationStep;
+    stepIndex?: number;
     supervision?: AutomationSessionSupervisionContext;
   },
 ): Promise<{ sessionId?: string; queued: boolean; error?: string }> {
@@ -101,6 +108,8 @@ async function startKanbanTaskSession(
     expectedColumnId?: string;
     ignoreExistingTrigger?: boolean;
     mutateTask?: (task: NonNullable<Awaited<ReturnType<RoutaSystem["taskStore"]["get"]>>>) => void;
+    step?: KanbanAutomationStep;
+    stepIndex?: number;
     supervision?: AutomationSessionSupervisionContext;
   },
 ): Promise<{ sessionId?: string | null; error?: string }> {
@@ -172,12 +181,14 @@ async function startKanbanTaskSession(
   }
 
   const effectiveAutomation = resolveEffectiveTaskAutomation(nextTask, board?.columns ?? []);
+  const sessionStep = params.step ?? effectiveAutomation.step;
+  const sessionStepIndex = params.stepIndex ?? effectiveAutomation.stepIndex;
   const taskForSession = {
     ...nextTask,
-    assignedProvider: effectiveAutomation.providerId,
-    assignedRole: effectiveAutomation.role,
-    assignedSpecialistId: effectiveAutomation.specialistId,
-    assignedSpecialistName: effectiveAutomation.specialistName,
+    assignedProvider: sessionStep?.providerId ?? effectiveAutomation.providerId,
+    assignedRole: sessionStep?.role ?? effectiveAutomation.role,
+    assignedSpecialistId: sessionStep?.specialistId ?? effectiveAutomation.specialistId,
+    assignedSpecialistName: sessionStep?.specialistName ?? effectiveAutomation.specialistName,
   };
 
   const triggerResult = await triggerAssignedTaskAgent({
@@ -202,10 +213,13 @@ async function startKanbanTaskSession(
       sessionId: triggerResult.sessionId,
       columnId: nextTask.columnId,
       columnName: currentColumn?.name,
-      provider: effectiveAutomation.providerId,
-      role: effectiveAutomation.role,
-      specialistId: effectiveAutomation.specialistId,
-      specialistName: effectiveAutomation.specialistName,
+      stepId: sessionStep?.id,
+      stepIndex: sessionStepIndex,
+      stepName: sessionStep?.specialistName ?? sessionStep?.specialistId ?? sessionStep?.role,
+      provider: sessionStep?.providerId ?? effectiveAutomation.providerId,
+      role: sessionStep?.role ?? effectiveAutomation.role,
+      specialistId: sessionStep?.specialistId ?? effectiveAutomation.specialistId,
+      specialistName: sessionStep?.specialistName ?? effectiveAutomation.specialistName,
       attempt: params.supervision?.attempt,
       loopMode: params.supervision?.mode,
       completionRequirement: params.supervision?.completionRequirement,

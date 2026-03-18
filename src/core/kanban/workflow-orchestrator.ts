@@ -9,13 +9,14 @@
 import { getHttpSessionStore } from "../acp/http-session-store";
 import { EventBus, AgentEventType, AgentEvent } from "../events/event-bus";
 import type {
+  KanbanAutomationStep,
   KanbanColumnAutomation,
   KanbanColumnStage,
   KanbanDevSessionCompletionRequirement,
   KanbanDevSessionSupervision,
   KanbanDevSessionSupervisionMode,
 } from "../models/kanban";
-import { columnIdToTaskStatus } from "../models/kanban";
+import { columnIdToTaskStatus, getKanbanAutomationSteps } from "../models/kanban";
 import type { Task, TaskLaneSessionRecoveryReason } from "../models/task";
 import type { KanbanBoardStore } from "../store/kanban-board-store";
 import type { TaskStore } from "../store/task-store";
@@ -84,6 +85,13 @@ function buildKanbanRecoveryPrompt(params: RecoveryNotificationParams): string {
   ].join("\\n");
 }
 
+function getAutomationStepLabel(step: KanbanAutomationStep | undefined, stepIndex: number): string {
+  if (!step) {
+    return `Step ${stepIndex + 1}`;
+  }
+  return step.specialistName ?? step.specialistId ?? step.role ?? `Step ${stepIndex + 1}`;
+}
+
 /** Context persisted for a session attempt when supervision is enabled. */
 export interface AutomationSessionSupervisionContext {
   attempt: number;
@@ -104,6 +112,8 @@ export interface ActiveAutomation {
   columnName: string;
   stage: KanbanColumnStage;
   automation: KanbanColumnAutomation;
+  steps: KanbanAutomationStep[];
+  currentStepIndex: number;
   sessionId?: string;
   startedAt: Date;
   status: "queued" | "running" | "completed" | "failed";
@@ -121,6 +131,8 @@ export type CreateAutomationSession = (params: {
   columnId: string;
   columnName: string;
   automation: KanbanColumnAutomation;
+  step: KanbanAutomationStep;
+  stepIndex: number;
   supervision?: AutomationSessionSupervisionContext;
 }) => Promise<string | null>;
 
@@ -231,9 +243,11 @@ export class KanbanWorkflowOrchestrator {
 
     const automation = targetColumn.automation;
     const transitionType = automation.transitionType ?? "entry";
+    const steps = getKanbanAutomationSteps(automation);
 
     // Only trigger on entry or both
     if (transitionType !== "entry" && transitionType !== "both") return;
+    if (steps.length === 0) return;
 
     const supervision = shouldSuperviseStage(targetColumn.stage)
       ? (await this.resolveDevSessionSupervision?.({
@@ -253,6 +267,8 @@ export class KanbanWorkflowOrchestrator {
       columnName: targetColumn.name,
       stage: targetColumn.stage,
       automation,
+      steps,
+      currentStepIndex: 0,
       startedAt: new Date(),
       status: "queued",
       supervision,
@@ -273,6 +289,8 @@ export class KanbanWorkflowOrchestrator {
           columnId: targetColumn.id,
           columnName: targetColumn.name,
           automation,
+          step: steps[0],
+          stepIndex: 0,
           supervision: this.buildSupervisionContext(automationEntry, laneObjective),
         });
         if (sessionId) {
@@ -337,6 +355,21 @@ export class KanbanWorkflowOrchestrator {
         }
       }
 
+      const nextStepIndex = automation.currentStepIndex + 1;
+      const hasNextStep = successEvent
+        && completionSatisfied
+        && nextStepIndex < automation.steps.length;
+      let failedToAdvanceWithinLane = false;
+
+      if (task && hasNextStep) {
+        const startedNextStep = await this.startNextAutomationStep(cardId, automation, task, nextStepIndex);
+        if (startedNextStep) {
+          automation.signaledSessionIds.add(eventSessionId);
+          return;
+        }
+        failedToAdvanceWithinLane = true;
+      }
+
       if (task && shouldRecover) {
         const recoveryReason = getRecoveryReason(event, completionSatisfied);
         await this.notifyKanbanAgent({
@@ -355,11 +388,11 @@ export class KanbanWorkflowOrchestrator {
         }
       }
 
-      automation.status = successEvent && completionSatisfied ? "completed" : "failed";
+      automation.status = !failedToAdvanceWithinLane && successEvent && completionSatisfied ? "completed" : "failed";
       automation.signaledSessionIds.add(eventSessionId);
 
       if (task) {
-        if (successEvent && completionSatisfied) {
+        if (!failedToAdvanceWithinLane && successEvent && completionSatisfied) {
           task.lastSyncError = undefined;
         } else if (!task.lastSyncError) {
           task.lastSyncError = this.buildFailureMessage(automation, event, completionSatisfied);
@@ -368,7 +401,7 @@ export class KanbanWorkflowOrchestrator {
       }
 
       // Auto-advance if configured and successful.
-      if (successEvent && completionSatisfied && automation.automation.autoAdvanceOnSuccess) {
+      if (!failedToAdvanceWithinLane && successEvent && completionSatisfied && automation.automation.autoAdvanceOnSuccess) {
         await this.autoAdvanceCard(cardId, automation);
       }
 
@@ -513,6 +546,75 @@ export class KanbanWorkflowOrchestrator {
     return false;
   }
 
+  private async startNextAutomationStep(
+    cardId: string,
+    automation: ActiveAutomation,
+    task: Task,
+    nextStepIndex: number,
+  ): Promise<boolean> {
+    if (!this.createSession) {
+      return false;
+    }
+
+    const nextStep = automation.steps[nextStepIndex];
+    if (!nextStep) {
+      return false;
+    }
+
+    const previousSessionId = automation.sessionId;
+    if (previousSessionId) {
+      if (!task.sessionIds.includes(previousSessionId)) {
+        task.sessionIds.push(previousSessionId);
+      }
+      if (task.triggerSessionId === previousSessionId) {
+        task.triggerSessionId = undefined;
+      }
+    }
+
+    task.lastSyncError = undefined;
+    task.updatedAt = new Date();
+    await this.taskStore.save(task);
+
+    this.cleanupCardSession?.(cardId);
+
+    automation.currentStepIndex = nextStepIndex;
+    automation.attempt = 1;
+    automation.recoveryAttempts = 0;
+    automation.status = "queued";
+    automation.startedAt = new Date();
+    automation.sessionId = undefined;
+    automation.signaledSessionIds.clear();
+
+    try {
+      const sessionId = await this.createSession({
+        workspaceId: automation.workspaceId,
+        cardId,
+        cardTitle: automation.cardTitle,
+        columnId: automation.columnId,
+        columnName: automation.columnName,
+        automation: automation.automation,
+        step: nextStep,
+        stepIndex: nextStepIndex,
+        supervision: this.buildSupervisionContext(automation, task.objective || automation.cardTitle),
+      });
+
+      if (!sessionId) {
+        automation.status = "failed";
+        return false;
+      }
+
+      automation.status = "running";
+      automation.sessionId = sessionId;
+      return true;
+    } catch (error) {
+      automation.status = "failed";
+      task.lastSyncError = error instanceof Error ? error.message : String(error);
+      task.updatedAt = new Date();
+      await this.taskStore.save(task);
+      return false;
+    }
+  }
+
   private async recoverAutomation(
     cardId: string,
     automation: ActiveAutomation,
@@ -547,6 +649,7 @@ export class KanbanWorkflowOrchestrator {
     this.cleanupCardSession?.(cardId);
 
     try {
+      const currentStep = automation.steps[automation.currentStepIndex];
       const sessionId = await this.createSession({
         workspaceId: automation.workspaceId,
         cardId,
@@ -554,6 +657,8 @@ export class KanbanWorkflowOrchestrator {
         columnId: automation.columnId,
         columnName: automation.columnName,
         automation: automation.automation,
+        step: currentStep,
+        stepIndex: automation.currentStepIndex,
         supervision: this.buildSupervisionContext(automation, task.objective || automation.cardTitle, {
           recoveredFromSessionId: previousSessionId,
           recoveryReason: reason,
@@ -602,12 +707,13 @@ export class KanbanWorkflowOrchestrator {
     automation: ActiveAutomation,
     reason: TaskLaneSessionRecoveryReason,
   ): string {
+    const stepLabel = getAutomationStepLabel(automation.steps[automation.currentStepIndex], automation.currentStepIndex);
     const reasonLabel = reason === "watchdog_inactivity"
       ? "inactive too long"
       : reason === "completion_criteria_not_met"
         ? "stopped before completion criteria were met"
         : "failed";
-    return `Dev automation recovered after session ${reasonLabel}. Attempt ${automation.attempt}/${automation.supervision.maxRecoveryAttempts + 1}.`;
+    return `${stepLabel} recovered after session ${reasonLabel}. Attempt ${automation.attempt}/${automation.supervision.maxRecoveryAttempts + 1}.`;
   }
 
   private buildFailureMessage(
@@ -615,15 +721,16 @@ export class KanbanWorkflowOrchestrator {
     event: AgentEvent,
     completionSatisfied: boolean,
   ): string {
+    const stepLabel = getAutomationStepLabel(automation.steps[automation.currentStepIndex], automation.currentStepIndex);
     if (event.type === AgentEventType.AGENT_TIMEOUT) {
-      return `Dev automation timed out after ${automation.supervision.inactivityTimeoutMinutes} minutes without activity.`;
+      return `${stepLabel} timed out after ${automation.supervision.inactivityTimeoutMinutes} minutes without activity.`;
     }
     if (event.type === AgentEventType.AGENT_FAILED) {
       const error = typeof event.data?.error === "string" ? event.data.error : "ACP session failed.";
       return error;
     }
     if (event.type === AgentEventType.AGENT_COMPLETED && !completionSatisfied) {
-      return `Dev automation completed but did not satisfy ${automation.supervision.completionRequirement}.`;
+      return `${stepLabel} completed but did not satisfy ${automation.supervision.completionRequirement}.`;
     }
     return "ACP session did not complete successfully.";
   }
