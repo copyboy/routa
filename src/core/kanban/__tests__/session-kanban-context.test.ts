@@ -19,6 +19,8 @@ describe("session-kanban-context", () => {
         sessionId: "session-dev-1",
         columnId: "dev",
         columnName: "Dev",
+        stepIndex: 0,
+        stepName: "Dev Step 1",
         provider: "claude",
         role: "DEVELOPER",
         status: "completed",
@@ -28,6 +30,8 @@ describe("session-kanban-context", () => {
         sessionId: "session-review-1",
         columnId: "review",
         columnName: "Review",
+        stepIndex: 0,
+        stepName: "Review Step 1",
         provider: "codex",
         role: "GATE",
         status: "running",
@@ -74,15 +78,31 @@ describe("session-kanban-context", () => {
         sessionId: "session-dev-1",
         columnId: "dev",
         columnName: "Dev",
+        stepIndex: 0,
+        stepName: "Dev Step 1",
         provider: "claude",
         role: "DEVELOPER",
         status: "completed",
         startedAt: "2026-03-17T00:00:00.000Z",
       },
       {
+        sessionId: "session-review-0",
+        columnId: "review",
+        columnName: "Review",
+        stepIndex: 0,
+        stepName: "Review Step 1",
+        provider: "codex",
+        role: "GATE",
+        status: "completed",
+        startedAt: "2026-03-17T00:05:00.000Z",
+        completedAt: "2026-03-17T00:08:00.000Z",
+      },
+      {
         sessionId: "session-review-1",
         columnId: "review",
         columnName: "Review",
+        stepIndex: 1,
+        stepName: "Review Step 2",
         provider: "codex",
         role: "GATE",
         status: "running",
@@ -109,6 +129,7 @@ describe("session-kanban-context", () => {
 
     expect(context.currentLaneSession?.columnId).toBe("review");
     expect(context.previousLaneSession?.sessionId).toBe("session-dev-1");
+    expect(context.previousLaneRun?.sessionId).toBe("session-review-0");
     expect(context.relatedHandoffs).toHaveLength(1);
     expect(context.relatedHandoffs[0]).toMatchObject({
       direction: "outgoing",

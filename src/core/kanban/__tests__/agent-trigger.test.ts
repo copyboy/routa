@@ -142,6 +142,43 @@ describe("buildTaskPrompt", () => {
     expect(prompt).toContain("Previous lane session");
     expect(prompt).toContain("Dev");
   });
+
+  it("includes previous run context for multi-step sessions in the same lane", () => {
+    const task = createTask({
+      id: "task-5",
+      title: "Continue todo planning",
+      objective: "Run the second todo step with context from the first one",
+      workspaceId: "default",
+      boardId: "board-1",
+      columnId: "todo",
+    });
+    task.laneSessions = [
+      {
+        sessionId: "session-todo-1",
+        columnId: "todo",
+        columnName: "Todo",
+        stepIndex: 0,
+        stepName: "Todo Triage",
+        provider: "claude",
+        role: "CRAFTER",
+        status: "completed",
+        startedAt: "2026-03-17T00:00:00.000Z",
+        completedAt: "2026-03-17T00:05:00.000Z",
+      },
+    ];
+
+    const prompt = buildTaskPrompt(task, [
+      { id: "backlog", name: "Backlog", position: 0, stage: "backlog" },
+      { id: "todo", name: "Todo", position: 1, stage: "todo" },
+      { id: "dev", name: "Dev", position: 2, stage: "dev" },
+    ], {
+      currentSessionId: "session-todo-2",
+    });
+
+    expect(prompt).toContain("## Current Lane History");
+    expect(prompt).toContain("Previous run in this lane");
+    expect(prompt).toContain("Todo Triage");
+  });
 });
 
 describe("resolveKanbanAutomationProvider", () => {

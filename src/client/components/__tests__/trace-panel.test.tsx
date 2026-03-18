@@ -55,6 +55,8 @@ describe("TracePanel", () => {
                 sessionId: "session-review-1",
                 columnId: "review",
                 columnName: "Review",
+                stepIndex: 1,
+                stepName: "Review Step 2",
                 provider: "codex",
                 role: "GATE",
                 status: "running",
@@ -68,6 +70,17 @@ describe("TracePanel", () => {
                 role: "DEVELOPER",
                 status: "completed",
                 startedAt: "2026-03-17T00:00:00.000Z",
+              },
+              previousLaneRun: {
+                sessionId: "session-review-0",
+                columnId: "review",
+                columnName: "Review",
+                stepIndex: 0,
+                stepName: "Review Step 1",
+                provider: "codex",
+                role: "GATE",
+                status: "completed",
+                startedAt: "2026-03-17T00:05:00.000Z",
               },
               relatedHandoffs: [
                 {
@@ -103,7 +116,9 @@ describe("TracePanel", () => {
     });
 
     expect(screen.getByText("Desk check login flow")).toBeTruthy();
+    expect(screen.getByText(/Current lane session: Review • Review Step 2/i)).toBeTruthy();
     expect(screen.getByText(/Previous lane session: Dev/i)).toBeTruthy();
+    expect(screen.getByText(/Previous run in lane: Review • Review Step 1/i)).toBeTruthy();
     expect(screen.getByText("Start the app and share the URL.")).toBeTruthy();
     expect(screen.getByText("Running at http://127.0.0.1:3000/login")).toBeTruthy();
   });

@@ -5,6 +5,7 @@ import type { AcpProviderInfo } from "@/client/acp-client";
 import type { CodebaseData } from "@/client/hooks/use-workspaces";
 import { resolveEffectiveTaskAutomation } from "@/core/kanban/effective-task-automation";
 import { formatArtifactSummary, resolveKanbanTransitionArtifacts } from "@/core/kanban/transition-artifacts";
+import { getKanbanAutomationSteps, type KanbanAutomationStep } from "@/core/models/kanban";
 import type { KanbanColumnInfo, SessionInfo, TaskInfo, WorktreeInfo } from "../types";
 import { KanbanDescriptionEditor } from "./kanban-description-editor";
 
@@ -79,6 +80,27 @@ function buildSessionDisplayLabel(
   const provider = session?.provider?.trim();
   if (provider) return provider;
   return `Run ${index + 1}`;
+}
+
+function getLaneSessionStepLabel(
+  session: { stepIndex?: number; stepName?: string } | undefined,
+): string | null {
+  if (!session) return null;
+  if (session.stepName?.trim()) return session.stepName;
+  if (typeof session.stepIndex === "number") return `Step ${session.stepIndex + 1}`;
+  return null;
+}
+
+function formatAutomationStepSummary(
+  step: KanbanAutomationStep,
+  availableProviders: AcpProviderInfo[],
+  specialists: SpecialistOption[],
+): string {
+  return [
+    getProviderName(step.providerId, availableProviders),
+    step.role ?? "DEVELOPER",
+    getSpecialistName(step.specialistId, step.specialistName, specialists),
+  ].join(" · ");
 }
 
 export function KanbanCardDetail({
@@ -380,8 +402,7 @@ function ExecutionSection({
   const canRunTask = effectiveAutomation.canRun && task.columnId !== "done";
   const hasCardOverride = Boolean(task.assignedProvider || task.assignedRole || task.assignedSpecialistId || task.assignedSpecialistName);
   const laneName = lane?.name ?? task.columnId ?? "backlog";
-  const laneProvider = getProviderName(lane?.automation?.providerId, availableProviders);
-  const laneSpecialist = getSpecialistName(lane?.automation?.specialistId, lane?.automation?.specialistName, specialists);
+  const laneSteps = lane?.automation ? getKanbanAutomationSteps(lane.automation) : [];
   const cardSpecialist = getSpecialistName(task.assignedSpecialistId, task.assignedSpecialistName, specialists);
   const effectiveProvider = getProviderName(effectiveAutomation.providerId, availableProviders);
   const effectiveSpecialist = getSpecialistName(
@@ -389,6 +410,9 @@ function ExecutionSection({
     effectiveAutomation.specialistName,
     specialists,
   );
+  const lanePipeline = laneSteps.length > 0
+    ? laneSteps.map((step) => formatAutomationStepSummary(step, availableProviders, specialists)).join(" -> ")
+    : "No lane automation configured";
   const transitionArtifacts = resolveKanbanTransitionArtifacts(boardColumns, task.columnId);
   const overrideKey = `${task.id}:${task.assignedProvider ?? ""}:${task.assignedRole ?? ""}:${task.assignedSpecialistId ?? ""}:${task.assignedSpecialistName ?? ""}`;
 
@@ -411,12 +435,12 @@ function ExecutionSection({
       </div>
       <div className="mt-2.5 space-y-1.5">
         <InlineSummary
-          label="Lane default"
-          value={`${laneProvider} · ${lane?.automation?.role ?? "DEVELOPER"} · ${laneSpecialist}`}
+          label="Lane pipeline"
+          value={lanePipeline}
           compact={compact}
         />
         <InlineSummary
-          label="Manual run"
+          label="Current run"
           value={`${effectiveProvider} · ${effectiveAutomation.role ?? "DEVELOPER"} · ${effectiveSpecialist}`}
           compact={compact}
         />
@@ -682,6 +706,7 @@ export function KanbanCardActivityBar({
             const active = sessionId === selectedRunId;
             const laneSession = laneSessionMap.get(sessionId);
             const laneLabel = laneSession?.columnName ?? laneSession?.columnId;
+            const stepLabel = getLaneSessionStepLabel(laneSession);
             const runLabel = buildSessionDisplayLabel(sessionId, index, sessionMap);
 
             return (
@@ -705,6 +730,15 @@ export function KanbanCardActivityBar({
                       : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
                   }`}>
                     {laneLabel}
+                  </span>
+                )}
+                {stepLabel && (
+                  <span className={`max-w-28 truncate rounded-full px-1.5 py-0.5 text-[10px] ${
+                    active
+                      ? "bg-sky-200/70 text-sky-900 dark:bg-sky-800/50 dark:text-sky-100"
+                      : "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300"
+                  }`}>
+                    {stepLabel}
                   </span>
                 )}
                 {laneSession?.status && active && (
@@ -774,6 +808,7 @@ function SessionHistoryPanel({
             laneSession?.specialistName,
             specialists,
           );
+          const stepLabel = getLaneSessionStepLabel(laneSession);
 
           return (
             <button
@@ -792,6 +827,11 @@ function SessionHistoryPanel({
                 {laneSession?.columnName && (
                   <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
                     {laneSession.columnName}
+                  </span>
+                )}
+                {stepLabel && (
+                  <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                    {stepLabel}
                   </span>
                 )}
                 {isCurrent && (
@@ -813,6 +853,11 @@ function SessionHistoryPanel({
                   <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                     {(laneSession?.provider ?? session?.provider ?? "Unknown provider")} · {(laneSession?.role ?? session?.role ?? "Unknown role")} · {laneSpecialist}
                   </div>
+                  {stepLabel && (
+                    <div className="mt-1 text-[11px] text-indigo-600 dark:text-indigo-300">
+                      {stepLabel}
+                    </div>
+                  )}
                   <div className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
                     {formatSessionTimestamp(session?.createdAt)}
                   </div>

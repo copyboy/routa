@@ -1,6 +1,6 @@
 import type { KanbanBoard } from "../models/kanban";
 import type { Task, TaskLaneHandoff, TaskLaneSession } from "../models/task";
-import { getPreviousLaneSession, getTaskLaneSession } from "./task-lane-history";
+import { getPreviousLaneRun, getPreviousLaneSession, getTaskLaneSession } from "./task-lane-history";
 
 export interface SessionRelatedLaneHandoff extends TaskLaneHandoff {
   direction: "incoming" | "outgoing";
@@ -16,6 +16,7 @@ export interface SessionKanbanContext {
   triggerSessionId?: string;
   currentLaneSession?: TaskLaneSession;
   previousLaneSession?: TaskLaneSession;
+  previousLaneRun?: TaskLaneSession;
   relatedHandoffs: SessionRelatedLaneHandoff[];
 }
 
@@ -70,6 +71,7 @@ export function buildSessionKanbanContext(
   const previousLaneSession = currentLaneSession?.columnId && board
     ? getPreviousLaneSession(task, board, currentLaneSession.columnId)
     : undefined;
+  const previousLaneRun = getPreviousLaneRun(task, sessionId);
   const sessionMap = new Map((task.laneSessions ?? []).map((entry) => [entry.sessionId, entry]));
   const relatedHandoffs = (task.laneHandoffs ?? [])
     .filter((handoff) => handoff.fromSessionId === sessionId || handoff.toSessionId === sessionId)
@@ -84,6 +86,7 @@ export function buildSessionKanbanContext(
     triggerSessionId: task.triggerSessionId,
     currentLaneSession,
     previousLaneSession,
+    previousLaneRun,
     relatedHandoffs,
   };
 }

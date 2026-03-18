@@ -4,6 +4,7 @@ import type { KanbanColumn } from "../models/kanban";
 import { AgentEventType, type EventBus } from "../events/event-bus";
 import { isClaudeCodeSdkConfigured } from "../acp/claude-code-sdk-adapter";
 import { formatArtifactSummary, resolveKanbanTransitionArtifacts } from "./transition-artifacts";
+import type { TaskLaneSession } from "../models/task";
 
 function formatHandoffRequestType(
   value: "environment_preparation" | "runtime_context" | "clarification" | "rerun_command",
@@ -20,6 +21,18 @@ function formatHandoffRequestType(
     default:
       return value;
   }
+}
+
+function formatLaneSessionDescriptor(session: TaskLaneSession): string {
+  const stepLabel = typeof session.stepIndex === "number"
+    ? `Step ${session.stepIndex + 1}`
+    : undefined;
+  return [
+    session.columnName ?? session.columnId ?? "unknown lane",
+    session.stepName ?? stepLabel,
+    session.provider ?? "unknown provider",
+    session.role ?? "unknown role",
+  ].filter(Boolean).join(" · ");
 }
 
 export function getInternalApiOrigin(): string {
@@ -50,6 +63,9 @@ export function buildTaskPrompt(
   const previousColumn = currentColumnIndex > 0 ? orderedColumns[currentColumnIndex - 1] : undefined;
   const previousLaneSession = previousColumn
     ? [...(task.laneSessions ?? [])].reverse().find((entry) => entry.columnId === previousColumn.id)
+    : undefined;
+  const previousLaneRun = !isBacklogPlanning
+    ? [...(task.laneSessions ?? [])].reverse().find((entry) => entry.columnId === currentColumnId)
     : undefined;
   const pendingLaneHandoffs = options?.currentSessionId
     ? (task.laneHandoffs ?? []).filter((handoff) => handoff.toSessionId === options.currentSessionId && !handoff.respondedAt)
@@ -130,12 +146,24 @@ export function buildTaskPrompt(
     "",
   ];
 
+  const laneRunHistorySection = !isBacklogPlanning && previousLaneRun
+    ? [
+        "## Current Lane History",
+        "",
+        `**Previous run in this lane:** ${formatLaneSessionDescriptor(previousLaneRun)}`,
+        previousLaneRun.completedAt
+          ? `Completed ${new Date(previousLaneRun.completedAt).toLocaleString()}. Review its output before repeating the same work.`
+          : "A previous run already exists for this lane. Review its task updates and artifacts before continuing.",
+        "",
+      ]
+    : [];
+
   const laneHandoffSection = !isBacklogPlanning && (previousLaneSession || pendingLaneHandoffs.length > 0)
     ? [
         "## Lane Handoff Context",
         "",
         previousLaneSession
-          ? `**Previous lane session:** ${previousLaneSession.columnName ?? previousLaneSession.columnId ?? "unknown"} · ${previousLaneSession.provider ?? "unknown provider"} · ${previousLaneSession.role ?? "unknown role"}`
+          ? `**Previous lane session:** ${formatLaneSessionDescriptor(previousLaneSession)}`
           : "**Previous lane session:** none recorded",
         previousLaneSession
           ? "Use `request_previous_lane_handoff` if you need environment preparation, runtime context, or a focused rerun from the previous lane."
@@ -190,6 +218,7 @@ export function buildTaskPrompt(
     task.objective,
     "",
     ...artifactGateSection,
+    ...laneRunHistorySection,
     ...laneHandoffSection,
     ...devVerificationSection,
     "## Available MCP Tools",

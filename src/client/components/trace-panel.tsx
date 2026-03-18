@@ -27,6 +27,9 @@ interface LaneSessionInfo {
   sessionId: string;
   columnId?: string;
   columnName?: string;
+  stepId?: string;
+  stepIndex?: number;
+  stepName?: string;
   provider?: string;
   role?: string;
   status: "running" | "completed" | "failed" | "timed_out" | "transitioned";
@@ -59,6 +62,7 @@ interface SessionKanbanContext {
   triggerSessionId?: string;
   currentLaneSession?: LaneSessionInfo;
   previousLaneSession?: LaneSessionInfo;
+  previousLaneRun?: LaneSessionInfo;
   relatedHandoffs: LaneHandoffInfo[];
 }
 
@@ -258,6 +262,7 @@ function inferToolName(name: string, input: unknown): string {
 function formatLaneSessionSummary(session: LaneSessionInfo): string {
   return [
     session.columnName ?? session.columnId ?? "Unknown lane",
+    session.stepName ?? (typeof session.stepIndex === "number" ? `Step ${session.stepIndex + 1}` : undefined),
     session.provider,
     session.role,
   ].filter(Boolean).join(" • ");
@@ -873,6 +878,11 @@ export function TracePanel({ sessionId }: TracePanelProps) {
           {kanbanContext.previousLaneSession && (
             <div className="mt-1 text-[11px] text-gray-600 dark:text-gray-300">
               Previous lane session: {formatLaneSessionSummary(kanbanContext.previousLaneSession)}
+            </div>
+          )}
+          {kanbanContext.previousLaneRun && (
+            <div className="mt-1 text-[11px] text-gray-600 dark:text-gray-300">
+              Previous run in lane: {formatLaneSessionSummary(kanbanContext.previousLaneRun)}
             </div>
           )}
           {kanbanContext.relatedHandoffs.length > 0 && (

@@ -126,6 +126,44 @@ export function getPreviousLaneSession(
   return getLatestLaneSessionForColumn(task, previousColumn.id);
 }
 
+export function getPreviousLaneRun(
+  task: TaskLaneHistoryState,
+  sessionId: string | undefined,
+): TaskLaneSession | undefined {
+  if (!sessionId) {
+    return undefined;
+  }
+
+  ensureTaskLaneHistory(task);
+  const currentIndex = task.laneSessions.findIndex((entry) => entry.sessionId === sessionId);
+  if (currentIndex <= 0) {
+    return undefined;
+  }
+
+  const currentSession = task.laneSessions[currentIndex];
+  let fallback: TaskLaneSession | undefined;
+
+  for (let index = currentIndex - 1; index >= 0; index -= 1) {
+    const entry = task.laneSessions[index];
+    if (entry.columnId !== currentSession.columnId) {
+      continue;
+    }
+    if (!fallback) {
+      fallback = entry;
+    }
+    if (
+      typeof currentSession.stepIndex === "number"
+      && currentSession.stepIndex > 0
+      && typeof entry.stepIndex === "number"
+      && entry.stepIndex < currentSession.stepIndex
+    ) {
+      return entry;
+    }
+  }
+
+  return fallback;
+}
+
 export function createTaskLaneHandoff(params: {
   id: string;
   fromSessionId: string;

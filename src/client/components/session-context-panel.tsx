@@ -28,6 +28,9 @@ interface LaneSessionInfo {
   sessionId: string;
   columnId?: string;
   columnName?: string;
+  stepId?: string;
+  stepIndex?: number;
+  stepName?: string;
   provider?: string;
   role?: string;
   status: "running" | "completed" | "failed" | "timed_out" | "transitioned";
@@ -60,6 +63,7 @@ interface SessionKanbanContext {
   triggerSessionId?: string;
   currentLaneSession?: LaneSessionInfo;
   previousLaneSession?: LaneSessionInfo;
+  previousLaneRun?: LaneSessionInfo;
   relatedHandoffs: LaneHandoffInfo[];
 }
 
@@ -209,6 +213,7 @@ export function SessionContextPanel({
   const formatLaneSessionLabel = (session: LaneSessionInfo) =>
     [
       session.columnName ?? session.columnId ?? "Unknown lane",
+      session.stepName ?? (typeof session.stepIndex === "number" ? `Step ${session.stepIndex + 1}` : undefined),
       session.provider,
       session.role,
     ].filter(Boolean).join(" • ");
@@ -451,6 +456,24 @@ export function SessionContextPanel({
                   <button
                     onClick={() => onSelectSession(context.kanbanContext!.previousLaneSession!.sessionId)}
                     className="shrink-0 rounded-md border border-blue-200 px-2 py-1 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/20"
+                  >
+                    Open
+                  </button>
+                </div>
+              )}
+              {context.kanbanContext.previousLaneRun && (
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-violet-100 bg-white/90 px-2.5 py-2 dark:border-violet-900/30 dark:bg-[#11161f]">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-500 dark:text-violet-300">
+                      Previous Run In Lane
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-gray-700 dark:text-gray-200">
+                      {formatLaneSessionLabel(context.kanbanContext.previousLaneRun)}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onSelectSession(context.kanbanContext!.previousLaneRun!.sessionId)}
+                    className="shrink-0 rounded-md border border-violet-200 px-2 py-1 text-[10px] font-medium text-violet-600 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-300 dark:hover:bg-violet-900/20"
                   >
                     Open
                   </button>
