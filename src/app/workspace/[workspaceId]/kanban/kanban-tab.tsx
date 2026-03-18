@@ -624,9 +624,10 @@ export function KanbanTab({
     const ids = new Set<string>();
     for (const task of boardTasks) {
       if (!task.triggerSessionId) continue;
+      const laneSession = task.laneSessions?.find((entry) => entry.sessionId === task.triggerSessionId);
+      if (laneSession?.status !== "running") continue;
       const session = sessionMap.get(task.triggerSessionId);
       if (!session) continue;
-      if (session.acpStatus !== "ready" && session.acpStatus !== "connecting") continue;
       ids.add(task.triggerSessionId);
     }
     return Array.from(ids);

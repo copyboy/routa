@@ -838,6 +838,11 @@ describe("KanbanTab live session tail", () => {
         tasks={[{
           ...createTask("task-1", "Story One"),
           triggerSessionId: "session-123",
+          laneSessions: [{
+            sessionId: "session-123",
+            status: "running",
+            startedAt: "2025-01-01T00:00:00.000Z",
+          }],
         }]}
         sessions={[{
           sessionId: "session-123",
@@ -858,6 +863,45 @@ describe("KanbanTab live session tail", () => {
       expect(fetchMock).toHaveBeenCalledWith("/api/sessions/session-123/history?consolidated=true", { cache: "no-store" });
       expect(screen.getByTestId("kanban-card-live-tail").textContent).toContain("Added live tail support.");
     });
+  });
+
+  it("does not poll history for completed trigger sessions", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <KanbanTab
+        workspaceId="workspace-1"
+        boards={[board]}
+        tasks={[{
+          ...createTask("task-1", "Story One"),
+          triggerSessionId: "session-123",
+          laneSessions: [{
+            sessionId: "session-123",
+            status: "completed",
+            startedAt: "2025-01-01T00:00:00.000Z",
+            completedAt: "2025-01-01T00:01:00.000Z",
+          }],
+        }]}
+        sessions={[{
+          sessionId: "session-123",
+          cwd: "/tmp/project",
+          workspaceId: "workspace-1",
+          provider: "claude",
+          acpStatus: "ready",
+          createdAt: "2025-01-01T00:00:00.000Z",
+        }]}
+        providers={[]}
+        specialists={[]}
+        codebases={[]}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+    expect(screen.queryByTestId("kanban-card-live-tail")).toBeNull();
   });
 });
 
