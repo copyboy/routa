@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import { CodeViewer } from "@/client/components/codemirror/code-viewer";
 import type { ArtifactType } from "@/core/models/artifact";
 import type { ArtifactInfo } from "../types";
 
@@ -27,6 +28,78 @@ function formatArtifactTimestamp(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Time unavailable";
   return date.toLocaleString();
+}
+
+interface DiffChunk {
+  filename: string;
+  content: string;
+  previewContent: string;
+  additions: number;
+  deletions: number;
+}
+
+function parseUnifiedDiff(content: string, fallbackFilename?: string): DiffChunk[] {
+  const lines = content.split("\n");
+  const chunks: DiffChunk[] = [];
+  let currentFilename = fallbackFilename || "diff.patch";
+  let currentLines: string[] = [];
+  let additions = 0;
+  let deletions = 0;
+  let previewLines: string[] = [];
+
+  const flush = () => {
+    const joined = currentLines.join("\n").trim();
+    if (!joined) return;
+    chunks.push({
+      filename: currentFilename,
+      content: joined,
+      previewContent: previewLines.join("\n"),
+      additions,
+      deletions,
+    });
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("diff --git ")) {
+      flush();
+      currentLines = [line];
+      additions = 0;
+      deletions = 0;
+      previewLines = [];
+      const match = line.match(/ b\/(.+)$/);
+      currentFilename = match?.[1] || fallbackFilename || "diff.patch";
+      continue;
+    }
+
+    currentLines.push(line);
+    if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
+    if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
+
+    // Build a language-highlightable preview from unified diff lines.
+    if (
+      !line.startsWith("index ")
+      && !line.startsWith("--- ")
+      && !line.startsWith("+++ ")
+      && !line.startsWith("@@ ")
+    ) {
+      if (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ")) {
+        previewLines.push(line.slice(1));
+      } else {
+        previewLines.push(line);
+      }
+    }
+  }
+
+  flush();
+  return chunks.length > 0
+    ? chunks
+    : [{
+      filename: fallbackFilename || "diff.patch",
+      content,
+      previewContent: content,
+      additions: 0,
+      deletions: 0,
+    }];
 }
 
 export function KanbanCardArtifacts({
@@ -91,139 +164,141 @@ export function KanbanCardArtifacts({
         </div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/10 dark:text-emerald-300 ${compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-[11px]"}`}>
-              {artifacts.length} total
-            </span>
-            <span className={`inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/40 dark:bg-sky-900/10 dark:text-sky-300 ${compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-[11px]"}`}>
-              {screenshotCount} screenshots
-            </span>
-            {requiredArtifacts.map((type) => {
-              const present = (coverage.get(type) ?? 0) > 0;
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/10 dark:text-emerald-300 ${compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-[11px]"}`}>
+            {artifacts.length} total
+          </span>
+          <span className={`inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/40 dark:bg-sky-900/10 dark:text-sky-300 ${compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-[11px]"}`}>
+            {screenshotCount} screenshots
+          </span>
+          {requiredArtifacts.map((type) => {
+            const present = (coverage.get(type) ?? 0) > 0;
+            return (
+              <span
+                key={type}
+                className={`inline-flex items-center gap-1 rounded-full border ${present
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/10 dark:text-emerald-300"
+                  : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-300"
+                } ${compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-[11px]"}`}
+              >
+                {present ? "Ready" : "Missing"} {formatArtifactTypeLabel(type)}
+              </span>
+            );
+          })}
+        </div>
+        <div className="text-xs leading-5 text-gray-500 dark:text-gray-400">
+          {requiredArtifacts.length > 0
+            ? (
+              missingRequiredArtifacts.length === 0
+                ? `Next-lane requirements satisfied: ${requiredArtifacts.map((type) => formatArtifactTypeLabel(type)).join(", ")}.`
+                : `Missing for next move: ${missingRequiredArtifacts.map((type) => formatArtifactTypeLabel(type)).join(", ")}.`
+            )
+            : "Use list_artifacts / provide_artifact / capture_screenshot to manage task evidence."}
+        </div>
+
+        {loading ? (
+          <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500 dark:border-gray-700 dark:bg-[#0d1018] dark:text-gray-400">
+            Loading artifacts...
+          </div>
+        ) : loadError ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/10 dark:text-rose-300">
+            {loadError}
+          </div>
+        ) : artifacts.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500 dark:border-gray-700 dark:bg-[#0d1018] dark:text-gray-400">
+            No artifacts attached yet.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {artifacts.map((artifact) => {
+              const mediaType = artifact.metadata?.mediaType || "image/png";
+              const screenshotSrc = artifact.type === "screenshot" && artifact.content
+                ? `data:${mediaType};base64,${artifact.content}`
+                : null;
+              const diffChunks = artifact.type === "code_diff" && artifact.content
+                ? parseUnifiedDiff(artifact.content, artifact.metadata?.filename)
+                : [];
+
               return (
-                <span
-                  key={type}
-                  className={`inline-flex items-center gap-1 rounded-full border ${present
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/10 dark:text-emerald-300"
-                    : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-300"
-                  } ${compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-[11px]"}`}
+                <article
+                  key={artifact.id}
+                  className="rounded-2xl border border-gray-200/80 bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-[#0d1018]"
                 >
-                  {present ? "Ready" : "Missing"} {formatArtifactTypeLabel(type)}
-                </span>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-200">
+                          {formatArtifactTypeLabel(artifact.type)}
+                        </span>
+                        {artifact.providedByAgentId && (
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            by {artifact.providedByAgentId}
+                          </span>
+                        )}
+                        {artifact.metadata?.filename && (
+                          <span className="truncate text-xs text-gray-500 dark:text-gray-400">
+                            {artifact.metadata.filename}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {formatArtifactTimestamp(artifact.createdAt)}
+                      </div>
+                    </div>
+                    <div className="truncate text-[11px] uppercase tracking-[0.16em] text-gray-400 dark:text-gray-500">
+                      {artifact.status}
+                    </div>
+                  </div>
+
+                  {artifact.context && (
+                    <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-300">{artifact.context}</p>
+                  )}
+
+                  {screenshotSrc ? (
+                    <Image
+                      src={screenshotSrc}
+                      alt={artifact.context || "Attached screenshot"}
+                      width={1200}
+                      height={800}
+                      unoptimized
+                      className="mt-3 max-h-56 w-full rounded-xl border border-gray-200 object-cover dark:border-gray-700"
+                    />
+                  ) : artifact.type === "code_diff" && artifact.content ? (
+                    <div className="mt-3 space-y-2">
+                      {diffChunks.map((chunk, index) => (
+                        <details key={`${artifact.id}-${chunk.filename}-${index}`} open className="group rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-[#121620]">
+                          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs text-gray-600 dark:text-gray-300 [&::-webkit-details-marker]:hidden">
+                            <span className="truncate font-medium">{chunk.filename}</span>
+                            <span className="shrink-0 font-mono">
+                              <span className="text-emerald-600 dark:text-emerald-300">+{chunk.additions}</span>
+                              {" "}
+                              <span className="text-rose-600 dark:text-rose-300">-{chunk.deletions}</span>
+                            </span>
+                          </summary>
+                          <CodeViewer
+                            code={chunk.previewContent || chunk.content}
+                            filename={chunk.filename}
+                            showHeader={false}
+                            showCopyButton
+                            showLineNumbers
+                            wordWrap={false}
+                            maxHeight="260px"
+                            className="border-t border-gray-200 dark:border-gray-700"
+                          />
+                        </details>
+                      ))}
+                    </div>
+                  ) : artifact.content ? (
+                    <pre className="mt-3 overflow-x-auto rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs leading-5 text-gray-700 dark:border-gray-700 dark:bg-[#121620] dark:text-gray-300">
+                      {artifact.content}
+                    </pre>
+                  ) : null}
+                </article>
               );
             })}
           </div>
-
-          {loading ? (
-            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500 dark:border-gray-700 dark:bg-[#0d1018] dark:text-gray-400">
-              Loading artifacts...
-            </div>
-          ) : loadError ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/10 dark:text-rose-300">
-              {loadError}
-            </div>
-          ) : artifacts.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500 dark:border-gray-700 dark:bg-[#0d1018] dark:text-gray-400">
-              No artifacts attached yet.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {artifacts.map((artifact) => {
-                const mediaType = artifact.metadata?.mediaType || "image/png";
-                const screenshotSrc = artifact.type === "screenshot" && artifact.content
-                  ? `data:${mediaType};base64,${artifact.content}`
-                  : null;
-
-                return (
-                  <article
-                    key={artifact.id}
-                    className="rounded-2xl border border-gray-200/80 bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-[#0d1018]"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-200">
-                            {formatArtifactTypeLabel(artifact.type)}
-                          </span>
-                          {artifact.providedByAgentId && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
-                              by {artifact.providedByAgentId}
-                            </span>
-                          )}
-                          {artifact.metadata?.filename && (
-                            <span className="truncate text-xs text-gray-500 dark:text-gray-400">
-                              {artifact.metadata.filename}
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                          {formatArtifactTimestamp(artifact.createdAt)}
-                        </div>
-                      </div>
-                      <div className="truncate text-[11px] uppercase tracking-[0.16em] text-gray-400 dark:text-gray-500">
-                        {artifact.status}
-                      </div>
-                    </div>
-
-                    {artifact.context && (
-                      <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-300">{artifact.context}</p>
-                    )}
-
-                    {screenshotSrc ? (
-                      <Image
-                        src={screenshotSrc}
-                        alt={artifact.context || "Attached screenshot"}
-                        width={1200}
-                        height={800}
-                        unoptimized
-                        className="mt-3 max-h-56 w-full rounded-xl border border-gray-200 object-cover dark:border-gray-700"
-                      />
-                    ) : artifact.content ? (
-                      <pre className="mt-3 overflow-x-auto rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs leading-5 text-gray-700 dark:border-gray-700 dark:bg-[#121620] dark:text-gray-300">
-                        {artifact.content}
-                      </pre>
-                    ) : null}
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-gray-200/80 bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-[#0d1018]">
-          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Agent interface</div>
-          <div className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-            This lane expects agent-generated evidence, not manual user uploads.
-          </div>
-
-          <div className="mt-3 space-y-3 text-sm leading-6 text-gray-700 dark:text-gray-300">
-            {requiredArtifacts.length > 0 && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-300">
-                {missingRequiredArtifacts.length === 0
-                  ? `Next-lane requirements are satisfied: ${requiredArtifacts.map((type) => formatArtifactTypeLabel(type)).join(", ")}.`
-                  : `Missing for next move: ${missingRequiredArtifacts.map((type) => formatArtifactTypeLabel(type)).join(", ")}.`}
-              </div>
-            )}
-
-            <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-700 dark:bg-[#121620]">
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400 dark:text-gray-500">
-                Preferred tools
-              </div>
-              <ul className="mt-2 space-y-2 text-sm leading-6 text-gray-700 dark:text-gray-300">
-                <li><code>capture_screenshot</code> for visual proof tied to this task.</li>
-                <li><code>provide_artifact</code> for test results, diffs, or logs.</li>
-                <li><code>list_artifacts</code> before <code>move_card</code> to confirm the gate is satisfied.</li>
-              </ul>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs leading-6 text-gray-600 dark:border-slate-700 dark:bg-[#121620] dark:text-gray-400">
-              Task API also exposes <code>GET /api/tasks/{taskId}/artifacts</code> for reading evidence and
-              <code> POST /api/tasks/{taskId}/artifacts</code> for agent-side artifact submission.
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     </section>
   );
