@@ -4,6 +4,7 @@ import { getRoutaSystem } from "@/core/routa-system";
 import { createKanbanBoard } from "@/core/models/kanban";
 import { ensureDefaultBoard } from "@/core/kanban/boards";
 import { getKanbanSessionConcurrencyLimit } from "@/core/kanban/board-session-limits";
+import { getKanbanDevSessionSupervision } from "@/core/kanban/board-session-supervision";
 import { getKanbanEventBroadcaster } from "@/core/kanban/kanban-event-broadcaster";
 import { getKanbanSessionQueue } from "@/core/kanban/workflow-orchestrator-singleton";
 
@@ -20,6 +21,7 @@ export async function GET(request: NextRequest) {
     boards: await Promise.all(boards.map(async (board) => ({
       ...board,
       sessionConcurrencyLimit: getKanbanSessionConcurrencyLimit(workspace?.metadata, board.id),
+      devSessionSupervision: getKanbanDevSessionSupervision(workspace?.metadata, board.id),
       queue: await queue.getBoardSnapshot(board.id),
     }))),
   });

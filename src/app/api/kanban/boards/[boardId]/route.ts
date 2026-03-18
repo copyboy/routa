@@ -5,8 +5,13 @@ import {
   getKanbanSessionConcurrencyLimit,
   setKanbanSessionConcurrencyLimit,
 } from "@/core/kanban/board-session-limits";
+import {
+  getKanbanDevSessionSupervision,
+  setKanbanDevSessionSupervision,
+} from "@/core/kanban/board-session-supervision";
 import { getKanbanEventBroadcaster } from "@/core/kanban/kanban-event-broadcaster";
 import { getKanbanSessionQueue } from "@/core/kanban/workflow-orchestrator-singleton";
+import type { KanbanDevSessionSupervision } from "@/core/models/kanban";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +20,7 @@ interface PatchBoardBody {
   columns?: KanbanColumn[];
   isDefault?: boolean;
   sessionConcurrencyLimit?: number;
+  devSessionSupervision?: Partial<KanbanDevSessionSupervision>;
 }
 
 export async function GET(
@@ -35,6 +41,7 @@ export async function GET(
     board: {
       ...board,
       sessionConcurrencyLimit: getKanbanSessionConcurrencyLimit(workspace?.metadata, board.id),
+      devSessionSupervision: getKanbanDevSessionSupervision(workspace?.metadata, board.id),
       queue: await queue.getBoardSnapshot(board.id),
     },
   });
@@ -71,16 +78,24 @@ export async function PATCH(
 
   await system.kanbanBoardStore.save(updated);
 
-  if (body.sessionConcurrencyLimit !== undefined) {
+  if (body.sessionConcurrencyLimit !== undefined || body.devSessionSupervision !== undefined) {
     const workspace = await system.workspaceStore.get(existing.workspaceId);
-    await system.workspaceStore.updateMetadata(
-      existing.workspaceId,
-      setKanbanSessionConcurrencyLimit(
-        workspace?.metadata,
+    let nextMetadata = workspace?.metadata;
+    if (body.sessionConcurrencyLimit !== undefined) {
+      nextMetadata = setKanbanSessionConcurrencyLimit(
+        nextMetadata,
         boardId,
         body.sessionConcurrencyLimit,
-      ),
-    );
+      );
+    }
+    if (body.devSessionSupervision !== undefined) {
+      nextMetadata = setKanbanDevSessionSupervision(
+        nextMetadata,
+        boardId,
+        body.devSessionSupervision,
+      );
+    }
+    await system.workspaceStore.updateMetadata(existing.workspaceId, nextMetadata ?? {});
   }
 
   // If setting as default, update other boards
@@ -101,6 +116,7 @@ export async function PATCH(
     board: {
       ...updated,
       sessionConcurrencyLimit: getKanbanSessionConcurrencyLimit(workspace?.metadata, boardId),
+      devSessionSupervision: getKanbanDevSessionSupervision(workspace?.metadata, boardId),
       queue: await queue.getBoardSnapshot(boardId),
     },
   });

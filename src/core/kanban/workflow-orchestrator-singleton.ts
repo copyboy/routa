@@ -5,9 +5,15 @@
  * Initialized when the RoutaSystem is created.
  */
 
-import { KanbanWorkflowOrchestrator } from "./workflow-orchestrator";
+import {
+  KanbanWorkflowOrchestrator,
+  type AutomationSessionSupervisionContext,
+} from "./workflow-orchestrator";
 import type { RoutaSystem } from "../routa-system";
-import type { KanbanColumnAutomation } from "../models/kanban";
+import type {
+  KanbanColumnAutomation,
+  KanbanColumnStage,
+} from "../models/kanban";
 import { TaskStatus } from "../models/task";
 import { GitWorktreeService } from "../git/git-worktree-service";
 import {
@@ -18,6 +24,7 @@ import { resolveEffectiveTaskAutomation } from "./effective-task-automation";
 import { getInternalApiOrigin, triggerAssignedTaskAgent } from "./agent-trigger";
 import { KanbanSessionQueue } from "./kanban-session-queue";
 import { getKanbanSessionConcurrencyLimit as getBoardSessionConcurrencyLimit } from "./board-session-limits";
+import { getKanbanDevSessionSupervision } from "./board-session-supervision";
 import { upsertTaskLaneSession } from "./task-lane-history";
 
 // Use globalThis to survive HMR in Next.js dev mode
@@ -34,6 +41,7 @@ async function createAutomationSession(
     cardId: string;
     columnId: string;
     automation: KanbanColumnAutomation;
+    supervision?: AutomationSessionSupervisionContext;
   },
 ): Promise<string | null> {
   const task = await system.taskStore.get(params.cardId);
@@ -51,6 +59,7 @@ async function createAutomationSession(
       nextTask.assignedSpecialistName =
         params.automation.specialistName ?? task.assignedSpecialistName;
     },
+    supervision: params.supervision,
   });
   return result.sessionId ?? null;
 }
@@ -62,6 +71,7 @@ export async function enqueueKanbanTaskSession(
     expectedColumnId?: string;
     ignoreExistingTrigger?: boolean;
     mutateTask?: (task: NonNullable<Awaited<ReturnType<RoutaSystem["taskStore"]["get"]>>>) => void;
+    supervision?: AutomationSessionSupervisionContext;
   },
 ): Promise<{ sessionId?: string; queued: boolean; error?: string }> {
   const task = params.task;
@@ -90,6 +100,7 @@ async function startKanbanTaskSession(
     expectedColumnId?: string;
     ignoreExistingTrigger?: boolean;
     mutateTask?: (task: NonNullable<Awaited<ReturnType<RoutaSystem["taskStore"]["get"]>>>) => void;
+    supervision?: AutomationSessionSupervisionContext;
   },
 ): Promise<{ sessionId?: string | null; error?: string }> {
   const task = await system.taskStore.get(taskId);
@@ -194,6 +205,12 @@ async function startKanbanTaskSession(
       role: effectiveAutomation.role,
       specialistId: effectiveAutomation.specialistId,
       specialistName: effectiveAutomation.specialistName,
+      attempt: params.supervision?.attempt,
+      loopMode: params.supervision?.mode,
+      completionRequirement: params.supervision?.completionRequirement,
+      objective: params.supervision?.objective ?? nextTask.objective,
+      recoveredFromSessionId: params.supervision?.recoveredFromSessionId,
+      recoveryReason: params.supervision?.recoveryReason,
       status: "running",
     });
     nextTask.lastSyncError = undefined;
@@ -214,6 +231,16 @@ async function startKanbanTaskSession(
 async function getBoardConcurrencyLimit(system: RoutaSystem, workspaceId: string, boardId: string): Promise<number> {
   const workspace = await system.workspaceStore.get(workspaceId);
   return getBoardSessionConcurrencyLimit(workspace?.metadata, boardId);
+}
+
+async function resolveDevSessionSupervision(
+  system: RoutaSystem,
+  workspaceId: string,
+  boardId: string,
+  _stage: KanbanColumnStage,
+) {
+  const workspace = await system.workspaceStore.get(workspaceId);
+  return getKanbanDevSessionSupervision(workspace?.metadata, boardId);
 }
 
 export function getKanbanSessionQueue(system: RoutaSystem): KanbanSessionQueue {
@@ -266,6 +293,9 @@ export function startWorkflowOrchestrator(system: RoutaSystem): void {
   const queue = getKanbanSessionQueue(system);
   orchestrator.setCreateSession((params) => createAutomationSession(system, params));
   orchestrator.setCleanupCardSession((cardId) => queue.removeCardJob(cardId));
+  orchestrator.setResolveDevSessionSupervision(({ workspaceId, boardId, stage }) =>
+    resolveDevSessionSupervision(system, workspaceId, boardId, stage)
+  );
   orchestrator.start();
   queue.start();
   g[STARTED_KEY] = true;

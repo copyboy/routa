@@ -62,6 +62,17 @@ export interface SessionUpdateNotification {
   [key: string]: unknown;
 }
 
+export interface RoutaSessionActivity {
+  sessionId: string;
+  createdAt: string;
+  lastActivityAt: string;
+  lastMeaningfulActivityAt: string;
+  lastEventType?: string;
+  terminalState?: "completed" | "failed" | "timed_out";
+  terminalReason?: string;
+  terminalAt?: string;
+}
+
 /**
  * Consolidates consecutive agent_message_chunk notifications into a single message.
  * This reduces storage overhead from hundreds of small chunks to a single entry.
@@ -128,6 +139,7 @@ export function consolidateMessageHistory(
  */
 class HttpSessionStore {
   private sessions = new Map<string, RoutaSessionRecord>();
+  private sessionActivities = new Map<string, RoutaSessionActivity>();
   private sseControllers = new Map<string, Controller>();
   private pendingNotifications = new Map<string, SessionUpdateNotification[]>();
   /** Store all notifications per session for history replay */
@@ -192,6 +204,15 @@ class HttpSessionStore {
     }
     this.sessions.set(record.sessionId, record);
     this.updateAccessTime(record.sessionId);
+    if (!this.sessionActivities.has(record.sessionId)) {
+      const createdAt = record.createdAt ?? new Date().toISOString();
+      this.sessionActivities.set(record.sessionId, {
+        sessionId: record.sessionId,
+        createdAt,
+        lastActivityAt: createdAt,
+        lastMeaningfulActivityAt: createdAt,
+      });
+    }
 
     // Initialize AgentEventBridge for new sessions
     if (!this.agentEventBridges.has(record.sessionId)) {
@@ -225,6 +246,7 @@ class HttpSessionStore {
     // Clean up TraceRecorder buffers for this session
     this.traceRecorder.cleanupSession(sessionId);
     this.messageHistory.delete(sessionId);
+    this.sessionActivities.delete(sessionId);
     this.pendingNotifications.delete(sessionId);
     this.sessionAssistantOutput.delete(sessionId);
     // Clean up AgentEventBridge
@@ -234,6 +256,19 @@ class HttpSessionStore {
     // Detach SSE if connected
     this.sseControllers.delete(sessionId);
     return this.sessions.delete(sessionId);
+  }
+
+  getSessionActivity(sessionId: string): RoutaSessionActivity | undefined {
+    const activity = this.sessionActivities.get(sessionId);
+    return activity ? { ...activity } : undefined;
+  }
+
+  markSessionTimedOut(sessionId: string, reason: string): RoutaSessionActivity | undefined {
+    return this.setSessionTerminalState(sessionId, "timed_out", reason);
+  }
+
+  markSessionFailed(sessionId: string, reason: string): RoutaSessionActivity | undefined {
+    return this.setSessionTerminalState(sessionId, "failed", reason);
   }
 
   /**
@@ -406,6 +441,7 @@ class HttpSessionStore {
    */
   pushNotification(notification: SessionUpdateNotification) {
     const sessionId = notification.sessionId;
+    this.updateAccessTime(sessionId);
 
     // Child agent notifications (with childAgentId) are forwarded to the parent
     // session's SSE for real-time CRAFTER progress but should NOT be stored in
@@ -450,6 +486,7 @@ class HttpSessionStore {
       const updates = Array.isArray(normalized) ? normalized : [normalized];
       const bridge = this.agentEventBridges.get(sessionId);
       for (const update of updates) {
+        this.recordSessionActivity(sessionId, update.eventType);
         this.traceRecorder.recordFromUpdate(update, cwd);
         // Convert to semantic WorkspaceAgentEvents and dispatch to subscribers
         if (bridge) {
@@ -573,6 +610,7 @@ class HttpSessionStore {
 
     switch (event.type) {
       case "agent_started":
+        this.recordSessionActivity(sessionId, "agent_started", event.timestamp);
         eventBus.emit({
           ...baseEvent,
           type: AgentEventType.AGENT_CREATED,
@@ -583,6 +621,12 @@ class HttpSessionStore {
         });
         break;
       case "agent_completed":
+        this.setSessionTerminalState(
+          sessionId,
+          "completed",
+          event.stopReason ?? "agent_completed",
+          event.timestamp,
+        );
         eventBus.emit({
           ...baseEvent,
           type: AgentEventType.AGENT_COMPLETED,
@@ -595,6 +639,12 @@ class HttpSessionStore {
         });
         break;
       case "agent_failed":
+        this.setSessionTerminalState(
+          sessionId,
+          "failed",
+          event.message ?? "agent_failed",
+          event.timestamp,
+        );
         eventBus.emit({
           ...baseEvent,
           type: AgentEventType.AGENT_FAILED,
@@ -618,6 +668,61 @@ class HttpSessionStore {
     } catch {
       // controller closed - drop silently
     }
+  }
+
+  private recordSessionActivity(
+    sessionId: string,
+    eventType: string,
+    at = new Date(),
+  ): void {
+    const nowIso = at.toISOString();
+    const existing = this.sessionActivities.get(sessionId);
+    const createdAt = existing?.createdAt ?? this.sessions.get(sessionId)?.createdAt ?? nowIso;
+    this.sessionActivities.set(sessionId, {
+      sessionId,
+      createdAt,
+      lastActivityAt: nowIso,
+      lastMeaningfulActivityAt: nowIso,
+      lastEventType: eventType,
+      terminalState: existing?.terminalState,
+      terminalReason: existing?.terminalReason,
+      terminalAt: existing?.terminalAt,
+    });
+  }
+
+  private setSessionTerminalState(
+    sessionId: string,
+    state: RoutaSessionActivity["terminalState"],
+    reason: string,
+    at = new Date(),
+  ): RoutaSessionActivity | undefined {
+    const nowIso = at.toISOString();
+    const existing = this.sessionActivities.get(sessionId);
+    if (!existing) {
+      const createdAt = this.sessions.get(sessionId)?.createdAt ?? nowIso;
+      const next: RoutaSessionActivity = {
+        sessionId,
+        createdAt,
+        lastActivityAt: nowIso,
+        lastMeaningfulActivityAt: nowIso,
+        terminalState: state,
+        terminalReason: reason,
+        terminalAt: nowIso,
+      };
+      this.sessionActivities.set(sessionId, next);
+      return { ...next };
+    }
+
+    const next: RoutaSessionActivity = {
+      ...existing,
+      lastActivityAt: nowIso,
+      lastMeaningfulActivityAt: nowIso,
+      terminalState: state,
+      terminalReason: reason,
+      terminalAt: nowIso,
+    };
+    this.sessionActivities.set(sessionId, next);
+    return { ...next };
   }
 
   // ─── Memory-aware cleanup methods ─────────────────────────────────────────

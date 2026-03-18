@@ -9,6 +9,12 @@ const board: KanbanBoardInfo = {
   name: "Delivery Board",
   isDefault: true,
   sessionConcurrencyLimit: 2,
+  devSessionSupervision: {
+    mode: "watchdog_retry",
+    inactivityTimeoutMinutes: 10,
+    maxRecoveryAttempts: 1,
+    completionRequirement: "turn_complete",
+  },
   queue: {
     runningCount: 0,
     runningCards: [],
@@ -62,6 +68,12 @@ describe("KanbanSettingsModal", () => {
           }),
         },
         2,
+        {
+          mode: "watchdog_retry",
+          inactivityTimeoutMinutes: 10,
+          maxRecoveryAttempts: 1,
+          completionRequirement: "turn_complete",
+        },
       );
     });
   });

@@ -4,12 +4,26 @@ export interface SessionInfo {
   sessionId: string;
   name?: string;
   cwd: string;
+  branch?: string;
   workspaceId: string;
   provider?: string;
   role?: string;
   acpStatus?: "connecting" | "ready" | "error";
   acpError?: string;
   createdAt: string;
+}
+
+export type KanbanDevSessionSupervisionMode = "disabled" | "watchdog_retry" | "ralph_loop";
+export type KanbanDevSessionCompletionRequirement =
+  | "turn_complete"
+  | "completion_summary"
+  | "verification_report";
+
+export interface KanbanDevSessionSupervisionInfo {
+  mode: KanbanDevSessionSupervisionMode;
+  inactivityTimeoutMinutes: number;
+  maxRecoveryAttempts: number;
+  completionRequirement: KanbanDevSessionCompletionRequirement;
 }
 
 export interface TaskInfo {
@@ -40,6 +54,13 @@ export interface TaskInfo {
     role?: string;
     specialistId?: string;
     specialistName?: string;
+    attempt?: number;
+    loopMode?: "watchdog_retry" | "ralph_loop";
+    completionRequirement?: "turn_complete" | "completion_summary" | "verification_report";
+    objective?: string;
+    lastActivityAt?: string;
+    recoveredFromSessionId?: string;
+    recoveryReason?: "watchdog_inactivity" | "agent_failed" | "completion_criteria_not_met";
     status: "running" | "completed" | "failed" | "timed_out" | "transitioned";
     startedAt: string;
     completedAt?: string;
@@ -108,6 +129,7 @@ export interface KanbanBoardInfo {
   name: string;
   isDefault: boolean;
   sessionConcurrencyLimit?: number;
+  devSessionSupervision?: KanbanDevSessionSupervisionInfo;
   queue?: KanbanBoardQueueInfo;
   columns: KanbanColumnInfo[];
   createdAt: string;

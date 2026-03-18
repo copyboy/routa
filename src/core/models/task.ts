@@ -34,6 +34,16 @@ export type TaskLaneSessionStatus =
   | "timed_out"
   | "transitioned";
 
+export type TaskLaneSessionLoopMode = "watchdog_retry" | "ralph_loop";
+export type TaskLaneSessionCompletionRequirement =
+  | "turn_complete"
+  | "completion_summary"
+  | "verification_report";
+export type TaskLaneSessionRecoveryReason =
+  | "watchdog_inactivity"
+  | "agent_failed"
+  | "completion_criteria_not_met";
+
 export type TaskLaneHandoffRequestType =
   | "environment_preparation"
   | "runtime_context"
@@ -56,6 +66,13 @@ export interface TaskLaneSession {
   role?: string;
   specialistId?: string;
   specialistName?: string;
+  attempt?: number;
+  loopMode?: TaskLaneSessionLoopMode;
+  completionRequirement?: TaskLaneSessionCompletionRequirement;
+  objective?: string;
+  lastActivityAt?: string;
+  recoveredFromSessionId?: string;
+  recoveryReason?: TaskLaneSessionRecoveryReason;
   status: TaskLaneSessionStatus;
   startedAt: string;
   completedAt?: string;

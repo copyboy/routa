@@ -1404,10 +1404,16 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
                 const primaryCodebase = taskCodebaseIds.length > 0
                   ? codebases.find((c) => c.id === taskCodebaseIds[0])
                   : null;
+                const activeSessionInfo = activeSessionId
+                  ? sessions.find((session) => session.sessionId === activeSessionId) ?? null
+                  : null;
+                const activeWorktree = activeTask?.worktreeId
+                  ? worktreeCache[activeTask.worktreeId] ?? null
+                  : null;
                 const repoSelection = primaryCodebase
                   ? {
-                      path: primaryCodebase.repoPath,
-                      branch: primaryCodebase.branch ?? "",
+                      path: activeSessionInfo?.cwd ?? activeWorktree?.worktreePath ?? primaryCodebase.repoPath,
+                      branch: activeSessionInfo?.branch ?? activeWorktree?.branch ?? primaryCodebase.branch ?? "",
                       name: primaryCodebase.label ?? primaryCodebase.repoPath.split("/").pop() ?? ""
                     }
                   : null;
@@ -1422,6 +1428,7 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
                       <div className="shrink-0 border-b border-gray-200/80 bg-gray-50/80 p-2 dark:border-[#202433] dark:bg-[#10131a]">
                         <KanbanCardActivityBar
                           task={activeTask}
+                          sessions={sessions}
                           currentSessionId={activeSessionId ?? undefined}
                           onSelectSession={(sessionId) => {
                             setActiveSessionId(sessionId);
@@ -1466,7 +1473,7 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
           availableProviders={availableProviders}
           specialists={specialists}
           onClose={() => setShowSettings(false)}
-          onSave={async (newVisibleColumns, newColumnAutomation, sessionConcurrencyLimit) => {
+          onSave={async (newVisibleColumns, newColumnAutomation, sessionConcurrencyLimit, devSessionSupervision) => {
             // Merge automation config and visibility into columns
             const updatedColumns = board.columns.map((col) => ({
               ...col,
@@ -1479,7 +1486,7 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
             const response = await fetch(`/api/kanban/boards/${encodeURIComponent(board.id)}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ columns: updatedColumns, sessionConcurrencyLimit }),
+              body: JSON.stringify({ columns: updatedColumns, sessionConcurrencyLimit, devSessionSupervision }),
             });
 
             if (!response.ok) {

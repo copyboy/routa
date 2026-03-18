@@ -1,6 +1,22 @@
 import { TaskStatus } from "./task";
 
 export type KanbanColumnStage = "backlog" | "todo" | "dev" | "review" | "blocked" | "done";
+export type KanbanDevSessionSupervisionMode = "disabled" | "watchdog_retry" | "ralph_loop";
+export type KanbanDevSessionCompletionRequirement =
+  | "turn_complete"
+  | "completion_summary"
+  | "verification_report";
+
+export interface KanbanDevSessionSupervision {
+  /** Whether dev-lane ACP sessions should be supervised and automatically recovered. */
+  mode: KanbanDevSessionSupervisionMode;
+  /** Minutes without meaningful ACP activity before the watchdog intervenes. */
+  inactivityTimeoutMinutes: number;
+  /** Maximum number of recovery attempts after the initial session. */
+  maxRecoveryAttempts: number;
+  /** External completion signal required in Ralph Loop mode. */
+  completionRequirement: KanbanDevSessionCompletionRequirement;
+}
 
 /**
  * Automation configuration for a Kanban column.

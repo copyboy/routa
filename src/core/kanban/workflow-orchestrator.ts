@@ -2,17 +2,67 @@
  * KanbanWorkflowOrchestrator — Coordinates column automation and task progress.
  *
  * Listens for COLUMN_TRANSITION events and triggers the configured Column Agent
- * for the target column. Tracks active automations and supports auto-advance
- * when an agent completes successfully.
+ * for the target column. Tracks active automations, supervises dev-lane ACP
+ * sessions, and supports bounded recovery for watchdog/loop policies.
  */
 
+import { getHttpSessionStore } from "../acp/http-session-store";
 import { EventBus, AgentEventType, AgentEvent } from "../events/event-bus";
+import type {
+  KanbanColumnAutomation,
+  KanbanColumnStage,
+  KanbanDevSessionCompletionRequirement,
+  KanbanDevSessionSupervision,
+  KanbanDevSessionSupervisionMode,
+} from "../models/kanban";
+import { columnIdToTaskStatus } from "../models/kanban";
+import type { Task, TaskLaneSessionRecoveryReason } from "../models/task";
 import type { KanbanBoardStore } from "../store/kanban-board-store";
 import type { TaskStore } from "../store/task-store";
-import type { KanbanColumnAutomation } from "../models/kanban";
-import { columnIdToTaskStatus } from "../models/kanban";
 import type { ColumnTransitionData } from "./column-transition";
-import { markTaskLaneSessionStatus } from "./task-lane-history";
+import { getDefaultKanbanDevSessionSupervision } from "./board-session-supervision";
+import { markTaskLaneSessionStatus, upsertTaskLaneSession } from "./task-lane-history";
+
+const WATCHDOG_SCAN_INTERVAL_MS = 30_000;
+const COMPLETED_AUTOMATION_CLEANUP_DELAY_MS = 30_000;
+
+function getDisabledSupervisionConfig(): KanbanDevSessionSupervision {
+  return {
+    ...getDefaultKanbanDevSessionSupervision(),
+    mode: "disabled",
+  };
+}
+
+function shouldSuperviseStage(stage: KanbanColumnStage): boolean {
+  return stage === "dev";
+}
+
+function isRecoveryMode(mode: KanbanDevSessionSupervisionMode): mode is "watchdog_retry" | "ralph_loop" {
+  return mode === "watchdog_retry" || mode === "ralph_loop";
+}
+
+function getRecoveryReason(event: AgentEvent, completionSatisfied: boolean): TaskLaneSessionRecoveryReason {
+  if (event.type === AgentEventType.AGENT_TIMEOUT) {
+    return "watchdog_inactivity";
+  }
+  if (
+    event.type === AgentEventType.AGENT_FAILED
+    || (event.type === AgentEventType.AGENT_COMPLETED && !completionSatisfied)
+  ) {
+    return completionSatisfied ? "agent_failed" : "completion_criteria_not_met";
+  }
+  return "agent_failed";
+}
+
+/** Context persisted for a session attempt when supervision is enabled. */
+export interface AutomationSessionSupervisionContext {
+  attempt: number;
+  mode: "watchdog_retry" | "ralph_loop";
+  completionRequirement: KanbanDevSessionCompletionRequirement;
+  objective: string;
+  recoveredFromSessionId?: string;
+  recoveryReason?: TaskLaneSessionRecoveryReason;
+}
 
 /** Represents an active column automation in progress */
 export interface ActiveAutomation {
@@ -22,10 +72,15 @@ export interface ActiveAutomation {
   workspaceId: string;
   columnId: string;
   columnName: string;
+  stage: KanbanColumnStage;
   automation: KanbanColumnAutomation;
   sessionId?: string;
   startedAt: Date;
   status: "queued" | "running" | "completed" | "failed";
+  supervision: KanbanDevSessionSupervision;
+  attempt: number;
+  recoveryAttempts: number;
+  signaledSessionIds: Set<string>;
 }
 
 /** Callback to create an agent session for a column automation */
@@ -36,16 +91,26 @@ export type CreateAutomationSession = (params: {
   columnId: string;
   columnName: string;
   automation: KanbanColumnAutomation;
+  supervision?: AutomationSessionSupervisionContext;
 }) => Promise<string | null>;
 
-/** Callback to clean up a card's session queue entry before auto-advancing */
+/** Callback to clean up a card's session queue entry before auto-advancing or recovering */
 export type CleanupCardSession = (cardId: string) => void;
+
+export type ResolveDevSessionSupervision = (params: {
+  workspaceId: string;
+  boardId: string;
+  columnId: string;
+  stage: KanbanColumnStage;
+}) => Promise<KanbanDevSessionSupervision>;
 
 export class KanbanWorkflowOrchestrator {
   private handlerKey = "kanban-workflow-orchestrator";
   private activeAutomations = new Map<string, ActiveAutomation>();
   private started = false;
   private cleanupCardSession?: CleanupCardSession;
+  private resolveDevSessionSupervision?: ResolveDevSessionSupervision;
+  private watchdogTimer?: ReturnType<typeof setInterval>;
 
   constructor(
     private eventBus: EventBus,
@@ -64,14 +129,18 @@ export class KanbanWorkflowOrchestrator {
         void this.handleColumnTransition(event);
       }
       if (
-        event.type === AgentEventType.AGENT_COMPLETED ||
-        event.type === AgentEventType.REPORT_SUBMITTED ||
-        event.type === AgentEventType.AGENT_FAILED ||
-        event.type === AgentEventType.AGENT_TIMEOUT
+        event.type === AgentEventType.AGENT_COMPLETED
+        || event.type === AgentEventType.REPORT_SUBMITTED
+        || event.type === AgentEventType.AGENT_FAILED
+        || event.type === AgentEventType.AGENT_TIMEOUT
       ) {
         void this.handleAgentCompletion(event);
       }
     });
+    this.watchdogTimer = setInterval(() => {
+      void this.scanForInactiveSessions();
+    }, WATCHDOG_SCAN_INTERVAL_MS);
+    (this.watchdogTimer as ReturnType<typeof setInterval> & { unref?: () => void }).unref?.();
     this.started = true;
   }
 
@@ -82,6 +151,10 @@ export class KanbanWorkflowOrchestrator {
     }
     this.eventBus.off(this.handlerKey);
     this.activeAutomations.clear();
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = undefined;
+    }
     this.started = false;
   }
 
@@ -93,6 +166,11 @@ export class KanbanWorkflowOrchestrator {
   /** Set the cleanup callback for session queue entries */
   setCleanupCardSession(fn: CleanupCardSession): void {
     this.cleanupCardSession = fn;
+  }
+
+  /** Set the resolver for board-level dev session supervision config */
+  setResolveDevSessionSupervision(fn: ResolveDevSessionSupervision): void {
+    this.resolveDevSessionSupervision = fn;
   }
 
   /** Get all active automations */
@@ -110,14 +188,25 @@ export class KanbanWorkflowOrchestrator {
     const board = await this.kanbanBoardStore.get(data.boardId);
     if (!board) return;
 
-    const targetColumn = board.columns.find((c) => c.id === data.toColumnId);
+    const targetColumn = board.columns.find((column) => column.id === data.toColumnId);
     if (!targetColumn?.automation?.enabled) return;
+    const task = await this.taskStore.get(data.cardId);
+    const laneObjective = task?.objective?.trim() || data.cardTitle;
 
     const automation = targetColumn.automation;
     const transitionType = automation.transitionType ?? "entry";
 
     // Only trigger on entry or both
     if (transitionType !== "entry" && transitionType !== "both") return;
+
+    const supervision = shouldSuperviseStage(targetColumn.stage)
+      ? (await this.resolveDevSessionSupervision?.({
+        workspaceId: data.workspaceId,
+        boardId: data.boardId,
+        columnId: targetColumn.id,
+        stage: targetColumn.stage,
+      })) ?? getDefaultKanbanDevSessionSupervision()
+      : getDisabledSupervisionConfig();
 
     const automationEntry: ActiveAutomation = {
       cardId: data.cardId,
@@ -126,9 +215,14 @@ export class KanbanWorkflowOrchestrator {
       workspaceId: data.workspaceId,
       columnId: targetColumn.id,
       columnName: targetColumn.name,
+      stage: targetColumn.stage,
       automation,
       startedAt: new Date(),
       status: "queued",
+      supervision,
+      attempt: 1,
+      recoveryAttempts: 0,
+      signaledSessionIds: new Set(),
     };
 
     this.activeAutomations.set(data.cardId, automationEntry);
@@ -143,10 +237,11 @@ export class KanbanWorkflowOrchestrator {
           columnId: targetColumn.id,
           columnName: targetColumn.name,
           automation,
+          supervision: this.buildSupervisionContext(automationEntry, laneObjective),
         });
         if (sessionId) {
           automationEntry.status = "running";
-          automationEntry.sessionId = sessionId ?? undefined;
+          automationEntry.sessionId = sessionId;
         }
       } catch (err) {
         automationEntry.status = "failed";
@@ -156,7 +251,6 @@ export class KanbanWorkflowOrchestrator {
   }
 
   private async handleAgentCompletion(event: AgentEvent): Promise<void> {
-    // Find any active automation that matches this agent's session
     for (const [cardId, automation] of this.activeAutomations.entries()) {
       if (automation.status === "completed" || automation.status === "failed") continue;
 
@@ -171,40 +265,301 @@ export class KanbanWorkflowOrchestrator {
       }
 
       // Match only by the automation's own sessionId or the card's current triggerSessionId.
-      // Do NOT match by sessionIds history to avoid a previous column's AGENT_COMPLETED
-      // event accidentally completing the current column's automation.
       const isRelated = Boolean(sessionId && eventSessionId === sessionId);
-
       if (!isRelated) continue;
 
-      const success = event.type !== AgentEventType.AGENT_FAILED && event.type !== AgentEventType.AGENT_TIMEOUT && event.data?.success !== false;
-      automation.status = success ? "completed" : "failed";
+      const sessionStore = getHttpSessionStore();
+      const sessionActivity = sessionStore.getSessionActivity(eventSessionId);
       if (task) {
-        markTaskLaneSessionStatus(
-          task,
-          sessionId,
-          event.type === AgentEventType.AGENT_TIMEOUT
-            ? "timed_out"
-            : success
-              ? "completed"
-              : "failed",
-        );
+        upsertTaskLaneSession(task, {
+          sessionId: eventSessionId,
+          lastActivityAt: sessionActivity?.lastMeaningfulActivityAt ?? sessionActivity?.lastActivityAt,
+        });
+      }
+
+      const successEvent =
+        event.type !== AgentEventType.AGENT_FAILED
+        && event.type !== AgentEventType.AGENT_TIMEOUT
+        && event.data?.success !== false;
+      const completionSatisfied = await this.isCompletionSatisfied(task, automation, successEvent);
+      const shouldRecover = task
+        ? await this.shouldRecover(task, automation, event, completionSatisfied)
+        : false;
+
+      if (task) {
+        const nextStatus = event.type === AgentEventType.AGENT_TIMEOUT
+          ? "timed_out"
+          : successEvent && completionSatisfied
+            ? "completed"
+            : "failed";
+        markTaskLaneSessionStatus(task, eventSessionId, nextStatus);
+        if (!successEvent || !completionSatisfied) {
+          upsertTaskLaneSession(task, {
+            sessionId: eventSessionId,
+            recoveryReason: getRecoveryReason(event, completionSatisfied),
+          });
+        }
+      }
+
+      if (task && shouldRecover) {
+        const recoveryReason = getRecoveryReason(event, completionSatisfied);
+        const recovered = await this.recoverAutomation(cardId, automation, task, recoveryReason);
+        if (recovered) {
+          return;
+        }
+      }
+
+      automation.status = successEvent && completionSatisfied ? "completed" : "failed";
+      automation.signaledSessionIds.add(eventSessionId);
+
+      if (task) {
+        if (successEvent && completionSatisfied) {
+          task.lastSyncError = undefined;
+        } else if (!task.lastSyncError) {
+          task.lastSyncError = this.buildFailureMessage(automation, event, completionSatisfied);
+        }
         await this.taskStore.save(task);
       }
 
-      // Auto-advance if configured and successful
-      if (success && automation.automation.autoAdvanceOnSuccess) {
+      // Auto-advance if configured and successful.
+      if (successEvent && completionSatisfied && automation.automation.autoAdvanceOnSuccess) {
         await this.autoAdvanceCard(cardId, automation);
       }
 
-      // Clean up completed automations after a delay
       const completedAutomation = automation;
       setTimeout(() => {
         if (this.activeAutomations.get(cardId) === completedAutomation) {
           this.activeAutomations.delete(cardId);
         }
-      }, 30_000);
+      }, COMPLETED_AUTOMATION_CLEANUP_DELAY_MS);
+      return;
     }
+  }
+
+  private async scanForInactiveSessions(): Promise<void> {
+    const sessionStore = getHttpSessionStore();
+    const now = Date.now();
+
+    for (const automation of this.activeAutomations.values()) {
+      if (automation.status !== "running" || !automation.sessionId) continue;
+      if (!isRecoveryMode(automation.supervision.mode)) continue;
+
+      const sessionId = automation.sessionId;
+      if (automation.signaledSessionIds.has(sessionId)) continue;
+
+      const sessionRecord = sessionStore.getSession(sessionId);
+      if (sessionRecord?.acpStatus === "error") {
+        automation.signaledSessionIds.add(sessionId);
+        this.eventBus.emit({
+          type: AgentEventType.AGENT_FAILED,
+          agentId: sessionId,
+          workspaceId: automation.workspaceId,
+          data: {
+            sessionId,
+            success: false,
+            error: sessionRecord.acpError ?? "ACP session entered error state.",
+            watchdog: true,
+          },
+          timestamp: new Date(),
+        });
+        continue;
+      }
+
+      const activity = sessionStore.getSessionActivity(sessionId);
+      const lastActivityAt = activity?.lastMeaningfulActivityAt
+        ?? activity?.lastActivityAt
+        ?? sessionRecord?.createdAt
+        ?? automation.startedAt.toISOString();
+      const lastActivityMs = Date.parse(lastActivityAt);
+      if (!Number.isFinite(lastActivityMs)) continue;
+
+      const idleMs = now - lastActivityMs;
+      const thresholdMs = automation.supervision.inactivityTimeoutMinutes * 60_000;
+      if (idleMs < thresholdMs) continue;
+
+      sessionStore.markSessionTimedOut(
+        sessionId,
+        `No ACP activity for ${automation.supervision.inactivityTimeoutMinutes} minutes.`,
+      );
+      automation.signaledSessionIds.add(sessionId);
+      this.eventBus.emit({
+        type: AgentEventType.AGENT_TIMEOUT,
+        agentId: sessionId,
+        workspaceId: automation.workspaceId,
+        data: {
+          sessionId,
+          success: false,
+          error: `No ACP activity for ${automation.supervision.inactivityTimeoutMinutes} minutes.`,
+          inactivityMs: idleMs,
+          lastActivityAt,
+          watchdog: true,
+        },
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  private async isCompletionSatisfied(
+    task: Task | undefined,
+    automation: ActiveAutomation,
+    successEvent: boolean,
+  ): Promise<boolean> {
+    if (!successEvent) {
+      return false;
+    }
+    if (automation.supervision.mode !== "ralph_loop") {
+      return true;
+    }
+
+    switch (automation.supervision.completionRequirement) {
+      case "completion_summary":
+        return Boolean(task?.completionSummary?.trim());
+      case "verification_report":
+        return Boolean(task?.verificationReport?.trim());
+      case "turn_complete":
+      default:
+        return true;
+    }
+  }
+
+  private async shouldRecover(
+    task: Task,
+    automation: ActiveAutomation,
+    event: AgentEvent,
+    completionSatisfied: boolean,
+  ): Promise<boolean> {
+    if (!isRecoveryMode(automation.supervision.mode)) {
+      return false;
+    }
+    if (task.columnId !== automation.columnId) {
+      return false;
+    }
+    if (automation.recoveryAttempts >= automation.supervision.maxRecoveryAttempts) {
+      return false;
+    }
+
+    if (event.type === AgentEventType.AGENT_TIMEOUT || event.type === AgentEventType.AGENT_FAILED) {
+      return true;
+    }
+    if (automation.supervision.mode === "ralph_loop" && event.type === AgentEventType.AGENT_COMPLETED) {
+      return !completionSatisfied;
+    }
+    return false;
+  }
+
+  private async recoverAutomation(
+    cardId: string,
+    automation: ActiveAutomation,
+    task: Task,
+    reason: TaskLaneSessionRecoveryReason,
+  ): Promise<boolean> {
+    if (!this.createSession || !isRecoveryMode(automation.supervision.mode)) {
+      return false;
+    }
+
+    const previousSessionId = automation.sessionId;
+    automation.recoveryAttempts += 1;
+    automation.attempt += 1;
+    automation.status = "queued";
+    automation.startedAt = new Date();
+    automation.sessionId = undefined;
+
+    if (previousSessionId) {
+      automation.signaledSessionIds.delete(previousSessionId);
+      if (!task.sessionIds.includes(previousSessionId)) {
+        task.sessionIds.push(previousSessionId);
+      }
+      if (task.triggerSessionId === previousSessionId) {
+        task.triggerSessionId = undefined;
+      }
+    }
+
+    task.lastSyncError = this.buildRecoveryMessage(automation, reason);
+    task.updatedAt = new Date();
+    await this.taskStore.save(task);
+
+    this.cleanupCardSession?.(cardId);
+
+    try {
+      const sessionId = await this.createSession({
+        workspaceId: automation.workspaceId,
+        cardId,
+        cardTitle: automation.cardTitle,
+        columnId: automation.columnId,
+        columnName: automation.columnName,
+        automation: automation.automation,
+        supervision: this.buildSupervisionContext(automation, task.objective || automation.cardTitle, {
+          recoveredFromSessionId: previousSessionId,
+          recoveryReason: reason,
+        }),
+      });
+
+      if (!sessionId) {
+        automation.status = "failed";
+        return false;
+      }
+
+      automation.status = "running";
+      automation.sessionId = sessionId;
+      return true;
+    } catch (error) {
+      automation.status = "failed";
+      task.lastSyncError = error instanceof Error ? error.message : String(error);
+      task.updatedAt = new Date();
+      await this.taskStore.save(task);
+      return false;
+    }
+  }
+
+  private buildSupervisionContext(
+    automation: ActiveAutomation,
+    objective: string,
+    recovery?: {
+      recoveredFromSessionId?: string;
+      recoveryReason?: TaskLaneSessionRecoveryReason;
+    },
+  ): AutomationSessionSupervisionContext | undefined {
+    if (!isRecoveryMode(automation.supervision.mode)) {
+      return undefined;
+    }
+    return {
+      attempt: automation.attempt,
+      mode: automation.supervision.mode,
+      completionRequirement: automation.supervision.completionRequirement,
+      objective,
+      recoveredFromSessionId: recovery?.recoveredFromSessionId,
+      recoveryReason: recovery?.recoveryReason,
+    };
+  }
+
+  private buildRecoveryMessage(
+    automation: ActiveAutomation,
+    reason: TaskLaneSessionRecoveryReason,
+  ): string {
+    const reasonLabel = reason === "watchdog_inactivity"
+      ? "inactive too long"
+      : reason === "completion_criteria_not_met"
+        ? "stopped before completion criteria were met"
+        : "failed";
+    return `Dev automation recovered after session ${reasonLabel}. Attempt ${automation.attempt}/${automation.supervision.maxRecoveryAttempts + 1}.`;
+  }
+
+  private buildFailureMessage(
+    automation: ActiveAutomation,
+    event: AgentEvent,
+    completionSatisfied: boolean,
+  ): string {
+    if (event.type === AgentEventType.AGENT_TIMEOUT) {
+      return `Dev automation timed out after ${automation.supervision.inactivityTimeoutMinutes} minutes without activity.`;
+    }
+    if (event.type === AgentEventType.AGENT_FAILED) {
+      const error = typeof event.data?.error === "string" ? event.data.error : "ACP session failed.";
+      return error;
+    }
+    if (event.type === AgentEventType.AGENT_COMPLETED && !completionSatisfied) {
+      return `Dev automation completed but did not satisfy ${automation.supervision.completionRequirement}.`;
+    }
+    return "ACP session did not complete successfully.";
   }
 
   private async autoAdvanceCard(
@@ -215,30 +570,26 @@ export class KanbanWorkflowOrchestrator {
       const board = await this.kanbanBoardStore.get(automation.boardId);
       if (!board) return;
 
-      // Check if the card was already moved by the specialist (via move_card tool)
+      // Check if the card was already moved by the specialist (via move_card tool).
       const task = await this.taskStore.get(cardId);
       if (!task) return;
 
-      // If the card is no longer in the automation's column, it was already moved by the specialist
       if (task.columnId !== automation.columnId) {
         return;
       }
 
-      const currentColumn = board.columns.find((c) => c.id === automation.columnId);
+      const currentColumn = board.columns.find((column) => column.id === automation.columnId);
       if (!currentColumn) return;
 
-      // Find the next column by position
       const sortedColumns = board.columns
         .slice()
-        .sort((a, b) => a.position - b.position);
-      const currentIndex = sortedColumns.findIndex((c) => c.id === currentColumn.id);
+        .sort((left, right) => left.position - right.position);
+      const currentIndex = sortedColumns.findIndex((column) => column.id === currentColumn.id);
       const nextColumn = sortedColumns[currentIndex + 1];
-
-      if (!nextColumn) return; // Already at last column
+      if (!nextColumn) return;
 
       task.columnId = nextColumn.id;
       task.status = columnIdToTaskStatus(nextColumn.id);
-      // Preserve the current session in history before clearing for next automation
       if (task.triggerSessionId) {
         if (!task.sessionIds) task.sessionIds = [];
         if (!task.sessionIds.includes(task.triggerSessionId)) {
@@ -249,11 +600,8 @@ export class KanbanWorkflowOrchestrator {
       task.updatedAt = new Date();
       await this.taskStore.save(task);
 
-      // Clean up the session queue entry before emitting transition
-      // This prevents the queue from blocking the new automation with a stale entry
       this.cleanupCardSession?.(cardId);
 
-      // Emit transition event for the auto-advance (may trigger next column's automation)
       this.eventBus.emit({
         type: AgentEventType.COLUMN_TRANSITION,
         agentId: "kanban-workflow-orchestrator",

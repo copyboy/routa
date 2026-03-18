@@ -3,7 +3,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { AcpProviderInfo } from "@/client/acp-client";
 import { formatArtifactSummary } from "@/core/kanban/transition-artifacts";
-import type { KanbanBoardInfo } from "../types";
+import type { KanbanBoardInfo, KanbanDevSessionSupervisionInfo } from "../types";
 
 interface SpecialistOption {
   id: string;
@@ -33,8 +33,16 @@ export interface KanbanSettingsModalProps {
     visibleColumns: string[],
     columnAutomation: Record<string, ColumnAutomationConfig>,
     sessionConcurrencyLimit: number,
+    devSessionSupervision: KanbanDevSessionSupervisionInfo,
   ) => Promise<void>;
 }
+
+const DEFAULT_DEV_SESSION_SUPERVISION: KanbanDevSessionSupervisionInfo = {
+  mode: "watchdog_retry",
+  inactivityTimeoutMinutes: 10,
+  maxRecoveryAttempts: 1,
+  completionRequirement: "turn_complete",
+};
 
 const ROLE_OPTIONS = ["CRAFTER", "ROUTA", "GATE", "DEVELOPER"];
 const ARTIFACT_OPTIONS = [
@@ -59,6 +67,9 @@ export function KanbanSettingsModal({
   const [visibleColumns, setVisibleColumns] = useState<string[]>(initialVisibleColumns);
   const [columnAutomation, setColumnAutomation] = useState<Record<string, ColumnAutomationConfig>>(initialColumnAutomation);
   const [sessionConcurrencyLimit, setSessionConcurrencyLimit] = useState<number>(board.sessionConcurrencyLimit ?? 1);
+  const [devSessionSupervision, setDevSessionSupervision] = useState<KanbanDevSessionSupervisionInfo>(
+    board.devSessionSupervision ?? DEFAULT_DEV_SESSION_SUPERVISION,
+  );
   const [selectedColumnId, setSelectedColumnId] = useState<string>(board.columns[0]?.id ?? "");
   const [saving, setSaving] = useState(false);
 
@@ -81,7 +92,16 @@ export function KanbanSettingsModal({
   const handleSave = async () => {
     setSaving(true);
     try {
-      await onSave(visibleColumns, columnAutomation, Math.max(1, Math.floor(sessionConcurrencyLimit)));
+      await onSave(
+        visibleColumns,
+        columnAutomation,
+        Math.max(1, Math.floor(sessionConcurrencyLimit)),
+        {
+          ...devSessionSupervision,
+          inactivityTimeoutMinutes: Math.max(1, Math.floor(devSessionSupervision.inactivityTimeoutMinutes)),
+          maxRecoveryAttempts: Math.max(0, Math.floor(devSessionSupervision.maxRecoveryAttempts)),
+        },
+      );
     } finally {
       setSaving(false);
     }
@@ -111,23 +131,97 @@ export function KanbanSettingsModal({
               <div className="w-full xl:w-auto xl:min-w-[560px] rounded-[20px] border border-white/60 bg-white/90 p-3.5 shadow-sm backdrop-blur dark:border-slate-700/70 dark:bg-slate-950/50">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-                        Session queue
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2.5">
-                      <label className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Max</span>
-                        <input
-                          type="number"
-                          min={1}
-                          max={20}
-                          value={sessionConcurrencyLimit}
-                          onChange={(event) => setSessionConcurrencyLimit(Math.max(1, Number.parseInt(event.target.value || "1", 10) || 1))}
-                          className="h-10 w-20 rounded-xl border border-slate-200 bg-slate-50 px-3 text-base font-semibold text-slate-900 outline-none transition focus:border-amber-400 dark:border-slate-700 dark:bg-[#0b1119] dark:text-slate-100"
-                        />
-                      </label>
-                      <StatPill label="Visible" value={`${visibleColumnCount}/${sortedColumns.length}`} tone="amber" />
-                      <StatPill label="Automation" value={String(automationEnabledCount)} tone="emerald" />
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+                          Session queue
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2.5">
+                          <label className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Max</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={20}
+                              value={sessionConcurrencyLimit}
+                              onChange={(event) => setSessionConcurrencyLimit(Math.max(1, Number.parseInt(event.target.value || "1", 10) || 1))}
+                              className="h-10 w-20 rounded-xl border border-slate-200 bg-slate-50 px-3 text-base font-semibold text-slate-900 outline-none transition focus:border-amber-400 dark:border-slate-700 dark:bg-[#0b1119] dark:text-slate-100"
+                            />
+                          </label>
+                          <StatPill label="Visible" value={`${visibleColumnCount}/${sortedColumns.length}`} tone="amber" />
+                          <StatPill label="Automation" value={String(automationEnabledCount)} tone="emerald" />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+                          Dev supervision
+                        </div>
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                          <label className="space-y-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+                            <span>Mode</span>
+                            <select
+                              aria-label="Dev supervision mode"
+                              value={devSessionSupervision.mode}
+                              onChange={(event) => setDevSessionSupervision((current) => ({
+                                ...current,
+                                mode: event.target.value as KanbanDevSessionSupervisionInfo["mode"],
+                              }))}
+                              className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-amber-400 dark:border-slate-700 dark:bg-[#0b1119] dark:text-slate-100"
+                            >
+                              <option value="disabled">Off</option>
+                              <option value="watchdog_retry">Watchdog retry</option>
+                              <option value="ralph_loop">Ralph Loop</option>
+                            </select>
+                          </label>
+                          <label className="space-y-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+                            <span>Idle min</span>
+                            <input
+                              aria-label="Dev supervision idle timeout"
+                              type="number"
+                              min={1}
+                              max={120}
+                              value={devSessionSupervision.inactivityTimeoutMinutes}
+                              onChange={(event) => setDevSessionSupervision((current) => ({
+                                ...current,
+                                inactivityTimeoutMinutes: Math.max(1, Number.parseInt(event.target.value || "10", 10) || 10),
+                              }))}
+                              className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-amber-400 dark:border-slate-700 dark:bg-[#0b1119] dark:text-slate-100"
+                            />
+                          </label>
+                          <label className="space-y-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+                            <span>Retries</span>
+                            <input
+                              aria-label="Dev supervision max recovery attempts"
+                              type="number"
+                              min={0}
+                              max={10}
+                              value={devSessionSupervision.maxRecoveryAttempts}
+                              onChange={(event) => setDevSessionSupervision((current) => ({
+                                ...current,
+                                maxRecoveryAttempts: Math.max(0, Number.parseInt(event.target.value || "0", 10) || 0),
+                              }))}
+                              className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-amber-400 dark:border-slate-700 dark:bg-[#0b1119] dark:text-slate-100"
+                            />
+                          </label>
+                          <label className="space-y-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+                            <span>Completion</span>
+                            <select
+                              aria-label="Dev supervision completion requirement"
+                              value={devSessionSupervision.completionRequirement}
+                              onChange={(event) => setDevSessionSupervision((current) => ({
+                                ...current,
+                                completionRequirement: event.target.value as KanbanDevSessionSupervisionInfo["completionRequirement"],
+                              }))}
+                              disabled={devSessionSupervision.mode !== "ralph_loop"}
+                              className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-[#0b1119] dark:text-slate-100"
+                            >
+                              <option value="turn_complete">Turn complete</option>
+                              <option value="completion_summary">Completion summary</option>
+                              <option value="verification_report">Verification report</option>
+                            </select>
+                          </label>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <p className="max-w-[260px] text-sm leading-5 text-slate-500 dark:text-slate-400">

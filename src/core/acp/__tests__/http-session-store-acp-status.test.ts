@@ -145,6 +145,33 @@ describe("HttpSessionStore — ACP status", () => {
       },
     });
   });
+
+  it("tracks session activity timestamps from normalized ACP updates", () => {
+    const store = getHttpSessionStore();
+    store.upsertSession({
+      sessionId: "test-activity",
+      cwd: "/tmp",
+      workspaceId: "ws-1",
+      provider: "opencode",
+      createdAt: "2026-03-18T00:00:00.000Z",
+    });
+
+    store.pushNotification({
+      sessionId: "test-activity",
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-1",
+        name: "read_file",
+        title: "Read file",
+        status: "running",
+      },
+    });
+
+    const activity = store.getSessionActivity("test-activity");
+    expect(activity).toBeDefined();
+    expect(activity?.lastEventType).toBe("tool_call");
+    expect(activity?.lastMeaningfulActivityAt).toBeTruthy();
+  });
 });
 
 describe("consolidateMessageHistory", () => {
