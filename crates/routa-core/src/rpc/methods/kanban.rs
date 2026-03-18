@@ -892,3 +892,290 @@ fn slugify(value: &str) -> String {
         .collect::<Vec<_>>()
         .join("-")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Database;
+    use crate::state::AppStateInner;
+    use std::sync::Arc;
+
+    async fn setup_state() -> AppState {
+        let db = Database::open_in_memory().expect("in-memory db should open");
+        let state: AppState = Arc::new(AppStateInner::new(db));
+        state
+            .workspace_store
+            .ensure_default()
+            .await
+            .expect("default workspace should exist");
+        state
+    }
+
+    #[tokio::test]
+    async fn list_boards_ensures_default_board_exists() {
+        let state = setup_state().await;
+
+        let result = list_boards(
+            &state,
+            ListBoardsParams {
+                workspace_id: "default".to_string(),
+            },
+        )
+        .await
+        .expect("list boards should succeed");
+
+        assert_eq!(result.boards.len(), 1);
+        assert!(result.boards[0].is_default);
+        assert!(result.boards[0].column_count > 0);
+    }
+
+    #[tokio::test]
+    async fn create_card_without_board_id_uses_default_board() {
+        let state = setup_state().await;
+        let boards = list_boards(
+            &state,
+            ListBoardsParams {
+                workspace_id: "default".to_string(),
+            },
+        )
+        .await
+        .expect("list boards should succeed");
+        let default_board_id = boards.boards[0].id.clone();
+
+        let created = create_card(
+            &state,
+            CreateCardParams {
+                workspace_id: "default".to_string(),
+                board_id: None,
+                column_id: Some("backlog".to_string()),
+                title: "Implement RPC".to_string(),
+                description: Some("wire core methods".to_string()),
+                priority: Some("high".to_string()),
+                labels: Some(vec!["rpc".to_string(), "kanban".to_string()]),
+            },
+        )
+        .await
+        .expect("create card should succeed");
+
+        let board_view = get_board(
+            &state,
+            GetBoardParams {
+                board_id: default_board_id,
+            },
+        )
+        .await
+        .expect("get board should succeed");
+
+        let backlog = board_view
+            .columns
+            .iter()
+            .find(|column| column.id == "backlog")
+            .expect("backlog column should exist");
+        assert_eq!(backlog.cards.len(), 1);
+        assert_eq!(backlog.cards[0].id, created.card.id);
+        assert_eq!(backlog.cards[0].priority.as_deref(), Some("high"));
+    }
+
+    #[tokio::test]
+    async fn move_card_updates_status_and_rejects_negative_position() {
+        let state = setup_state().await;
+        let created = create_card(
+            &state,
+            CreateCardParams {
+                workspace_id: "default".to_string(),
+                board_id: None,
+                column_id: Some("backlog".to_string()),
+                title: "Move me".to_string(),
+                description: None,
+                priority: None,
+                labels: None,
+            },
+        )
+        .await
+        .expect("create card should succeed");
+
+        let moved = move_card(
+            &state,
+            MoveCardParams {
+                card_id: created.card.id.clone(),
+                target_column_id: "dev".to_string(),
+                position: None,
+            },
+        )
+        .await
+        .expect("move card should succeed");
+        assert_eq!(moved.card.column_id, "dev");
+        assert_eq!(moved.card.status, "IN_PROGRESS");
+
+        let err = move_card(
+            &state,
+            MoveCardParams {
+                card_id: created.card.id,
+                target_column_id: "review".to_string(),
+                position: Some(-1),
+            },
+        )
+        .await
+        .expect_err("negative position should fail");
+        assert!(matches!(err, RpcError::BadRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn delete_column_moves_cards_to_backlog_when_not_deleting_cards() {
+        let state = setup_state().await;
+        let created = create_card(
+            &state,
+            CreateCardParams {
+                workspace_id: "default".to_string(),
+                board_id: None,
+                column_id: Some("todo".to_string()),
+                title: "Todo card".to_string(),
+                description: None,
+                priority: None,
+                labels: None,
+            },
+        )
+        .await
+        .expect("create card should succeed");
+
+        let board_before = list_boards(
+            &state,
+            ListBoardsParams {
+                workspace_id: "default".to_string(),
+            },
+        )
+        .await
+        .expect("list boards should succeed");
+        let board_id = board_before.boards[0].id.clone();
+
+        let result = delete_column(
+            &state,
+            DeleteColumnParams {
+                board_id: board_id.clone(),
+                column_id: "todo".to_string(),
+                delete_cards: Some(false),
+            },
+        )
+        .await
+        .expect("delete column should succeed");
+
+        assert!(result.deleted);
+        assert_eq!(result.cards_moved, 1);
+        assert_eq!(result.cards_deleted, 0);
+        assert!(!result.board.columns.iter().any(|column| column.id == "todo"));
+
+        let task = state
+            .task_store
+            .get(&created.card.id)
+            .await
+            .expect("task get should succeed")
+            .expect("task should still exist");
+        assert_eq!(task.column_id.as_deref(), Some("backlog"));
+    }
+
+    #[tokio::test]
+    async fn search_list_by_column_and_decompose_tasks_work() {
+        let state = setup_state().await;
+        let first = create_card(
+            &state,
+            CreateCardParams {
+                workspace_id: "default".to_string(),
+                board_id: None,
+                column_id: Some("backlog".to_string()),
+                title: "Searchable API card".to_string(),
+                description: None,
+                priority: None,
+                labels: Some(vec!["api".to_string()]),
+            },
+        )
+        .await
+        .expect("create card should succeed");
+        let second = create_card(
+            &state,
+            CreateCardParams {
+                workspace_id: "default".to_string(),
+                board_id: None,
+                column_id: Some("backlog".to_string()),
+                title: "Another card".to_string(),
+                description: None,
+                priority: None,
+                labels: None,
+            },
+        )
+        .await
+        .expect("create card should succeed");
+        move_card(
+            &state,
+            MoveCardParams {
+                card_id: second.card.id.clone(),
+                target_column_id: "dev".to_string(),
+                position: Some(0),
+            },
+        )
+        .await
+        .expect("move should succeed");
+
+        let boards = list_boards(
+            &state,
+            ListBoardsParams {
+                workspace_id: "default".to_string(),
+            },
+        )
+        .await
+        .expect("list boards should succeed");
+        let board_id = boards.boards[0].id.clone();
+
+        let searched = search_cards(
+            &state,
+            SearchCardsParams {
+                workspace_id: "default".to_string(),
+                query: "api".to_string(),
+                board_id: Some(board_id.clone()),
+            },
+        )
+        .await
+        .expect("search should succeed");
+        assert_eq!(searched.cards.len(), 1);
+        assert_eq!(searched.cards[0].id, first.card.id);
+
+        let dev_cards = list_cards_by_column(
+            &state,
+            ListCardsByColumnParams {
+                workspace_id: "default".to_string(),
+                board_id: Some(board_id.clone()),
+                column_id: "dev".to_string(),
+            },
+        )
+        .await
+        .expect("list cards by column should succeed");
+        assert_eq!(dev_cards.cards.len(), 1);
+        assert_eq!(dev_cards.cards[0].id, second.card.id);
+
+        let decomposed = decompose_tasks(
+            &state,
+            DecomposeTasksParams {
+                workspace_id: "default".to_string(),
+                board_id: Some(board_id),
+                column_id: Some("backlog".to_string()),
+                tasks: vec![
+                    DecomposeTaskItem {
+                        title: "Split 1".to_string(),
+                        description: Some("a".to_string()),
+                        priority: Some("low".to_string()),
+                        labels: None,
+                    },
+                    DecomposeTaskItem {
+                        title: "Split 2".to_string(),
+                        description: None,
+                        priority: Some("urgent".to_string()),
+                        labels: Some(vec!["bulk".to_string()]),
+                    },
+                ],
+            },
+        )
+        .await
+        .expect("decompose should succeed");
+        assert_eq!(decomposed.count, 2);
+        assert_eq!(decomposed.cards.len(), 2);
+    }
+}
