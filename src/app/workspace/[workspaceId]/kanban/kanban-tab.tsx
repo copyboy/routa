@@ -1449,22 +1449,11 @@ export function KanbanTab({
       )}
 
       {(activeSessionId || activeTaskId) && (() => {
-        const activeTask = activeTaskId ? localTasks.find((t) => t.id === activeTaskId) : null;
         const hasSessionPane = Boolean(activeSessionId && acp);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6 animate-in fade-in duration-150">
             <div className="relative h-[88vh] w-full max-w-7xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-[#1c1f2e] dark:bg-[#12141c] animate-in zoom-in-95 duration-150">
-              <div className="flex h-12 items-center justify-between border-b border-gray-100 px-4 dark:border-[#191c28]">
-                <div>
-                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    {activeTask ? activeTask.title : "ACP Session"}
-                  </div>
-                  <div className="text-[11px] text-gray-400 dark:text-gray-500">
-                    {activeTaskId ? `Task: ${activeTaskId}` : activeSessionId}
-                  </div>
-                </div>
-            </div>
-            <div ref={detailSplitContainerRef} className="flex h-[calc(88vh-48px)]">
+            <div ref={detailSplitContainerRef} className="flex h-full">
               {/* Left: Card Detail (if activeTaskId exists) */}
               {activeTaskId && (() => {
                 const task = localTasks.find((t) => t.id === activeTaskId);
