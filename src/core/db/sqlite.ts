@@ -99,6 +99,7 @@ function initializeSqliteTables(db: SqliteDatabase): void {
       scope TEXT,
       acceptance_criteria TEXT,
       verification_commands TEXT,
+      test_cases TEXT,
       assigned_to TEXT,
       status TEXT NOT NULL DEFAULT 'PENDING',
       board_id TEXT,
@@ -152,6 +153,7 @@ function initializeSqliteTables(db: SqliteDatabase): void {
   runAddColumn(sql`ALTER TABLE tasks ADD COLUMN github_state TEXT`);
   runAddColumn(sql`ALTER TABLE tasks ADD COLUMN github_synced_at INTEGER`);
   runAddColumn(sql`ALTER TABLE tasks ADD COLUMN last_sync_error TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN test_cases TEXT`);
   runAddColumn(sql`ALTER TABLE tasks ADD COLUMN session_id TEXT`);
   runAddColumn(sql`ALTER TABLE tasks ADD COLUMN codebase_ids TEXT DEFAULT '[]'`);
   runAddColumn(sql`ALTER TABLE tasks ADD COLUMN worktree_id TEXT`);

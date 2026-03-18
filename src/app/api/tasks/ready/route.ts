@@ -30,6 +30,7 @@ function serializeTask(task: Task) {
     scope: task.scope,
     acceptanceCriteria: task.acceptanceCriteria,
     verificationCommands: task.verificationCommands,
+    testCases: task.testCases,
     assignedTo: task.assignedTo,
     status: task.status,
     dependencies: task.dependencies,
@@ -43,4 +44,3 @@ function serializeTask(task: Task) {
     updatedAt: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : task.updatedAt,
   };
 }
-

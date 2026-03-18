@@ -99,6 +99,7 @@ export interface Task {
   scope?: string;
   acceptanceCriteria?: string[];
   verificationCommands?: string[];
+  testCases?: string[];
   assignedTo?: string;
   status: TaskStatus;
   boardId?: string;
@@ -151,6 +152,7 @@ export function createTask(params: {
   scope?: string;
   acceptanceCriteria?: string[];
   verificationCommands?: string[];
+  testCases?: string[];
   dependencies?: string[];
   parallelGroup?: string;
   boardId?: string;
@@ -182,6 +184,7 @@ export function createTask(params: {
     scope: params.scope,
     acceptanceCriteria: params.acceptanceCriteria,
     verificationCommands: params.verificationCommands,
+    testCases: params.testCases,
     status: params.status ?? TaskStatus.PENDING,
     boardId: params.boardId,
     columnId: params.columnId,

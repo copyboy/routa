@@ -71,6 +71,7 @@ export const tasks = sqliteTable("tasks", {
   scope: text("scope"),
   acceptanceCriteria: text("acceptance_criteria", { mode: "json" }).$type<string[]>(),
   verificationCommands: text("verification_commands", { mode: "json" }).$type<string[]>(),
+  testCases: text("test_cases", { mode: "json" }).$type<string[]>(),
   assignedTo: text("assigned_to"),
   status: text("status").notNull().default("PENDING"),
   boardId: text("board_id"),

@@ -4,7 +4,7 @@ import { TaskPriority, TaskStatus, type Task } from "@/core/models/task";
 import { columnIdToTaskStatus, taskStatusToColumnId } from "@/core/models/kanban";
 import { getKanbanEventBroadcaster } from "@/core/kanban/kanban-event-broadcaster";
 import { ensureTaskBoardContext } from "@/core/kanban/task-board-context";
-import { updateGitHubIssue } from "@/core/kanban/github-issues";
+import { buildTaskGitHubIssueBody, updateGitHubIssue } from "@/core/kanban/github-issues";
 import { GitWorktreeService } from "@/core/git/git-worktree-service";
 import { getDefaultWorkspaceWorktreeRoot, getEffectiveWorkspaceMetadata } from "@/core/models/workspace";
 import type { ArtifactType } from "@/core/models/artifact";
@@ -103,6 +103,7 @@ export async function PATCH(
   if (body.scope !== undefined) nextTask.scope = body.scope;
   if (body.acceptanceCriteria !== undefined) nextTask.acceptanceCriteria = body.acceptanceCriteria;
   if (body.verificationCommands !== undefined) nextTask.verificationCommands = body.verificationCommands;
+  if (body.testCases !== undefined) nextTask.testCases = body.testCases;
   if (body.assignedTo !== undefined) nextTask.assignedTo = body.assignedTo;
   if (body.boardId !== undefined) nextTask.boardId = body.boardId;
 
@@ -228,7 +229,7 @@ export async function PATCH(
     try {
       await updateGitHubIssue(nextTask.githubRepo, nextTask.githubNumber, {
         title: nextTask.title,
-        body: nextTask.objective,
+        body: buildTaskGitHubIssueBody(nextTask.objective, nextTask.testCases),
         labels: nextTask.labels,
         state: nextTask.status === "COMPLETED" ? "closed" : "open",
         assignees: nextTask.assignee ? [nextTask.assignee] : undefined,

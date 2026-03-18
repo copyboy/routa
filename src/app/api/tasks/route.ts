@@ -11,7 +11,7 @@ import { getRoutaSystem } from "@/core/routa-system";
 import { createTask, Task, TaskStatus, TaskPriority } from "@/core/models/task";
 import { v4 as uuidv4 } from "uuid";
 import { ensureDefaultBoard } from "@/core/kanban/boards";
-import { createGitHubIssue, parseGitHubRepo } from "@/core/kanban/github-issues";
+import { buildTaskGitHubIssueBody, createGitHubIssue, parseGitHubRepo } from "@/core/kanban/github-issues";
 import {
   normalizeTaskCreationSource,
   shouldCreateGitHubIssueOnTaskCreate,
@@ -93,6 +93,7 @@ export async function POST(request: NextRequest) {
     scope,
     acceptanceCriteria,
     verificationCommands,
+    testCases,
     dependencies,
     parallelGroup,
     boardId,
@@ -121,6 +122,9 @@ export async function POST(request: NextRequest) {
     : undefined;
   const normalizedVerificationCommands = Array.isArray(verificationCommands)
     ? verificationCommands.filter((item): item is string => typeof item === "string")
+    : undefined;
+  const normalizedTestCases = Array.isArray(testCases)
+    ? testCases.filter((item): item is string => typeof item === "string")
     : undefined;
   const normalizedDependencies = Array.isArray(dependencies)
     ? dependencies.filter((item): item is string => typeof item === "string")
@@ -187,7 +191,7 @@ export async function POST(request: NextRequest) {
       try {
         const issue = await createGitHubIssue(repo, {
           title: normalizedTitle,
-          body: normalizedObjective,
+          body: buildTaskGitHubIssueBody(normalizedObjective, normalizedTestCases),
           labels: normalizedLabels,
           assignees: normalizedAssignee ? [normalizedAssignee] : undefined,
         });
@@ -212,6 +216,7 @@ export async function POST(request: NextRequest) {
     scope: normalizedScope,
     acceptanceCriteria: normalizedAcceptanceCriteria,
     verificationCommands: normalizedVerificationCommands,
+    testCases: normalizedTestCases,
     dependencies: normalizedDependencies,
     parallelGroup: normalizedParallelGroup,
     boardId: normalizedBoardId ?? defaultBoard.id,
@@ -294,6 +299,7 @@ function serializeTask(task: Task) {
     scope: task.scope,
     acceptanceCriteria: task.acceptanceCriteria,
     verificationCommands: task.verificationCommands,
+    testCases: task.testCases,
     assignedTo: task.assignedTo,
     status: task.status,
     boardId: task.boardId,
