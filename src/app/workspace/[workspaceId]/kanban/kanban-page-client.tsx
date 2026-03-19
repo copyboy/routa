@@ -97,7 +97,7 @@ export function KanbanPageClient() {
     const resolveSpecialist = createKanbanSpecialistResolver(specialists);
     const enabledAutomationProviderIds = new Set<string>();
     for (const board of boards) {
-      for (const column of board.columns) {
+      for (const column of board.columns ?? []) {
         if (!column.automation?.enabled) {
           continue;
         }

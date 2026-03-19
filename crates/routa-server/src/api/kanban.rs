@@ -99,10 +99,10 @@ async fn list_boards(
     Query(query): Query<BoardsQuery>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     let workspace_id = query.workspace_id.unwrap_or_else(|| "default".to_string());
-    let rpc_result = rpc_result(
+    let list_result = rpc_result(
         &state,
         "kanban.listBoards",
-        serde_json::json!({ "workspaceId": workspace_id }),
+        serde_json::json!({ "workspaceId": workspace_id.clone() }),
     )
     .await?;
     let workspace = state
@@ -115,17 +115,32 @@ async fn list_boards(
         .map(|workspace| workspace.metadata)
         .unwrap_or_default();
 
-    let boards = rpc_result
+    let board_ids = list_result
         .get("boards")
         .and_then(|value| value.as_array())
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .map(|mut board| {
-            add_board_runtime_meta(&mut board, &metadata);
+        .filter_map(|board| {
             board
+                .get("id")
+                .and_then(|value| value.as_str())
+                .map(|id| id.to_string())
         })
         .collect::<Vec<_>>();
+
+    let mut boards = Vec::with_capacity(board_ids.len());
+    for board_id in board_ids {
+        let rpc_board = rpc_result(
+            &state,
+            "kanban.getBoard",
+            serde_json::json!({ "boardId": board_id }),
+        )
+        .await?;
+        let mut board = strip_board_cards(&rpc_board);
+        add_board_runtime_meta(&mut board, &metadata);
+        boards.push(board);
+    }
 
     Ok(Json(serde_json::json!({ "boards": boards })))
 }

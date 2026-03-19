@@ -156,10 +156,14 @@ pub async fn start_server_with_state(
             // For Next.js static export with dynamic routes, we need custom fallback logic.
             // Next.js generates placeholder files for dynamic routes:
             // - workspace/__placeholder__.html (for /workspace/[workspaceId])
-            // - workspace/__placeholder__/sessions/__placeholder__.html (for /workspace/[workspaceId]/sessions/[sessionId])
+            // - workspace/__placeholder__/kanban.html (for /workspace/[workspaceId]/kanban)
+            // - workspace/__placeholder__/sessions/__placeholder__.html
+            //   (for /workspace/[workspaceId]/sessions/[sessionId])
             //
             // Additionally, Next.js client navigation requests .txt RSC payload files:
-            // - workspace/default/sessions/abc123.txt → workspace/__placeholder__/sessions/__placeholder__.txt
+            // - workspace/default/kanban.txt → workspace/__placeholder__/kanban.txt
+            // - workspace/default/sessions/abc123.txt
+            //   → workspace/__placeholder__/sessions/__placeholder__.txt
             //
             // We match the URL pattern and serve the corresponding placeholder file.
             let static_dir_clone = static_dir.clone();
@@ -174,7 +178,7 @@ pub async fn start_server_with_state(
 
                         // Determine which file to serve based on the route pattern.
                         let (target_file, content_type) = if path.starts_with("/workspace/") {
-                            // Strip .txt extension if present to analyze the path
+                            // Strip the RSC suffix when matching, then restore it on the placeholder path.
                             let clean_path = path.trim_end_matches(".txt");
                             let segments: Vec<&str> = clean_path
                                 .trim_start_matches("/workspace/")
@@ -188,19 +192,50 @@ pub async fn start_server_with_state(
                             } else {
                                 "text/html; charset=utf-8"
                             };
+                            let placeholder_with_suffix = |base: &str, suffix: &[&str]| {
+                                if suffix.is_empty() {
+                                    format!("{}.{}", base, ext)
+                                } else {
+                                    format!("{}/{}.{}", base, suffix.join("/"), ext)
+                                }
+                            };
 
                             if segments.len() >= 3 && segments[1] == "sessions" {
-                                // /workspace/{workspaceId}/sessions/{sessionId}[.txt]
+                                let suffix = if segments.len() > 3 {
+                                    &segments[3..]
+                                } else {
+                                    &[][..]
+                                };
                                 (
-                                    format!(
-                                        "workspace/__placeholder__/sessions/__placeholder__.{}",
-                                        ext
+                                    placeholder_with_suffix(
+                                        "workspace/__placeholder__/sessions/__placeholder__",
+                                        suffix,
+                                    ),
+                                    content,
+                                )
+                            } else if segments.len() >= 2 && segments[1] == "kanban" {
+                                let suffix = if segments.len() > 2 {
+                                    &segments[2..]
+                                } else {
+                                    &[][..]
+                                };
+                                (
+                                    placeholder_with_suffix(
+                                        "workspace/__placeholder__/kanban",
+                                        suffix,
                                     ),
                                     content,
                                 )
                             } else if !segments.is_empty() {
-                                // /workspace/{workspaceId}[.txt]
-                                (format!("workspace/__placeholder__.{}", ext), content)
+                                let suffix = if segments.len() > 1 {
+                                    &segments[1..]
+                                } else {
+                                    &[][..]
+                                };
+                                (
+                                    placeholder_with_suffix("workspace/__placeholder__", suffix),
+                                    content,
+                                )
                             } else {
                                 ("index.html".to_string(), "text/html; charset=utf-8")
                             }
@@ -230,12 +265,38 @@ pub async fn start_server_with_state(
                             is_rsc_request
                         );
 
+                        let workspace_segments: Vec<&str> = path
+                            .trim_start_matches("/workspace/")
+                            .trim_end_matches(".txt")
+                            .split('/')
+                            .filter(|segment| !segment.is_empty())
+                            .collect();
+                        let should_rewrite_workspace_placeholder =
+                            path.starts_with("/workspace/")
+                                && !workspace_segments.is_empty()
+                                && workspace_segments
+                                    .get(1)
+                                    .map(|segment| *segment != "sessions")
+                                    .unwrap_or(true);
+                        let actual_workspace_id =
+                            workspace_segments.first().copied().unwrap_or("__placeholder__");
+
                         let response = match tokio::fs::read(&file_path).await {
-                            Ok(contents) => axum::http::Response::builder()
-                                .status(axum::http::StatusCode::OK)
-                                .header("content-type", content_type)
-                                .body(axum::body::Body::from(contents))
-                                .unwrap(),
+                            Ok(contents) => {
+                                let body = if should_rewrite_workspace_placeholder {
+                                    let rewritten = String::from_utf8_lossy(&contents)
+                                        .replace("__placeholder__", actual_workspace_id);
+                                    axum::body::Body::from(rewritten)
+                                } else {
+                                    axum::body::Body::from(contents)
+                                };
+
+                                axum::http::Response::builder()
+                                    .status(axum::http::StatusCode::OK)
+                                    .header("content-type", content_type)
+                                    .body(body)
+                                    .unwrap()
+                            }
                             Err(_) => {
                                 // If the specific file doesn't exist, fall back to index.html
                                 let index_path =
