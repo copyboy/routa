@@ -39,6 +39,8 @@ export async function GET(
       routaAgentId: session.routaAgentId,
       provider: session.provider,
       role: session.role,
+      acpStatus: session.acpStatus,
+      acpError: session.acpError,
       modeId: session.modeId,
       model: session.model,
       createdAt: session.createdAt,
@@ -96,4 +98,3 @@ export async function DELETE(
 
   return NextResponse.json({ ok: true });
 }
-

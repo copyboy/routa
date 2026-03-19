@@ -365,13 +365,8 @@ class HttpSessionStore {
    * Sends an SSE notification so the client can react (e.g. show spinner → ready).
    */
   updateSessionAcpStatus(sessionId: string, status: AcpSessionStatus, error?: string) {
-    const existing = this.sessions.get(sessionId);
-    if (!existing) return;
-    this.sessions.set(sessionId, {
-      ...existing,
-      acpStatus: status,
-      acpError: error,
-    });
+    const changed = this.setSessionAcpStatus(sessionId, status, error);
+    if (!changed) return;
 
     // Push a synthetic notification so the client knows the status changed
     this.pushNotification({
@@ -502,6 +497,7 @@ class HttpSessionStore {
       }
       // Update BackgroundTask progress if this session is linked to one
       void this.updateBackgroundTaskProgress(sessionId, updates);
+      this.syncRuntimeErrorState(sessionId, updates);
     }
 
     // Skip SSE push while a prompt stream is actively delivering events via
@@ -692,6 +688,45 @@ class HttpSessionStore {
       terminalReason: existing?.terminalReason,
       terminalAt: existing?.terminalAt,
     });
+  }
+
+  private setSessionAcpStatus(
+    sessionId: string,
+    status: AcpSessionStatus,
+    error?: string,
+  ): boolean {
+    const existing = this.sessions.get(sessionId);
+    if (!existing) return false;
+    if (existing.acpStatus === status && existing.acpError === error) {
+      return false;
+    }
+    this.sessions.set(sessionId, {
+      ...existing,
+      acpStatus: status,
+      acpError: error,
+    });
+    return true;
+  }
+
+  private syncRuntimeErrorState(
+    sessionId: string,
+    updates: NormalizedSessionUpdate[],
+  ): void {
+    const runtimeError = updates.find((update) => update.eventType === "error")?.error?.message;
+    if (!runtimeError) return;
+    const changed = this.setSessionAcpStatus(sessionId, "error", runtimeError);
+    if (!changed) return;
+
+    // Mirror the normalized runtime error into ACP status state so dashboards
+    // that only read session metadata can still surface provider failures.
+    this.pushNotification({
+      sessionId,
+      update: {
+        sessionUpdate: "acp_status",
+        status: "error",
+        error: runtimeError,
+      },
+    } as SessionUpdateNotification);
   }
 
   private setSessionTerminalState(

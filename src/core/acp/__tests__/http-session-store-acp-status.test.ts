@@ -172,6 +172,38 @@ describe("HttpSessionStore — ACP status", () => {
     expect(activity?.lastEventType).toBe("tool_call");
     expect(activity?.lastMeaningfulActivityAt).toBeTruthy();
   });
+
+  it("maps runtime error notifications into session acpStatus metadata", () => {
+    const store = getHttpSessionStore();
+    store.upsertSession({
+      sessionId: "test-runtime-error",
+      cwd: "/tmp",
+      workspaceId: "ws-1",
+      provider: "auggie",
+      acpStatus: "ready",
+      createdAt: new Date().toISOString(),
+    });
+
+    store.pushNotification({
+      sessionId: "test-runtime-error",
+      update: {
+        sessionUpdate: "error",
+        error: {
+          message: "Permission denied: HTTP error: 403 Forbidden",
+        },
+      },
+    });
+
+    const session = store.getSession("test-runtime-error");
+    expect(session?.acpStatus).toBe("error");
+    expect(session?.acpError).toBe("Permission denied: HTTP error: 403 Forbidden");
+
+    const statusNotification = store.getHistory("test-runtime-error").find(
+      (entry) => (entry.update as Record<string, unknown>)?.sessionUpdate === "acp_status",
+    );
+    expect(statusNotification).toBeDefined();
+    expect((statusNotification?.update as Record<string, unknown>)?.status).toBe("error");
+  });
 });
 
 describe("consolidateMessageHistory", () => {
