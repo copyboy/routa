@@ -6,7 +6,7 @@ use dialoguer::{theme::ColorfulTheme, Input, Select};
 use routa_core::orchestration::{OrchestratorConfig, RoutaOrchestrator, SpecialistConfig};
 use routa_core::rpc::RpcRouter;
 use routa_core::state::AppState;
-use routa_core::workflow::specialist::SpecialistLoader;
+use routa_core::workflow::specialist::{SpecialistDef, SpecialistLoader};
 
 use super::print_json;
 use super::tui::TuiRenderer;
@@ -85,33 +85,78 @@ pub async fn summary(state: &AppState, agent_id: &str) -> Result<(), String> {
 pub async fn run(
     state: &AppState,
     specialist: Option<&str>,
+    specialist_file: Option<&str>,
     prompt: Option<&str>,
     workspace_id: &str,
-    provider: &str,
+    provider: Option<&str>,
     specialist_dir: Option<&str>,
 ) -> Result<(), String> {
     let router = RpcRouter::new(state.clone());
-    let specialists = load_specialists(specialist_dir);
-    if specialists.is_empty() {
-        return Err(
-            "No specialists available. Add files under specialists/ or resources/specialists/."
-                .to_string(),
-        );
-    }
 
-    let (prompt_specialist, prompt_remainder) = parse_prompt_mention(prompt);
-    let selected_specialist = if let Some(id) = specialist.or(prompt_specialist.as_deref()) {
-        find_specialist(&specialists, id).ok_or_else(|| format!("Unknown specialist: {}", id))?
+    let selected_specialist = if let Some(path) = specialist_file {
+        load_specialist_from_file(path)?
     } else {
-        select_specialist(&specialists)?
+        let specialists = load_specialists(specialist_dir);
+        if specialists.is_empty() {
+            return Err(
+                "No specialists available. Add files under specialists/ or resources/specialists/."
+                    .to_string(),
+            );
+        }
+
+        let (prompt_specialist, prompt_remainder) = parse_prompt_mention(prompt);
+        let selected = if let Some(id) = specialist.or(prompt_specialist.as_deref()) {
+            find_specialist(&specialists, id).ok_or_else(|| format!("Unknown specialist: {}", id))?
+        } else {
+            select_specialist(&specialists)?
+        };
+
+        let user_prompt = match prompt_remainder.or(prompt.map(|value| value.to_string())) {
+            Some(existing_prompt) if !existing_prompt.trim().is_empty() => existing_prompt,
+            _ => prompt_for_user_request(&selected)?,
+        };
+
+        return run_selected_specialist(
+            state,
+            &router,
+            selected,
+            user_prompt,
+            workspace_id,
+            provider,
+        )
+        .await;
     };
 
-    let user_prompt = match prompt_remainder.or(prompt.map(|value| value.to_string())) {
+    let user_prompt = match prompt.map(|value| value.to_string()) {
         Some(existing_prompt) if !existing_prompt.trim().is_empty() => existing_prompt,
         _ => prompt_for_user_request(&selected_specialist)?,
     };
 
-    let workspace_id = ensure_workspace(&router, workspace_id).await?;
+    run_selected_specialist(
+        state,
+        &router,
+        selected_specialist,
+        user_prompt,
+        workspace_id,
+        provider,
+    )
+    .await
+}
+
+async fn run_selected_specialist(
+    state: &AppState,
+    router: &RpcRouter,
+    selected_specialist: SpecialistConfig,
+    user_prompt: String,
+    workspace_id: &str,
+    provider: Option<&str>,
+) -> Result<(), String> {
+    let effective_provider = provider
+        .map(str::to_string)
+        .or_else(|| selected_specialist.default_provider.clone())
+        .unwrap_or_else(|| "opencode".to_string());
+
+    let workspace_id = ensure_workspace(router, workspace_id).await?;
     let agent_role = selected_specialist.role.as_str();
     let agent_name = format!("cli-{}", selected_specialist.id);
     let create_response = router
@@ -152,7 +197,7 @@ pub async fn run(
     println!("║  Specialist: {:<42} ║", selected_specialist.id);
     println!("║  Role      : {:<42} ║", agent_role);
     println!("║  Workspace : {:<42} ║", &workspace_id);
-    println!("║  Provider  : {:<42} ║", provider);
+    println!("║  Provider  : {:<42} ║", &effective_provider);
     println!(
         "║  CWD       : {:<42} ║",
         super::prompt::truncate_path(&cwd, 42)
@@ -168,9 +213,9 @@ pub async fn run(
             session_id.clone(),
             cwd.clone(),
             workspace_id.clone(),
-            Some(provider.to_string()),
+            Some(effective_provider.clone()),
             Some(agent_role.to_string()),
-            None,
+            selected_specialist.default_model.clone(),
             None,
         )
         .await
@@ -239,12 +284,18 @@ pub async fn run(
     }
 
     println!();
-    super::prompt::print_session_summary(&router, &workspace_id).await;
+    super::prompt::print_session_summary(router, &workspace_id).await;
 
     state.acp_manager.kill_session(&session_id).await;
     orchestrator.cleanup(&session_id).await;
 
     Ok(())
+}
+
+fn load_specialist_from_file(path: &str) -> Result<SpecialistConfig, String> {
+    let specialist = SpecialistDef::from_path(path)?;
+    SpecialistConfig::from_specialist_def(specialist)
+        .ok_or_else(|| format!("Failed to resolve specialist from file: {}", path))
 }
 
 fn load_specialists(specialist_dir: Option<&str>) -> Vec<SpecialistConfig> {
@@ -413,6 +464,7 @@ async fn ensure_workspace(router: &RpcRouter, workspace_id: &str) -> Result<Stri
 #[cfg(test)]
 mod tests {
     use super::parse_prompt_mention;
+    use routa_core::orchestration::SpecialistConfig;
 
     #[test]
     fn parses_prompt_mentions_with_inline_prompt() {
@@ -427,5 +479,29 @@ mod tests {
         let (specialist, prompt) = parse_prompt_mention(Some("summarize the diff"));
         assert!(specialist.is_none());
         assert!(prompt.is_none());
+    }
+
+    #[test]
+    fn prefers_specialist_execution_provider_when_cli_provider_missing() {
+        let specialist = SpecialistConfig {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            description: None,
+            role: routa_core::models::agent::AgentRole::Developer,
+            default_model_tier: routa_core::models::agent::ModelTier::Smart,
+            system_prompt: "prompt".to_string(),
+            role_reminder: String::new(),
+            default_provider: Some("claude".to_string()),
+            default_adapter: None,
+            default_model: Some("sonnet-4.5".to_string()),
+        };
+
+        let effective_provider = None
+            .map(str::to_string)
+            .or_else(|| specialist.default_provider.clone())
+            .unwrap_or_else(|| "opencode".to_string());
+
+        assert_eq!(effective_provider, "claude");
+        assert_eq!(specialist.default_model.as_deref(), Some("sonnet-4.5"));
     }
 }

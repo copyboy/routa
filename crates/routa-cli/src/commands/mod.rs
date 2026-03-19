@@ -16,6 +16,7 @@ pub mod scan;
 pub mod session;
 pub mod server;
 pub mod skill;
+pub mod specialist;
 pub mod task;
 pub mod tui;
 pub mod workflow;

@@ -64,6 +64,12 @@ enum Commands {
         action: AgentAction,
     },
 
+    /// Run specialist definitions directly
+    Specialist {
+        #[command(subcommand)]
+        action: SpecialistAction,
+    },
+
     /// Manage tasks
     Task {
         #[command(subcommand)]
@@ -237,15 +243,18 @@ enum AgentAction {
         /// Specialist ID (for example: crafter, gate, view-git-change)
         #[arg(long, short = 's')]
         specialist: Option<String>,
+        /// Directly execute a specialist definition file (.md/.yaml/.yml)
+        #[arg(long)]
+        specialist_file: Option<String>,
         /// Prompt to send to the specialist. Supports `@specialist prompt`.
         #[arg(long, short = 'p')]
         prompt: Option<String>,
         /// Workspace ID
         #[arg(long, short = 'w', default_value = "default")]
         workspace_id: String,
-        /// ACP provider to use (for example: opencode)
-        #[arg(long, default_value = "opencode")]
-        provider: String,
+        /// ACP provider to use (for example: opencode). Overrides specialist execution.provider.
+        #[arg(long)]
+        provider: Option<String>,
         /// Extra specialist definitions directory
         #[arg(long, short = 'd')]
         specialist_dir: Option<String>,
@@ -261,6 +270,24 @@ enum AgentAction {
         /// Agent ID
         #[arg(long)]
         id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum SpecialistAction {
+    /// Execute a specialist definition file directly
+    Run {
+        /// Path to a specialist definition file (.md/.yaml/.yml)
+        file: String,
+        /// Prompt to send to the specialist
+        #[arg(long, short = 'p')]
+        prompt: Option<String>,
+        /// Workspace ID
+        #[arg(long, short = 'w', default_value = "default")]
+        workspace_id: String,
+        /// ACP provider override. If omitted, uses specialist execution.provider.
+        #[arg(long)]
+        provider: Option<String>,
     },
 }
 
@@ -728,6 +755,7 @@ async fn main() {
                     }
                     AgentAction::Run {
                         specialist,
+                        specialist_file,
                         prompt,
                         workspace_id,
                         provider,
@@ -736,15 +764,37 @@ async fn main() {
                         commands::agent::run(
                             &state,
                             specialist.as_deref(),
+                            specialist_file.as_deref(),
                             prompt.as_deref(),
                             &workspace_id,
-                            &provider,
+                            provider.as_deref(),
                             specialist_dir.as_deref(),
                         )
                         .await
                     }
                     AgentAction::Status { id } => commands::agent::status(&state, &id).await,
                     AgentAction::Summary { id } => commands::agent::summary(&state, &id).await,
+                }
+            }
+
+            Commands::Specialist { action } => {
+                let state = commands::init_state(&cli.db).await;
+                match action {
+                    SpecialistAction::Run {
+                        file,
+                        prompt,
+                        workspace_id,
+                        provider,
+                    } => {
+                        commands::specialist::run(
+                            &state,
+                            &file,
+                            prompt.as_deref(),
+                            &workspace_id,
+                            provider.as_deref(),
+                        )
+                        .await
+                    }
                 }
             }
 
