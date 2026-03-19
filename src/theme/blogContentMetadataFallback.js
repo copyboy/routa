@@ -18,13 +18,21 @@ const fallbackMetadataByPermalink = new Map(
   }),
 );
 
-const orderedFallbackMetadata = blogArchiveContext
+const orderedArchiveEntries = blogArchiveContext
   .keys()
   .flatMap((key) => {
     const mod = blogArchiveContext(key);
     const archive = mod.default ?? mod;
     return archive.archive?.blogPosts ?? [];
-  })
+  });
+
+const fallbackEntryByPermalink = new Map(
+  orderedArchiveEntries
+    .filter((post) => post?.metadata?.permalink)
+    .map((post) => [post.metadata.permalink, post]),
+);
+
+const orderedFallbackMetadata = orderedArchiveEntries
   .map((post) => post.metadata)
   .filter(Boolean);
 
@@ -52,6 +60,14 @@ export function getBlogMetadataByPermalink(permalink) {
   }
 
   return fallbackMetadataByPermalink.get(permalink);
+}
+
+export function getBlogArchiveEntryByPermalink(permalink) {
+  if (!permalink) {
+    return undefined;
+  }
+
+  return fallbackEntryByPermalink.get(permalink);
 }
 
 export function ensureBlogContentMetadata(content, metadata) {

@@ -1,5 +1,6 @@
 import React from "react";
 import clsx from "clsx";
+import Link from "@docusaurus/Link";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import {
   PageMetadata,
@@ -9,7 +10,6 @@ import {
 import BlogLayout from "@theme/BlogLayout";
 import BlogListPaginator from "@theme/BlogListPaginator";
 import SearchMetadata from "@theme/SearchMetadata";
-import BlogPostItems from "@theme/BlogPostItems";
 import BlogListPageStructuredData from "@theme/BlogListPage/StructuredData";
 import { normalizeBlogItems } from "../blogContentMetadataFallback";
 
@@ -35,7 +35,30 @@ function BlogListPageContent(props) {
 
   return (
     <BlogLayout sidebar={sidebar}>
-      <BlogPostItems items={items} />
+      {items.map((item) => {
+        const postMetadata = item.content.metadata;
+
+        return (
+          <article key={postMetadata.permalink} className="margin-bottom--xl">
+            <header>
+              <h2>
+                <Link href={postMetadata.permalink}>{postMetadata.title}</Link>
+              </h2>
+              <div className="margin-bottom--sm">
+                <time dateTime={postMetadata.date}>
+                  {new Date(postMetadata.date).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  })}
+                </time>
+              </div>
+            </header>
+            {postMetadata.description && <p>{postMetadata.description}</p>}
+            <Link href={postMetadata.permalink}>Read more</Link>
+          </article>
+        );
+      })}
       <BlogListPaginator metadata={metadata} />
     </BlogLayout>
   );

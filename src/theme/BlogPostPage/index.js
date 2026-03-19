@@ -13,10 +13,18 @@ import BlogPostPageMetadata from "@theme/BlogPostPage/Metadata";
 import BlogPostPageStructuredData from "@theme/BlogPostPage/StructuredData";
 import TOC from "@theme/TOC";
 import ContentVisibility from "@theme/ContentVisibility";
+import { marked } from "marked";
 import {
+  getBlogArchiveEntryByPermalink,
   ensureBlogContentMetadata,
   getBlogMetadataByPermalink,
 } from "../blogContentMetadataFallback";
+
+function BlogPostMarkdown({ markdown }) {
+  const html = marked.parse(markdown ?? "", { async: false, gfm: true });
+
+  return <div className="markdown" dangerouslySetInnerHTML={{ __html: html }} />;
+}
 
 function BlogPostPageContent({ sidebar, children }) {
   const { metadata, toc } = useBlogPost();
@@ -50,6 +58,7 @@ function BlogPostPageContent({ sidebar, children }) {
 
 export default function BlogPostPage(props) {
   const location = useLocation();
+  const archiveEntry = getBlogArchiveEntryByPermalink(location.pathname);
   const blogPostContent = ensureBlogContentMetadata(
     props.content,
     getBlogMetadataByPermalink(location.pathname),
@@ -65,7 +74,11 @@ export default function BlogPostPage(props) {
         <BlogPostPageMetadata />
         <BlogPostPageStructuredData />
         <BlogPostPageContent sidebar={props.sidebar}>
-          {React.createElement(blogPostContent)}
+          {archiveEntry?.content ? (
+            <BlogPostMarkdown markdown={archiveEntry.content} />
+          ) : (
+            React.createElement(blogPostContent)
+          )}
         </BlogPostPageContent>
       </HtmlClassNameProvider>
     </BlogPostProvider>
