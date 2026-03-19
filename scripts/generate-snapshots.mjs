@@ -2,6 +2,7 @@
 
 import {
   captureSnapshot,
+  createSnapshotRuntime,
   createBrowser,
   isServerReachable,
   loadRegistry,
@@ -23,10 +24,13 @@ async function main() {
   }
 
   let devServer = null;
-  const serverAlreadyRunning = await isServerReachable(options.baseUrl);
+  const snapshotRuntime = await createSnapshotRuntime();
+  const serverAlreadyRunning = snapshotRuntime.requiresManagedServer
+    ? false
+    : await isServerReachable(options.baseUrl);
   if (!serverAlreadyRunning) {
     console.log(`Starting dev server at ${options.baseUrl}...`);
-    devServer = startDevServer(options.baseUrl);
+    devServer = startDevServer(options.baseUrl, snapshotRuntime.env);
     await waitForServer(options.baseUrl, options.timeoutMs, devServer.getLogs);
   }
 
@@ -74,6 +78,7 @@ async function main() {
     if (devServer) {
       devServer.child.kill("SIGTERM");
     }
+    snapshotRuntime.cleanup();
   }
 
   console.log(`\nGenerated ${generated} snapshots, skipped ${skipped}.`);

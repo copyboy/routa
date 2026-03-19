@@ -3,7 +3,7 @@
 # source-page: src/app/workspace/[workspaceId]/sessions/[sessionId]/page.tsx
 # url: http://127.0.0.1:3000/workspace/default/sessions/1eed8a78-7673-4a1b-b6b9-cd68dc5b75c7
 # title: Routa - Multi-Agent Coordinator
-# generated-at: 2026-03-19T13:00:35.592Z
+# generated-at: 2026-03-19T15:26:28.070Z
 # generator: playwright
 # playwright-version: 1.58.2
 - text: Send a message to start.

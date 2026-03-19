@@ -3,15 +3,26 @@
 # source-page: src/app/workspace/[workspaceId]/kanban/page.tsx
 # url: http://127.0.0.1:3000/workspace/default/kanban
 # title: Routa - Multi-Agent Coordinator
-# generated-at: 2026-03-19T13:01:15.609Z
+# generated-at: 2026-03-19T15:26:23.929Z
 # generator: playwright
 # playwright-version: 1.58.2
-- text: Backlog 0 cards -> Default · CRAFTER · Backlog Refiner Todo 0 cards -> Default · CRAFTER · Todo Orchestrator Dev 0 cards -> Default · CRAFTER · Dev Crafter Review 0 cards -> Default · GATE · Review Guard Done 1 cards -> Default · GATE · Done Reporter
-- button "Open 创建 js 的 hello world":
+- text: Backlog 1 cards -> Default · CRAFTER · Backlog Refiner
+- button "Open Stabilize Page Snapshot Fixtures":
   - img
   - button "Delete task":
     - img
-  - text: Live Not synced 创建 js 的 hello world medium 3 artifacts
-  - paragraph: "## 完成记录 ### 交付内容 - `examples/hello-world/index.js` - 浏览器端 Hello World 入口脚本，输出 `Hello, World!` - `examples/hello-world/package.json` - 包含 name/version/description/main/start 完整配置 - `examples/hello-world/index.html` - 引入并加载 `index.js` ### 验证方式 - Playwright 浏览器自动化测试验证页面正常运行 - Node.js 脚本执行验证控制台输出正确 ### 证据清单 - `artifacts[0]` 浏览器截图 - 验证浏览器端 Hello World 运行正常 - `artifacts[1]` 测试结果 - Hello World 示例验证结果 ### 遗留风险 无 ### 后续建议 无 ### 评审结论 ✓ 通过 - 所有验收标准已满足，代码简洁符合要求。"
-  - text: ⚠ repo missing worktree loading... Automation Card override
+  - text: Idle Not synced Stabilize Page Snapshot Fixtures high
+  - paragraph: Introduce deterministic fixture data for snapshot validation.
+  - text: snapshot ci
+  - button "Run"
+  - text: Automation Card override
+  - button "Edit"
+- text: Todo 0 cards -> Default · CRAFTER · Todo Orchestrator Dev 0 cards -> Default · CRAFTER · Dev Crafter Review 0 cards -> Default · GATE · QA Frontend -> Default · GATE · Review Guard Done 1 cards -> Default · GATE · Done Reporter
+- button "Open Validate Snapshot Pipeline":
+  - img
+  - button "Delete task":
+    - img
+  - text: Idle Not synced Validate Snapshot Pipeline medium
+  - paragraph: Verify the snapshot validator runs against fixture data.
+  - text: snapshot Automation Card override
   - button "Edit"

@@ -3,7 +3,7 @@
 # source-page: src/app/ag-ui/page.tsx
 # url: http://127.0.0.1:3000/ag-ui
 # title: Routa - Multi-Agent Coordinator
-# generated-at: 2026-03-19T13:00:37.036Z
+# generated-at: 2026-03-19T15:26:29.868Z
 # generator: playwright
 # playwright-version: 1.58.2
 - banner:
@@ -14,6 +14,8 @@
   - paragraph: Agent-User Interaction Protocol Test
   - button "AG-UI"
   - button "ACP"
+  - combobox:
+    - option "Default Workspace" [selected]
   - text: AG-UI /api/ag-ui 0 events
   - button "Clear"
 - main:

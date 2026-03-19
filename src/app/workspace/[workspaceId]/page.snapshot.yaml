@@ -3,7 +3,7 @@
 # source-page: src/app/workspace/[workspaceId]/page.tsx
 # url: http://127.0.0.1:3000/workspace/default
 # title: Routa - Multi-Agent Coordinator
-# generated-at: 2026-03-19T13:00:26.855Z
+# generated-at: 2026-03-19T15:26:22.017Z
 # generator: playwright
 # playwright-version: 1.58.2
 - banner:
@@ -31,7 +31,7 @@
     - /url: /settings
     - img
 - main:
-  - text: 494 Sessions 0 Agents 3 Tasks 0 BG Tasks
+  - text: 1 Sessions 0 Agents 2 Tasks· 1 pending 0 BG Tasks
   - button "Overview"
   - button "Notes"
   - button "Activity"
@@ -40,34 +40,19 @@
   - paragraph: This page now stays focused on context and recovery. Use the dedicated Kanban route as the primary operating surface for active task execution.
   - button "Open Kanban"
   - button "Open traces"
-  - text: Primary surface Default Workspace Board Kanban is the canonical work surface for routing, queue supervision, and lane-based execution. 1 board 0 active tasks 0 background runs
+  - text: Primary surface Default Workspace Board Kanban is the canonical work surface for routing, queue supervision, and lane-based execution. 1 board 1 active tasks 0 background runs
   - button "Go to board"
-  - text: Latest recovery point 创建 js 的 hello world · opencode Recover the latest session from this workspace or continue task execution from the board. 494 recent sessions 0 notes 0 agents
+  - text: Latest recovery point Snapshot Fixture Session Recover the latest session from this workspace or continue task execution from the board. 1 recent sessions 0 notes 0 agents
   - button "Open latest session"
   - text: Recent sessions Recover execution context without reopening the Kanban surface.
   - heading "Recent Sessions" [level=3]
-  - text: "494"
+  - text: "1"
   - button "Refresh":
     - img
   - button "Show All":
     - text: Show All
     - img
   - img
-  - text: 创建 js 的 hello world · opencode gate·opencode <relative-time>
-  - img
-  - img
-  - text: 创建 js 的 hello world · opencode gate·opencode <relative-time>
-  - img
-  - img
-  - text: 创建 js 的 hello world · opencode crafter·opencode <relative-time>
-  - img
-  - img
-  - text: 创建 js 的 hello world · opencode crafter·opencode <relative-time>
-  - img
-  - img
-  - text: 创建 js 的 hello world · opencode crafter·opencode <relative-time>
-  - img
-  - img
-  - text: codex crafter·codex <relative-time>
+  - text: Snapshot Fixture Session crafter·opencode <relative-time>
   - img
 - alert

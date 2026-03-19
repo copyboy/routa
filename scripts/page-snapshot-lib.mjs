@@ -6,12 +6,15 @@ import { execFileSync, spawn } from "node:child_process";
 import { URL } from "node:url";
 import { chromium } from "@playwright/test";
 
+import { prepareSnapshotFixtures } from "./page-snapshot-fixtures.mjs";
+
 export const ROOT_DIR = process.cwd();
 export const REGISTRY_FILE = path.join(ROOT_DIR, "resources", "page-snapshot-registry.json");
 export const DEFAULT_BASE_URL = process.env.PAGE_SNAPSHOT_BASE_URL || "http://127.0.0.1:3000";
 export const DEFAULT_TIMEOUT_MS = 30000;
 export const REPORT_FILE = path.join(ROOT_DIR, "test-results", "page-snapshot-report.json");
 export const PLAYWRIGHT_ARTIFACTS_DIR = path.join(ROOT_DIR, ".playwright-snapshots");
+export const SNAPSHOT_FIXTURES_ENABLED = process.env.PAGE_SNAPSHOT_USE_FIXTURES !== "0";
 
 export function loadRegistry() {
   const raw = fs.readFileSync(REGISTRY_FILE, "utf-8");
@@ -35,9 +38,16 @@ export function parseCliArgs(argv) {
     similarityThreshold: 0.95, // 95% similarity required by default
   };
 
-  for (const arg of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
     if (arg.startsWith("--page=")) {
       options.page = arg.slice("--page=".length);
+    } else if (arg === "--page") {
+      const nextArg = argv[index + 1];
+      if (nextArg && !nextArg.startsWith("--")) {
+        options.page = nextArg;
+        index += 1;
+      }
     } else if (arg === "--ci") {
       options.ciOnly = true;
     } else if (arg === "--update" || arg === "--update-snapshots") {
@@ -114,7 +124,24 @@ export async function isServerReachable(baseUrl) {
   }
 }
 
-export function startDevServer(baseUrl) {
+export async function createSnapshotRuntime() {
+  if (!SNAPSHOT_FIXTURES_ENABLED) {
+    return {
+      requiresManagedServer: false,
+      env: {},
+      cleanup: () => {},
+    };
+  }
+
+  const fixtureRuntime = await prepareSnapshotFixtures(ROOT_DIR);
+  return {
+    requiresManagedServer: true,
+    env: fixtureRuntime.env,
+    cleanup: fixtureRuntime.cleanup,
+  };
+}
+
+export function startDevServer(baseUrl, extraEnv = {}) {
   const url = new URL(baseUrl);
   const host = url.hostname;
   const port = url.port || "3000";
@@ -122,7 +149,10 @@ export function startDevServer(baseUrl) {
 
   const child = spawn("npm", ["run", "dev", "--", "--hostname", host, "--port", port], {
     cwd: ROOT_DIR,
-    env: process.env,
+    env: {
+      ...process.env,
+      ...extraEnv,
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -302,6 +332,9 @@ export async function captureSnapshot({
   const finalUrl = page.url();
   
   const snapshotRoot = target.snapshotSelector ? page.locator(target.snapshotSelector) : page.locator("body");
+  if (target.snapshotSelector) {
+    await snapshotRoot.waitFor({ state: "visible", timeout: effectiveTimeout });
+  }
 
   // Use the newer ariaSnapshot() API which returns YAML directly
   const snapshotYaml = await snapshotRoot.ariaSnapshot();
