@@ -18,6 +18,7 @@ pub mod server;
 pub mod skill;
 pub mod specialist;
 pub mod task;
+pub mod team;
 pub mod tui;
 pub mod workflow;
 pub mod workspace;

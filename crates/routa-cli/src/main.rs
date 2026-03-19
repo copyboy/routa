@@ -178,6 +178,12 @@ enum Commands {
         #[command(subcommand)]
         action: ReviewAction,
     },
+
+    /// Team coordination with an agent lead
+    Team {
+        #[command(subcommand)]
+        action: TeamAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -630,6 +636,31 @@ enum WorkflowAction {
         /// Custom specialist definitions directory
         #[arg(long)]
         specialist_dir: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum TeamAction {
+    /// Launch a team coordination session with an agent lead
+    Run {
+        /// Task description / user requirement
+        #[arg(long, short = 't')]
+        task: Option<String>,
+        /// Workspace ID
+        #[arg(long, short = 'w', default_value = "default")]
+        workspace_id: String,
+        /// ACP provider for all team members
+        #[arg(long, default_value = "opencode")]
+        provider: String,
+        /// Enter interactive mode after initial delegation
+        #[arg(long, short = 'i', default_value_t = true)]
+        interactive: bool,
+    },
+    /// Show team status (agents and tasks in workspace)
+    Status {
+        /// Workspace ID
+        #[arg(long, default_value = "default")]
+        workspace_id: String,
     },
 }
 
@@ -1206,6 +1237,44 @@ async fn main() {
                             },
                         )
                         .await
+                    }
+                }
+            }
+
+            Commands::Team { action } => {
+                // Resolve full shell PATH so child processes can be found
+                let full_path = routa_core::shell_env::full_path();
+                std::env::set_var("PATH", full_path);
+
+                let state = commands::init_state(&cli.db).await;
+                match action {
+                    TeamAction::Run {
+                        task,
+                        workspace_id,
+                        provider,
+                        interactive,
+                    } => {
+                        let task_prompt = match task {
+                            Some(t) => t,
+                            None => match commands::team::prompt_for_task() {
+                                Ok(t) => t,
+                                Err(e) => {
+                                    eprintln!("Error: {}", e);
+                                    std::process::exit(1);
+                                }
+                            },
+                        };
+                        commands::team::run(
+                            &state,
+                            &task_prompt,
+                            &workspace_id,
+                            &provider,
+                            interactive,
+                        )
+                        .await
+                    }
+                    TeamAction::Status { workspace_id } => {
+                        commands::team::status(&state, &workspace_id).await
                     }
                 }
             }
