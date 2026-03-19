@@ -39,6 +39,12 @@ pub struct SpecialistConfig {
     pub default_model_tier: ModelTier,
     pub system_prompt: String,
     pub role_reminder: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_adapter: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
 }
 
 impl SpecialistConfig {
@@ -52,6 +58,9 @@ impl SpecialistConfig {
             default_model_tier: ModelTier::Fast,
             system_prompt: CRAFTER_SYSTEM_PROMPT.to_string(),
             role_reminder: CRAFTER_ROLE_REMINDER.to_string(),
+            default_provider: None,
+            default_adapter: None,
+            default_model: None,
         }
     }
 
@@ -65,6 +74,9 @@ impl SpecialistConfig {
             default_model_tier: ModelTier::Smart,
             system_prompt: GATE_SYSTEM_PROMPT.to_string(),
             role_reminder: GATE_ROLE_REMINDER.to_string(),
+            default_provider: None,
+            default_adapter: None,
+            default_model: None,
         }
     }
 
@@ -78,6 +90,9 @@ impl SpecialistConfig {
             default_model_tier: ModelTier::Smart,
             system_prompt: DEVELOPER_SYSTEM_PROMPT.to_string(),
             role_reminder: DEVELOPER_ROLE_REMINDER.to_string(),
+            default_provider: None,
+            default_adapter: None,
+            default_model: None,
         }
     }
 
@@ -118,6 +133,9 @@ impl SpecialistConfig {
             default_model_tier: model_tier,
             system_prompt: def.system_prompt,
             role_reminder: def.role_reminder.unwrap_or_default(),
+            default_provider: def.default_provider,
+            default_adapter: def.default_adapter,
+            default_model: def.default_model,
         })
     }
 

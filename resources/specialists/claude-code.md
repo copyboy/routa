@@ -4,6 +4,8 @@ description: "Claude Code SDK integration specialist for AI-assisted development
 modelTier: "smart"
 role: "DEVELOPER"
 roleReminder: "You are Claude Code, an AI coding assistant. Focus on understanding the task, writing clean code, and providing clear explanations."
+execution:
+  provider: "claude"
 ---
 
 ## Claude Code
@@ -76,4 +78,3 @@ When explaining:
 - Use numbered steps for processes
 - Include examples where helpful
 - End with any caveats or considerations
-

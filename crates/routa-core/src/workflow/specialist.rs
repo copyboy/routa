@@ -21,6 +21,25 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SpecialistExecutionDef {
+    /// Default agent role override.
+    #[serde(default)]
+    pub role: Option<String>,
+    /// Default ACP provider to use when executing this specialist directly.
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// Default adapter/runtime hint for workflow execution.
+    #[serde(default)]
+    pub adapter: Option<String>,
+    /// Default model tier.
+    #[serde(default, alias = "modelTier")]
+    pub model_tier: Option<String>,
+    /// Default model override.
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
 /// A specialist agent definition loaded from YAML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpecialistDef {
@@ -49,6 +68,14 @@ pub struct SpecialistDef {
     #[serde(default)]
     pub role_reminder: Option<String>,
 
+    /// Structured execution defaults.
+    #[serde(default)]
+    pub execution: SpecialistExecutionDef,
+
+    /// Default ACP provider for direct execution.
+    #[serde(default)]
+    pub default_provider: Option<String>,
+
     /// Default adapter type to use with this specialist
     #[serde(default)]
     pub default_adapter: Option<String>,
@@ -71,9 +98,30 @@ fn default_model_tier() -> String {
 }
 
 impl SpecialistDef {
+    fn normalize_execution(mut self) -> Self {
+        if let Some(role) = self.execution.role.clone() {
+            self.role = role;
+        }
+        if let Some(model_tier) = self.execution.model_tier.clone() {
+            self.model_tier = model_tier;
+        }
+        if let Some(provider) = self.execution.provider.clone() {
+            self.default_provider = Some(provider);
+        }
+        if let Some(adapter) = self.execution.adapter.clone() {
+            self.default_adapter = Some(adapter);
+        }
+        if let Some(model) = self.execution.model.clone() {
+            self.default_model = Some(model);
+        }
+        self
+    }
+
     /// Parse a specialist definition from a YAML string.
     pub fn from_yaml(yaml: &str) -> Result<Self, String> {
-        serde_yaml::from_str(yaml).map_err(|e| format!("Failed to parse specialist YAML: {}", e))
+        let parsed: Self = serde_yaml::from_str(yaml)
+            .map_err(|e| format!("Failed to parse specialist YAML: {}", e))?;
+        Ok(parsed.normalize_execution())
     }
 
     /// Load a specialist definition from a YAML file.
@@ -110,6 +158,10 @@ impl SpecialistDef {
             model_tier: Option<String>,
             role: Option<String>,
             role_reminder: Option<String>,
+            default_provider: Option<String>,
+            default_adapter: Option<String>,
+            default_model: Option<String>,
+            execution: Option<SpecialistExecutionDef>,
         }
 
         let fm: FrontMatter = serde_yaml::from_str(frontmatter)
@@ -121,18 +173,46 @@ impl SpecialistDef {
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
+        let execution = fm.execution.unwrap_or_default();
+
         Ok(Self {
             id,
             name: fm.name,
             description: fm.description,
-            role: fm.role.unwrap_or_else(|| "DEVELOPER".to_string()),
-            model_tier: fm.model_tier.unwrap_or_else(|| "smart".to_string()),
+            role: execution
+                .role
+                .clone()
+                .or(fm.role)
+                .unwrap_or_else(|| "DEVELOPER".to_string()),
+            model_tier: execution
+                .model_tier
+                .clone()
+                .or(fm.model_tier)
+                .unwrap_or_else(|| "smart".to_string()),
             system_prompt: body.to_string(),
             role_reminder: fm.role_reminder,
-            default_adapter: None,
-            default_model: None,
+            execution: execution.clone(),
+            default_provider: execution.provider.clone().or(fm.default_provider),
+            default_adapter: execution.adapter.clone().or(fm.default_adapter),
+            default_model: execution.model.clone().or(fm.default_model),
             metadata: HashMap::new(),
         })
+    }
+
+    /// Load a specialist definition from a path, inferring format by extension.
+    pub fn from_path(path: &str) -> Result<Self, String> {
+        match Path::new(path)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or_default()
+        {
+            "yaml" | "yml" => Self::from_file(path),
+            "md" => Self::from_markdown(path),
+            _ => Err(format!(
+                "Unsupported specialist file '{}'. Expected .md, .yaml, or .yml",
+                path
+            )),
+        }
     }
 }
 
@@ -260,6 +340,8 @@ impl SpecialistLoader {
                     Write clean, minimal code that satisfies the requirements.\n\
                     When done, summarize what you did.".to_string(),
                 role_reminder: Some("Plan first, implement minimally, summarize when done.".to_string()),
+                execution: SpecialistExecutionDef::default(),
+                default_provider: None,
                 default_adapter: None,
                 default_model: None,
                 metadata: HashMap::new(),
@@ -273,6 +355,8 @@ impl SpecialistLoader {
                 system_prompt: "Implement the assigned task — nothing more, nothing less. \
                     Produce minimal, clean changes. Stay within scope.".to_string(),
                 role_reminder: Some("Stay within task scope. No refactors, no scope creep.".to_string()),
+                execution: SpecialistExecutionDef::default(),
+                default_provider: None,
                 default_adapter: None,
                 default_model: None,
                 metadata: HashMap::new(),
@@ -287,6 +371,8 @@ impl SpecialistLoader {
                     Be evidence-driven: if you can't point to concrete evidence, it's not verified. \
                     No partial approvals.".to_string(),
                 role_reminder: Some("Verify against acceptance criteria ONLY. Be evidence-driven.".to_string()),
+                execution: SpecialistExecutionDef::default(),
+                default_provider: None,
                 default_adapter: None,
                 default_model: None,
                 metadata: HashMap::new(),
@@ -301,6 +387,8 @@ impl SpecialistLoader {
                     Break them down into clear, actionable tasks with acceptance criteria. \
                     Identify ambiguities and suggest clarifications.".to_string(),
                 role_reminder: Some("Be specific about acceptance criteria and scope.".to_string()),
+                execution: SpecialistExecutionDef::default(),
+                default_provider: None,
                 default_adapter: None,
                 default_model: None,
                 metadata: HashMap::new(),
@@ -331,6 +419,58 @@ role_reminder: "Stay on test."
         assert_eq!(spec.name, "Test Specialist");
         assert_eq!(spec.role, "DEVELOPER");
         assert!(spec.system_prompt.contains("test specialist"));
+    }
+
+    #[test]
+    fn test_parse_specialist_yaml_execution() {
+        let yaml = r#"
+id: "cli-runner"
+name: "CLI Runner"
+execution:
+  role: "CRAFTER"
+  provider: "claude"
+  model_tier: "smart"
+  model: "sonnet-4.5"
+system_prompt: |
+  Run the task.
+"#;
+
+        let spec = SpecialistDef::from_yaml(yaml).unwrap();
+        assert_eq!(spec.role, "CRAFTER");
+        assert_eq!(spec.model_tier, "smart");
+        assert_eq!(spec.default_provider.as_deref(), Some("claude"));
+        assert_eq!(spec.default_model.as_deref(), Some("sonnet-4.5"));
+    }
+
+    #[test]
+    fn test_parse_specialist_markdown_execution() {
+        let temp_path = std::env::temp_dir().join(format!(
+            "routa-specialist-{}.md",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(
+            &temp_path,
+            r#"---
+name: "Markdown Specialist"
+description: "Markdown execution test"
+modelTier: "balanced"
+role: "DEVELOPER"
+execution:
+  provider: "claude"
+  role: "CRAFTER"
+---
+
+You are a markdown specialist.
+"#,
+        )
+        .unwrap();
+
+        let spec = SpecialistDef::from_markdown(temp_path.to_str().unwrap()).unwrap();
+        assert_eq!(spec.role, "CRAFTER");
+        assert_eq!(spec.default_provider.as_deref(), Some("claude"));
+        assert!(spec.system_prompt.contains("markdown specialist"));
+
+        let _ = std::fs::remove_file(temp_path);
     }
 
     #[test]

@@ -33,6 +33,15 @@ export interface SpecialistFileMeta {
   model?: string;
   role?: string;
   roleReminder?: string;
+  defaultProvider?: string;
+  defaultAdapter?: string;
+  execution?: {
+    role?: string;
+    provider?: string;
+    adapter?: string;
+    modelTier?: string;
+    model?: string;
+  };
 }
 
 export interface ParsedSpecialist {
@@ -197,7 +206,9 @@ export function loadUserSpecialists(locale?: string): ParsedSpecialist[] {
  * The behaviorPrompt becomes the systemPrompt.
  */
 export function toSpecialistConfig(parsed: ParsedSpecialist): SpecialistConfig {
-  const role = resolveRole(parsed.frontmatter.role);
+  const execution = parsed.frontmatter.execution;
+  const role = resolveRole(execution?.role ?? parsed.frontmatter.role);
+  const resolvedModelTier = resolveModelTier(execution?.modelTier ?? parsed.frontmatter.modelTier);
 
   // Map specialist ID to a default role if not specified in frontmatter
   const idToRoleMap: Record<string, AgentRole> = {
@@ -218,11 +229,14 @@ export function toSpecialistConfig(parsed: ParsedSpecialist): SpecialistConfig {
     name: parsed.frontmatter.name,
     description: parsed.frontmatter.description ?? "",
     role: resolvedRole,
-    defaultModelTier: resolveModelTier(parsed.frontmatter.modelTier),
+    defaultModelTier: resolvedModelTier,
     systemPrompt: parsed.behaviorPrompt,
     roleReminder: parsed.frontmatter.roleReminder ?? "",
     source: parsed.source,
     locale: parsed.locale,
+    defaultProvider: execution?.provider ?? parsed.frontmatter.defaultProvider,
+    defaultAdapter: execution?.adapter ?? parsed.frontmatter.defaultAdapter,
+    model: execution?.model ?? parsed.frontmatter.model,
   };
 }
 
