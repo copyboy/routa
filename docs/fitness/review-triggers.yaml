@@ -1,0 +1,17 @@
+review_triggers:
+  - name: high_risk_directory_change
+    type: changed_paths
+    paths:
+      - src/core/acp/**
+      - src/core/orchestration/**
+      - crates/routa-server/src/api/**
+    severity: high
+    action: require_human_review
+
+  - name: oversized_change
+    type: diff_size
+    max_files: 12
+    max_added_lines: 600
+    max_deleted_lines: 400
+    severity: medium
+    action: require_human_review

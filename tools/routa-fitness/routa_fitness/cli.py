@@ -11,6 +11,12 @@ from pathlib import Path
 from routa_fitness.evidence import load_dimensions, validate_weights
 from routa_fitness.governance import GovernancePolicy, enforce, filter_dimensions
 from routa_fitness.model import Dimension, Metric, Tier
+from routa_fitness.review_trigger import (
+    collect_changed_files as collect_review_changed_files,
+    collect_diff_stats,
+    evaluate_review_triggers,
+    load_review_triggers,
+)
 from routa_fitness.reporters.terminal import TerminalReporter
 from routa_fitness.runners.graph import GraphRunner
 from routa_fitness.runners.shell import ShellRunner
@@ -33,6 +39,15 @@ def _find_fitness_dir(project_root: Path) -> Path:
         print(f"Error: fitness directory not found at {fitness_dir}")
         sys.exit(1)
     return fitness_dir
+
+
+def _find_review_trigger_config(project_root: Path) -> Path:
+    """Locate the default review-trigger config."""
+    config_path = project_root / "docs" / "fitness" / "review-triggers.yaml"
+    if not config_path.is_file():
+        print(f"Error: review-trigger config not found at {config_path}")
+        sys.exit(1)
+    return config_path
 
 
 def _print_json(data: dict) -> None:
@@ -101,6 +116,26 @@ def _print_graph_review_context(result: dict) -> None:
         for snippet in snippets[:10]:
             suffix = " (truncated)" if snippet.get("truncated") else ""
             print(f"  - {snippet['file_path']}{suffix}")
+
+
+def _print_review_trigger_report(report: dict) -> None:
+    print("REVIEW TRIGGER REPORT")
+    print(f"Base: {report['base']}")
+    stats = report.get("diff_stats", {})
+    print(
+        "Diff stats: "
+        f"files={stats.get('file_count', 0)} "
+        f"added={stats.get('added_lines', 0)} "
+        f"deleted={stats.get('deleted_lines', 0)}"
+    )
+    if report.get("human_review_required"):
+        print("Human review required: yes")
+        for trigger in report.get("triggers", []):
+            print(f"- {trigger['name']} [{trigger['severity']}]")
+            for reason in trigger.get("reasons", []):
+                print(f"  reason: {reason}")
+    else:
+        print("Human review required: no")
 
 
 def _collect_changed_files(project_root: Path, base: str) -> list[str]:
@@ -332,6 +367,26 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_review_trigger(args: argparse.Namespace) -> int:
+    """Evaluate review-trigger rules for the current diff."""
+    project_root = _find_project_root()
+    config_path = Path(args.config).resolve() if args.config else _find_review_trigger_config(project_root)
+
+    rules = load_review_triggers(config_path)
+    changed_files = args.files or collect_review_changed_files(project_root, args.base)
+    diff_stats = collect_diff_stats(project_root, args.base)
+    report = evaluate_review_triggers(rules, changed_files, diff_stats, base=args.base)
+
+    if args.json:
+        _print_json(report.to_dict())
+    else:
+        _print_review_trigger_report(report.to_dict())
+
+    if report.human_review_required and args.fail_on_trigger:
+        return 3
+    return 0
+
+
 def cmd_graph_build(args: argparse.Namespace) -> int:
     """Build or update the backing code graph."""
     runner = GraphRunner(_find_project_root())
@@ -486,6 +541,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate_parser = subparsers.add_parser("validate", help="Check dimension weights sum to 100%")
     validate_parser.set_defaults(func=cmd_validate)
+
+    review_trigger_parser = subparsers.add_parser(
+        "review-trigger",
+        help="Detect risky changes that should trigger human review",
+    )
+    review_trigger_parser.add_argument("files", nargs="*", help="Optional explicit changed files")
+    review_trigger_parser.add_argument("--base", default="HEAD~1", help="Git diff base")
+    review_trigger_parser.add_argument("--config", help="Optional review-trigger YAML config path")
+    review_trigger_parser.add_argument(
+        "--fail-on-trigger",
+        action="store_true",
+        help="Return non-zero when human review is required",
+    )
+    review_trigger_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+    review_trigger_parser.set_defaults(func=cmd_review_trigger)
 
     graph_parser = subparsers.add_parser("graph", help="Graph-backed impact and test-radius analysis")
     graph_subparsers = graph_parser.add_subparsers(dest="graph_command")

@@ -35,6 +35,39 @@ def test_parser_validate():
     assert args.command == "validate"
 
 
+def test_parser_review_trigger_defaults():
+    parser = build_parser()
+    args = parser.parse_args(["review-trigger"])
+    assert args.command == "review-trigger"
+    assert args.base == "HEAD~1"
+    assert args.config is None
+    assert args.fail_on_trigger is False
+    assert args.json is False
+    assert args.files == []
+
+
+def test_parser_review_trigger_flags():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "review-trigger",
+            "--base",
+            "main",
+            "--config",
+            "docs/fitness/review-triggers.yaml",
+            "--fail-on-trigger",
+            "--json",
+            "src/core/acp/foo.ts",
+        ]
+    )
+    assert args.command == "review-trigger"
+    assert args.base == "main"
+    assert args.config == "docs/fitness/review-triggers.yaml"
+    assert args.fail_on_trigger is True
+    assert args.json is True
+    assert args.files == ["src/core/acp/foo.ts"]
+
+
 def test_parser_graph_impact_defaults():
     parser = build_parser()
     args = parser.parse_args(["graph", "impact"])

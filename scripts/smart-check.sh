@@ -155,6 +155,7 @@ main() {
 
   # All passed?
   if [[ $lint_exit -eq 0 ]] && [[ $typecheck_exit -eq 0 ]] && [[ $test_exit -eq 0 ]]; then
+    maybe_warn_human_review
     echo ""
     echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
     echo -e "${GREEN}  All checks passed! Ready to push.${NC}"
@@ -165,6 +166,20 @@ main() {
   # ─── Failure Handling (only reached in --no-fail-fast mode) ───────────────
   handle_failure "$auto_fix" "all" $lint_exit $typecheck_exit $test_exit
   exit 1
+}
+
+# ─── Review Trigger Warning ─────────────────────────────────────────────────
+maybe_warn_human_review() {
+  local review_base="HEAD~1"
+
+  if git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1; then
+    review_base='@{upstream}'
+  fi
+
+  echo -e "${BLUE}[review] Evaluating human review triggers...${NC}"
+  echo ""
+  PYTHONPATH=tools/routa-fitness python3 -m routa_fitness.cli review-trigger --base "$review_base" || true
+  echo ""
 }
 
 # ─── Failure Handler ─────────────────────────────────────────────────────────
@@ -240,4 +255,3 @@ handle_failure() {
 }
 
 main "$@"
-
