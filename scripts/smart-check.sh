@@ -171,6 +171,8 @@ main() {
 # ─── Review Trigger Warning ─────────────────────────────────────────────────
 maybe_warn_human_review() {
   local review_base="HEAD~1"
+  local review_json
+  local review_status=0
 
   if git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1; then
     review_base='@{upstream}'
@@ -178,7 +180,63 @@ maybe_warn_human_review() {
 
   echo -e "${BLUE}[review] Evaluating human review triggers...${NC}"
   echo ""
-  PYTHONPATH=tools/entrix python3 -m entrix.cli review-trigger --base "$review_base" || true
+
+  set +e
+  review_json=$(PYTHONPATH=tools/entrix python3 -m entrix.cli review-trigger --base "$review_base" --json --fail-on-trigger 2>/dev/null)
+  review_status=$?
+  set -e
+
+  if [[ $review_status -ne 0 ]] && [[ $review_status -ne 3 ]]; then
+    echo -e "${YELLOW}⚠ Unable to evaluate review triggers. Continuing without review gate.${NC}"
+    echo ""
+    return 0
+  fi
+
+  if [[ $review_status -eq 0 ]]; then
+    echo -e "${GREEN}✓ No review trigger matched${NC}"
+    echo ""
+    return 0
+  fi
+
+  REVIEW_JSON="$review_json" python3 <<'PY'
+import json
+import os
+
+report = json.loads(os.environ["REVIEW_JSON"])
+print("Human review required before push:")
+for trigger in report.get("triggers", []):
+    print(f"- [{trigger['severity']}] {trigger['name']}")
+    for reason in trigger.get("reasons", []):
+        print(f"  - {reason}")
+PY
+  echo ""
+
+  if [[ "$ROUTA_ALLOW_REVIEW_TRIGGER_PUSH" == "1" ]]; then
+    echo -e "${YELLOW}⚠ ROUTA_ALLOW_REVIEW_TRIGGER_PUSH=1 set, bypassing review gate.${NC}"
+    echo ""
+    return 0
+  fi
+
+  if is_ai_agent; then
+    echo -e "${RED}Review-trigger matched. Human review is required before push.${NC}"
+    echo -e "${YELLOW}After review, rerun push with ROUTA_ALLOW_REVIEW_TRIGGER_PUSH=1 if you intentionally want to bypass this gate.${NC}"
+    exit 1
+  fi
+
+  if [[ ! -t 0 ]]; then
+    echo -e "${RED}Review-trigger matched in a non-interactive push.${NC}"
+    echo -e "${YELLOW}Complete human review first, then rerun with ROUTA_ALLOW_REVIEW_TRIGGER_PUSH=1 to confirm.${NC}"
+    exit 1
+  fi
+
+  echo -e "${YELLOW}These changes need human review. Confirm review is complete and continue push? [y/N]${NC}"
+  read -r -t 30 response || response="n"
+  if [[ ! "$response" =~ ^[Yy]$ ]]; then
+    echo "Push aborted. Complete review, then push again."
+    exit 1
+  fi
+
+  echo -e "${GREEN}✓ Human review acknowledged. Continuing push.${NC}"
   echo ""
 }
 
