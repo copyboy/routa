@@ -437,13 +437,23 @@ pub async fn move_card(
     }
     task.updated_at = Utc::now();
 
-    state.task_store.save(&task).await?;
     if previous_column_id.as_deref() != Some(params.target_column_id.as_str()) {
         let transition_column =
             resolve_transition_automation_column(source_column.as_ref(), Some(&target_column));
         maybe_trigger_lane_automation(state, &mut task, transition_column).await;
-        state.task_store.save(&task).await?;
     }
+    tracing::info!(
+        target: "routa_kanban_move",
+        task_id = %task.id,
+        from_column_id = ?previous_column_id,
+        to_column_id = ?task.column_id,
+        trigger_session_id = ?task.trigger_session_id,
+        assigned_provider = ?task.assigned_provider,
+        assigned_role = ?task.assigned_role,
+        status = %task.status.as_str(),
+        "kanban.move_card before save"
+    );
+    state.task_store.save(&task).await?;
     emit_kanban_workspace_event(
         state,
         &board.workspace_id,
@@ -701,26 +711,96 @@ async fn trigger_assigned_task_agent(state: &AppState, task: &Task) -> Result<St
     let prompt = build_task_prompt(task);
     let state_clone = state.clone();
     let session_id_clone = session_id.clone();
+    let workspace_id = task.workspace_id.clone();
+    let provider_clone = provider.clone();
+    let cwd_clone = cwd.clone();
+    tracing::info!(
+        target: "routa_kanban_prompt",
+        session_id = %session_id_clone,
+        workspace_id = %workspace_id,
+        provider = %provider_clone,
+        cwd = %cwd_clone,
+        "kanban lane prompt scheduled"
+    );
     tokio::spawn(async move {
-        if state_clone
+        tracing::info!(
+            target: "routa_kanban_prompt",
+            session_id = %session_id_clone,
+            workspace_id = %workspace_id,
+            provider = %provider_clone,
+            cwd = %cwd_clone,
+            "kanban lane prompt start"
+        );
+        if let Err(error) = state_clone
             .acp_manager
             .prompt(&session_id_clone, &prompt)
             .await
-            .is_ok()
         {
-            let _ = state_clone
+            tracing::error!(
+                target: "routa_kanban_prompt",
+                session_id = %session_id_clone,
+                workspace_id = %workspace_id,
+                provider = %provider_clone,
+                error = %error,
+                "kanban lane prompt failed"
+            );
+            return;
+        }
+
+        tracing::info!(
+            target: "routa_kanban_prompt",
+            session_id = %session_id_clone,
+            workspace_id = %workspace_id,
+            provider = %provider_clone,
+            "kanban lane prompt success"
+        );
+
+        if let Err(error) = state_clone
+            .acp_session_store
+            .set_first_prompt_sent(&session_id_clone)
+            .await
+        {
+            tracing::error!(
+                target: "routa_kanban_prompt",
+                session_id = %session_id_clone,
+                workspace_id = %workspace_id,
+                error = %error,
+                "kanban lane prompt failed to persist first_prompt_sent"
+            );
+        } else {
+            tracing::info!(
+                target: "routa_kanban_prompt",
+                session_id = %session_id_clone,
+                workspace_id = %workspace_id,
+                "kanban lane prompt persisted first_prompt_sent"
+            );
+        }
+
+        if let Some(history) = state_clone
+            .acp_manager
+            .get_session_history(&session_id_clone)
+            .await
+        {
+            if let Err(error) = state_clone
                 .acp_session_store
-                .set_first_prompt_sent(&session_id_clone)
-                .await;
-            if let Some(history) = state_clone
-                .acp_manager
-                .get_session_history(&session_id_clone)
+                .save_history(&session_id_clone, &history)
                 .await
             {
-                let _ = state_clone
-                    .acp_session_store
-                    .save_history(&session_id_clone, &history)
-                    .await;
+                tracing::error!(
+                    target: "routa_kanban_prompt",
+                    session_id = %session_id_clone,
+                    workspace_id = %workspace_id,
+                    error = %error,
+                    "kanban lane prompt failed to persist history"
+                );
+            } else {
+                tracing::info!(
+                    target: "routa_kanban_prompt",
+                    session_id = %session_id_clone,
+                    workspace_id = %workspace_id,
+                    history_len = history.len(),
+                    "kanban lane prompt persisted history"
+                );
             }
         }
     });

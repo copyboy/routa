@@ -321,6 +321,16 @@ async fn create_task(
         }
     }
 
+    tracing::info!(
+        target: "routa_task_api",
+        task_id = %task.id,
+        column_id = ?task.column_id,
+        trigger_session_id = ?task.trigger_session_id,
+        assigned_provider = ?task.assigned_provider,
+        assigned_role = ?task.assigned_role,
+        status = %task.status.as_str(),
+        "api.tasks.update_task before save"
+    );
     state.task_store.save(&task).await?;
     emit_kanban_workspace_event(
         &state,
@@ -1101,7 +1111,24 @@ async fn trigger_assigned_task_agent(
     let cwd_clone = cwd.clone();
     let _branch = branch.map(|value| value.to_string());
 
+    tracing::info!(
+        target: "routa_kanban_prompt",
+        session_id = %session_id_clone,
+        workspace_id = %task_workspace,
+        provider = %provider_clone,
+        cwd = %cwd_clone,
+        "kanban auto prompt scheduled"
+    );
+
     tokio::spawn(async move {
+        tracing::info!(
+            target: "routa_kanban_prompt",
+            session_id = %session_id_clone,
+            workspace_id = %task_workspace,
+            provider = %provider_clone,
+            cwd = %cwd_clone,
+            "kanban auto prompt start"
+        );
         if let Err(error) = state_clone
             .acp_manager
             .prompt(&session_id_clone, &prompt)
@@ -1118,19 +1145,60 @@ async fn trigger_assigned_task_agent(
             return;
         }
 
-        let _ = state_clone
+        tracing::info!(
+            target: "routa_kanban_prompt",
+            session_id = %session_id_clone,
+            workspace_id = %task_workspace,
+            provider = %provider_clone,
+            "kanban auto prompt success"
+        );
+
+        if let Err(error) = state_clone
             .acp_session_store
             .set_first_prompt_sent(&session_id_clone)
-            .await;
+            .await
+        {
+            tracing::error!(
+                target: "routa_kanban_prompt",
+                session_id = %session_id_clone,
+                workspace_id = %task_workspace,
+                error = %error,
+                "kanban auto prompt failed to persist first_prompt_sent"
+            );
+        } else {
+            tracing::info!(
+                target: "routa_kanban_prompt",
+                session_id = %session_id_clone,
+                workspace_id = %task_workspace,
+                "kanban auto prompt persisted first_prompt_sent"
+            );
+        }
         if let Some(history) = state_clone
             .acp_manager
             .get_session_history(&session_id_clone)
             .await
         {
-            let _ = state_clone
+            if let Err(error) = state_clone
                 .acp_session_store
                 .save_history(&session_id_clone, &history)
-                .await;
+                .await
+            {
+                tracing::error!(
+                    target: "routa_kanban_prompt",
+                    session_id = %session_id_clone,
+                    workspace_id = %task_workspace,
+                    error = %error,
+                    "kanban auto prompt failed to persist history"
+                );
+            } else {
+                tracing::info!(
+                    target: "routa_kanban_prompt",
+                    session_id = %session_id_clone,
+                    workspace_id = %task_workspace,
+                    history_len = history.len(),
+                    "kanban auto prompt persisted history"
+                );
+            }
         }
     });
 

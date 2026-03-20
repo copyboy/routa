@@ -8,6 +8,7 @@ import { WorkspaceSwitcher } from "@/client/components/workspace-switcher";
 import { getToolEventLabel } from "@/client/components/chat-panel/tool-call-name";
 import { useAcp } from "@/client/hooks/use-acp";
 import { useNotes } from "@/client/hooks/use-notes";
+import { consumePendingPrompt } from "@/client/utils/pending-prompt";
 import { useWorkspaces } from "@/client/hooks/use-workspaces";
 import { desktopAwareFetch } from "@/client/utils/diagnostics";
 import { formatRelativeTime } from "../../ui-components";
@@ -129,6 +130,7 @@ export function TeamRunPageClient() {
     loading: acpLoading,
     updates: acpUpdates,
     connect: connectAcp,
+    prompt: acpPrompt,
     selectSession,
   } = acp;
   const workspacesHook = useWorkspaces();
@@ -140,6 +142,8 @@ export function TeamRunPageClient() {
   const [refreshKey, setRefreshKey] = useState(0);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastUpdateIndexRef = useRef(0);
+  const pendingPromptSentRef = useRef<Set<string>>(new Set());
+  const pendingPromptTextRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!acpConnected && !acpLoading) {
@@ -151,6 +155,44 @@ export function TeamRunPageClient() {
     if (!acpConnected || sessionId === "__placeholder__") return;
     selectSession(sessionId);
   }, [acpConnected, selectSession, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || !acpConnected || acpLoading) return;
+    if (pendingPromptSentRef.current.has(sessionId)) return;
+
+    if (!pendingPromptTextRef.current) {
+      const text = consumePendingPrompt(sessionId);
+      if (!text) return;
+      pendingPromptTextRef.current = text;
+    }
+
+    const pendingText = pendingPromptTextRef.current;
+    if (!pendingText) return;
+    const lastStatusUpdate = acpUpdates.findLast(
+      (entry) =>
+        (entry as Record<string, unknown>).update &&
+        ((entry as Record<string, unknown>).update as Record<string, unknown>).sessionUpdate === "acp_status",
+    );
+    const acpReady = lastStatusUpdate &&
+      ((lastStatusUpdate as Record<string, unknown>).update as Record<string, unknown>).status === "ready";
+
+    if (acpReady) {
+      pendingPromptSentRef.current.add(sessionId);
+      pendingPromptTextRef.current = null;
+      void acpPrompt(pendingText);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (!pendingPromptSentRef.current.has(sessionId) && pendingPromptTextRef.current) {
+        pendingPromptSentRef.current.add(sessionId);
+        pendingPromptTextRef.current = null;
+        void acpPrompt(pendingText);
+      }
+    }, 8000);
+
+    return () => clearTimeout(timer);
+  }, [sessionId, acpConnected, acpLoading, acpUpdates, acpPrompt]);
 
   useEffect(() => {
     if (!acpUpdates.length) {
