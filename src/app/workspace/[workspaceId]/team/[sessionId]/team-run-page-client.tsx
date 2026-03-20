@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { DesktopAppShell } from "@/client/components/desktop-app-shell";
 import { WorkspaceSwitcher } from "@/client/components/workspace-switcher";
+import { getToolEventLabel } from "@/client/components/chat-panel/tool-call-name";
 import { useNotes } from "@/client/hooks/use-notes";
 import { useWorkspaces } from "@/client/hooks/use-workspaces";
 import { desktopAwareFetch } from "@/client/utils/diagnostics";
@@ -40,6 +41,20 @@ interface DeliverableItem {
   name: string;
   type: string;
   status: "draft" | "review" | "approved";
+}
+
+interface SessionHistoryEntry {
+  sessionId: string;
+  update?: {
+    sessionUpdate?: string;
+    content?: { type?: string; text?: string };
+    status?: string;
+    title?: string;
+    taskStatus?: string;
+    completionSummary?: string;
+    name?: string;
+    error?: string;
+  };
 }
 
 const TEAM_LEAD_SPECIALIST_ID = "team-agent-lead";
@@ -87,6 +102,12 @@ function getActorLabel(session: SessionInfo, specialistsById: Map<string, Specia
   return specialistsById.get(session.specialistId ?? "")?.name ?? session.name ?? session.specialistId ?? session.role ?? "Agent";
 }
 
+function summarizeText(text?: string, max = 180): string | undefined {
+  const normalized = text?.replace(/\s+/g, " ").trim();
+  if (!normalized) return undefined;
+  return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
+}
+
 export function TeamRunPageClient() {
   const params = useParams();
   const router = useRouter();
@@ -106,6 +127,7 @@ export function TeamRunPageClient() {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [workspaceSessions, setWorkspaceSessions] = useState<SessionInfo[]>([]);
   const [specialists, setSpecialists] = useState<SpecialistSummary[]>([]);
+  const [historiesBySessionId, setHistoriesBySessionId] = useState<Record<string, SessionHistoryEntry[]>>({});
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -157,6 +179,34 @@ export function TeamRunPageClient() {
     return collect(sessionId);
   }, [sessionId, workspaceSessions]);
 
+  useEffect(() => {
+    if (!session) return;
+    const controller = new AbortController();
+    const sessionsToLoad = [session, ...descendantSessions];
+
+    (async () => {
+      try {
+        const historyEntries = await Promise.all(
+          sessionsToLoad.map(async (entry) => {
+            const response = await desktopAwareFetch(
+              `/api/sessions/${encodeURIComponent(entry.sessionId)}/history?consolidated=true`,
+              { cache: "no-store", signal: controller.signal },
+            );
+            const data = await response.json().catch(() => ({}));
+            return [entry.sessionId, Array.isArray(data?.history) ? data.history : []] as const;
+          }),
+        );
+        if (controller.signal.aborted) return;
+        setHistoriesBySessionId(Object.fromEntries(historyEntries));
+      } catch {
+        if (controller.signal.aborted) return;
+        setHistoriesBySessionId({});
+      }
+    })();
+
+    return () => controller.abort();
+  }, [descendantSessions, session, refreshKey]);
+
   const taskTree = useMemo<TeamTaskNode[]>(() => {
     const taskNotes = notesHook.notes.filter((note) => note.metadata.type === "task");
     const childrenByParent = new Map<string, typeof taskNotes>();
@@ -196,6 +246,7 @@ export function TeamRunPageClient() {
   const activityItems = useMemo<TeamActivityItem[]>(() => {
     const items: Array<TeamActivityItem & { sortKey: number }> = [];
     const sessionStart = session?.createdAt ? new Date(session.createdAt).getTime() : 0;
+    const timelineSessions = session ? [session, ...descendantSessions] : descendantSessions;
 
     if (session) {
       items.push({
@@ -209,54 +260,134 @@ export function TeamRunPageClient() {
       });
     }
 
-    for (const note of notesHook.notes) {
-      const noteTime = new Date(note.updatedAt).getTime();
-      if (note.metadata.type === "spec") {
-        items.push({
-          id: `${note.id}-spec`,
-          type: "plan",
-          actor: specialistsById.get(TEAM_LEAD_SPECIALIST_ID)?.name ?? "Team Lead",
-          message: `Updated spec note '${note.title}'`,
-          timestamp: formatRelativeTime(note.updatedAt),
-          details: note.content.trim().slice(0, 180) || undefined,
-          sortKey: noteTime,
-        });
-        continue;
-      }
+    for (const timelineSession of timelineSessions) {
+      const history = historiesBySessionId[timelineSession.sessionId] ?? [];
+      const baseTime = new Date(timelineSession.createdAt).getTime();
+      const actor = getActorLabel(timelineSession, specialistsById);
 
-      if (note.metadata.type === "task") {
-        const normalizedStatus = normalizeTaskStatus(note.metadata.taskStatus);
-        items.push({
-          id: `${note.id}-task`,
-          type:
-            normalizedStatus === "done"
-              ? "complete"
-              : normalizedStatus === "blocked"
-                ? "blocked"
-                : normalizedStatus === "waiting-review"
-                  ? "revision"
-                  : "finding",
-          actor: note.metadata.childSessionId
-            ? getActorLabel(
-                descendantSessions.find((entry) => entry.sessionId === note.metadata.childSessionId) ?? session ?? {
-                  sessionId: "fallback",
-                  workspaceId,
-                  cwd: "",
-                  createdAt: note.updatedAt,
-                },
-                specialistsById,
-              )
-            : specialistsById.get(TEAM_LEAD_SPECIALIST_ID)?.name ?? "Team Lead",
-          message: `${note.title} is ${normalizedStatus.replace(/-/g, " ")}`,
-          timestamp: formatRelativeTime(note.updatedAt),
-          details: note.content.trim().slice(0, 180) || undefined,
-          sortKey: noteTime,
-        });
-      }
+      history.forEach((entry, index) => {
+        const update = entry.update;
+        const updateType = update?.sessionUpdate;
+        if (!updateType) return;
+
+        const text = summarizeText(update.content?.text);
+        const sortKey = baseTime + index / 1000;
+
+        switch (updateType) {
+          case "user_message":
+            if (timelineSession.sessionId === sessionId && text) {
+              items.push({
+                id: `${timelineSession.sessionId}-user-${index}`,
+                type: "plan",
+                actor: "User",
+                message: "Submitted requirement",
+                timestamp: formatRelativeTime(timelineSession.createdAt),
+                details: text,
+                sortKey,
+              });
+            }
+            break;
+          case "agent_message":
+          case "agent_message_chunk":
+          case "agent_thought":
+          case "agent_thought_chunk":
+            if (text) {
+              items.push({
+                id: `${timelineSession.sessionId}-${updateType}-${index}`,
+                type: timelineSession.sessionId === sessionId ? "plan" : "finding",
+                actor,
+                message: timelineSession.sessionId === sessionId ? "Published coordination update" : "Shared progress update",
+                timestamp: formatRelativeTime(timelineSession.createdAt),
+                details: text,
+                sortKey,
+              });
+            }
+            break;
+          case "tool_call":
+            items.push({
+              id: `${timelineSession.sessionId}-tool-${index}`,
+              type: timelineSession.sessionId === sessionId ? "assign" : "revision",
+              actor,
+              message: getToolEventLabel(update as Record<string, unknown>),
+              timestamp: formatRelativeTime(timelineSession.createdAt),
+              details: update.status,
+              sortKey,
+            });
+            break;
+          case "tool_call_update":
+            items.push({
+              id: `${timelineSession.sessionId}-tool-update-${index}`,
+              type: update.status === "failed" ? "blocked" : "revision",
+              actor,
+              message: getToolEventLabel(update as Record<string, unknown>),
+              timestamp: formatRelativeTime(timelineSession.createdAt),
+              details: update.status,
+              sortKey,
+            });
+            break;
+          case "task_completion": {
+            const normalizedStatus = normalizeTaskStatus(update.taskStatus);
+            items.push({
+              id: `${timelineSession.sessionId}-completion-${index}`,
+              type: normalizedStatus === "blocked" ? "blocked" : "complete",
+              actor,
+              message: normalizedStatus === "blocked" ? "Reported a blocked task" : "Completed a task",
+              timestamp: formatRelativeTime(timelineSession.createdAt),
+              details: summarizeText(update.completionSummary ?? update.content?.text),
+              sortKey,
+            });
+            break;
+          }
+          case "session_renamed":
+            if (update.name) {
+              items.push({
+                id: `${timelineSession.sessionId}-rename-${index}`,
+                type: "revision",
+                actor,
+                message: `Renamed session to '${update.name}'`,
+                timestamp: formatRelativeTime(timelineSession.createdAt),
+                sortKey,
+              });
+            }
+            break;
+          case "acp_status":
+            if (update.status === "error") {
+              items.push({
+                id: `${timelineSession.sessionId}-status-${index}`,
+                type: "blocked",
+                actor,
+                message: "Hit a runtime error",
+                timestamp: formatRelativeTime(timelineSession.createdAt),
+                details: summarizeText(update.error),
+                sortKey,
+              });
+            }
+            break;
+          case "completed":
+          case "ended":
+          case "turn_complete":
+            if (timelineSession.sessionId !== sessionId) {
+              items.push({
+                id: `${timelineSession.sessionId}-${updateType}-${index}`,
+                type: "complete",
+                actor,
+                message: "Finished the current turn",
+                timestamp: formatRelativeTime(timelineSession.createdAt),
+                sortKey,
+              });
+            }
+            break;
+          default:
+            break;
+        }
+      });
     }
 
     for (const child of descendantSessions) {
       const childTime = new Date(child.createdAt).getTime();
+      if ((historiesBySessionId[child.sessionId] ?? []).length > 0) {
+        continue;
+      }
       items.push({
         id: `${child.sessionId}-assign`,
         type: child.acpStatus === "error" ? "blocked" : "assign",
@@ -268,11 +399,26 @@ export function TeamRunPageClient() {
       });
     }
 
+    for (const note of notesHook.notes) {
+      const noteTime = new Date(note.updatedAt).getTime();
+      if (note.metadata.type === "spec") {
+        items.push({
+          id: `${note.id}-spec`,
+          type: "plan",
+          actor: specialistsById.get(TEAM_LEAD_SPECIALIST_ID)?.name ?? "Team Lead",
+          message: `Updated spec note '${note.title}'`,
+          timestamp: formatRelativeTime(note.updatedAt),
+          details: summarizeText(note.content),
+          sortKey: noteTime,
+        });
+      }
+    }
+
     return items
       .sort((a, b) => b.sortKey - a.sortKey)
       .slice(0, 18)
       .map(({ sortKey: _sortKey, ...item }) => item);
-  }, [descendantSessions, notesHook.notes, session, specialistsById, workspaceId]);
+  }, [descendantSessions, historiesBySessionId, notesHook.notes, session, sessionId, specialistsById]);
 
   const teamMembers = useMemo(() => {
     const teamSpecialists = specialists.filter((specialist) => specialist.id.startsWith("team-"));
