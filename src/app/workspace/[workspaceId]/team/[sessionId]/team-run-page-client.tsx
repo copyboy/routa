@@ -8,7 +8,7 @@ import { WorkspaceSwitcher } from "@/client/components/workspace-switcher";
 import { ChatPanel } from "@/client/components/chat-panel";
 import { getToolEventLabel } from "@/client/components/chat-panel/tool-call-name";
 import { useAcp } from "@/client/hooks/use-acp";
-import { useNotes } from "@/client/hooks/use-notes";
+import { type NoteData, useNotes } from "@/client/hooks/use-notes";
 import { consumePendingPrompt } from "@/client/utils/pending-prompt";
 import { useWorkspaces } from "@/client/hooks/use-workspaces";
 import { desktopAwareFetch } from "@/client/utils/diagnostics";
@@ -22,21 +22,27 @@ interface SpecialistSummary {
   role?: string;
 }
 
+type NormalizedTaskStatus = "not-started" | "in-progress" | "waiting-review" | "done" | "blocked";
+type TeamMemberStatus = "idle" | "working" | "blocked" | "reviewing";
+type CoordinationEventType = "plan" | "assign" | "revision" | "finding" | "complete" | "blocked";
+
 interface TeamTaskNode {
   id: string;
   title: string;
-  status: string;
+  status: NormalizedTaskStatus;
   details?: string;
   children: TeamTaskNode[];
 }
 
 interface TeamActivityItem {
   id: string;
-  type: "plan" | "assign" | "revision" | "finding" | "complete" | "blocked";
+  type: CoordinationEventType;
+  title: string;
   actor: string;
-  message: string;
+  target?: string;
   timestamp: string;
-  details?: string;
+  summary?: string;
+  sessionId?: string;
 }
 
 interface SessionStreamSummary {
@@ -49,11 +55,24 @@ interface SessionStreamSummary {
   lastUpdatedAt: number;
 }
 
+interface TeamMemberItem {
+  specialist: SpecialistSummary;
+  actor: string;
+  status: TeamMemberStatus;
+  lastUpdatedLabel?: string;
+  sessionId?: string;
+  preview?: string;
+}
+
 interface DeliverableItem {
   id: string;
-  name: string;
-  type: string;
+  label: string;
+  title: string;
+  owner: string;
   status: "draft" | "review" | "approved";
+  summary?: string;
+  sessionId?: string;
+  updatedAt: number;
 }
 
 interface SessionHistoryEntry {
@@ -77,7 +96,7 @@ interface SessionHistoryEntry {
 
 const TEAM_LEAD_SPECIALIST_ID = "team-agent-lead";
 
-function normalizeTaskStatus(status?: string): "not-started" | "in-progress" | "waiting-review" | "done" | "blocked" {
+function normalizeTaskStatus(status?: string): NormalizedTaskStatus {
   const normalized = status?.toUpperCase();
   if (normalized === "COMPLETED" || normalized === "DONE") return "done";
   if (normalized === "IN_PROGRESS" || normalized === "RUNNING" || normalized === "CONFIRMED") return "in-progress";
@@ -86,7 +105,7 @@ function normalizeTaskStatus(status?: string): "not-started" | "in-progress" | "
   return "not-started";
 }
 
-function statusDotClass(status: "idle" | "working" | "blocked" | "reviewing"): string {
+function statusDotClass(status: TeamMemberStatus): string {
   switch (status) {
     case "working":
       return "bg-cyan-500";
@@ -99,7 +118,17 @@ function statusDotClass(status: "idle" | "working" | "blocked" | "reviewing"): s
   }
 }
 
-function activityTone(type: TeamActivityItem["type"]): string {
+function deliverableTone(status: DeliverableItem["status"]): string {
+  if (status === "approved") {
+    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300";
+  }
+  if (status === "review") {
+    return "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300";
+  }
+  return "bg-slate-100 text-slate-700 dark:bg-slate-700/50 dark:text-slate-300";
+}
+
+function activityTone(type: CoordinationEventType): string {
   switch (type) {
     case "plan":
       return "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300";
@@ -116,11 +145,34 @@ function activityTone(type: TeamActivityItem["type"]): string {
   }
 }
 
-function getActorLabel(session: SessionInfo, specialistsById: Map<string, SpecialistSummary>): string {
-  return specialistsById.get(session.specialistId ?? "")?.name ?? session.name ?? session.specialistId ?? session.role ?? "Agent";
+function sessionBadge(session: SessionInfo): string {
+  if (!session.parentSessionId) return "lead";
+  return session.specialistId ?? session.role ?? session.provider ?? "session";
 }
 
-function summarizeText(text?: string, max = 180): string | undefined {
+function resolveRosterSpecialistId(session: SessionInfo): string | undefined {
+  const direct = session.specialistId;
+  if (direct?.startsWith("team-")) return direct;
+
+  const signature = `${session.specialistId ?? ""} ${session.role ?? ""} ${session.name ?? ""}`.toLowerCase();
+  if (signature.includes("agent lead") || signature.includes("team-agent-lead")) return TEAM_LEAD_SPECIALIST_ID;
+  if (signature.includes("qa") || signature.includes("gate")) return "team-qa";
+  if (signature.includes("research")) return "team-researcher";
+  if (signature.includes("frontend")) return "team-frontend-dev";
+  if (signature.includes("backend")) return "team-backend-dev";
+  if (signature.includes("review")) return "team-code-reviewer";
+  if (signature.includes("ux") || signature.includes("design")) return "team-ux-designer";
+  if (signature.includes("operations")) return "team-operations";
+  if (signature.includes("general")) return "team-general-engineer";
+  return undefined;
+}
+
+function getActorLabel(session: SessionInfo, specialistsById: Map<string, SpecialistSummary>): string {
+  const rosterId = resolveRosterSpecialistId(session);
+  return specialistsById.get(rosterId ?? session.specialistId ?? "")?.name ?? session.name ?? session.specialistId ?? session.role ?? "Agent";
+}
+
+function summarizeText(text?: string, max = 220): string | undefined {
   const normalized = text?.replace(/\s+/g, " ").trim();
   if (!normalized) return undefined;
   return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
@@ -143,13 +195,21 @@ function resolveDelegationTarget(update?: SessionHistoryEntry["update"]): string
   const rawInput = update?.rawInput;
   if (!rawInput) return undefined;
 
-  const instructions = typeof rawInput.additionalInstructions === "string" ? rawInput.additionalInstructions : "";
-  const emphasizedRole = instructions.match(/\*\*([^*]+)\*\*/)?.[1]?.trim();
+  const specialist = typeof rawInput.specialist === "string" ? rawInput.specialist : undefined;
+  if (specialist?.startsWith("team-")) {
+    return specialist
+      .replace(/^team-/, "")
+      .split("-")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  }
+
+  const additionalInstructions =
+    typeof rawInput.additionalInstructions === "string" ? rawInput.additionalInstructions : undefined;
+  const emphasizedRole = additionalInstructions?.match(/\*\*([^*]+)\*\*/)?.[1]?.trim();
   if (emphasizedRole) return emphasizedRole;
 
-  const specialist = typeof rawInput.specialist === "string" ? rawInput.specialist : undefined;
   if (!specialist) return undefined;
-
   switch (specialist.toLowerCase()) {
     case "crafter":
       return "Implementor";
@@ -162,9 +222,90 @@ function resolveDelegationTarget(update?: SessionHistoryEntry["update"]): string
   }
 }
 
-function sessionBadge(session: SessionInfo): string {
-  if (!session.parentSessionId) return "lead";
-  return session.specialistId ?? session.role ?? session.provider ?? "session";
+function flattenTaskTree(nodes: TeamTaskNode[]): TeamTaskNode[] {
+  return nodes.flatMap((node) => [node, ...flattenTaskTree(node.children)]);
+}
+
+function inferDeliverableLabel(note: NoteData, ownerId?: string): string {
+  const text = `${note.title} ${note.content}`.toLowerCase();
+  if (note.metadata.type === "spec") return "spec draft";
+  if (text.includes("ui") || text.includes("design")) return "ui proposal";
+  if (ownerId?.includes("qa") || ownerId?.includes("review")) return "test report";
+  if (ownerId?.includes("research")) return "findings";
+  if (ownerId?.includes("front") || ownerId?.includes("back") || ownerId?.includes("general")) return "patch";
+  return note.metadata.type === "task" ? "work package" : "team note";
+}
+
+function inferSessionDeliverableLabel(specialistId?: string): string {
+  if (!specialistId) return "deliverable";
+  if (specialistId.includes("research")) return "findings";
+  if (specialistId.includes("qa") || specialistId.includes("review")) return "test report";
+  if (specialistId.includes("ux")) return "ui proposal";
+  if (specialistId.includes("front") || specialistId.includes("back") || specialistId.includes("general")) return "patch";
+  return "deliverable";
+}
+
+function inferCompletionEvent(
+  session: SessionInfo,
+  actor: string,
+  update: NonNullable<SessionHistoryEntry["update"]>,
+): Pick<TeamActivityItem, "type" | "title" | "summary"> {
+  const specialistId = session.specialistId ?? "";
+  const taskStatus = normalizeTaskStatus(update.taskStatus);
+  const summary = summarizeText(update.completionSummary ?? extractHistoryText(update));
+
+  if (taskStatus === "blocked") {
+    return { type: "blocked", title: `${actor} reported a blocker`, summary };
+  }
+  if (specialistId.includes("qa") || specialistId.includes("review")) {
+    if (taskStatus === "waiting-review") {
+      return { type: "revision", title: `${actor} requested revision`, summary };
+    }
+    return { type: "complete", title: `${actor} returned review`, summary };
+  }
+  if (specialistId.includes("research")) {
+    return { type: "finding", title: `${actor} returned findings`, summary };
+  }
+  if (specialistId.includes("ux")) {
+    return { type: "complete", title: `${actor} delivered UI proposal`, summary };
+  }
+  return { type: "complete", title: `${actor} marked phase complete`, summary };
+}
+
+function extractGoalFromPrompt(text?: string): string | undefined {
+  const normalized = text?.trim();
+  if (!normalized) return undefined;
+
+  const markdownGoal = normalized.match(/(?:^|\n)##\s*Goal\s+([\s\S]*?)(?=\n##\s|\n@@@|$)/i)?.[1]?.trim();
+  if (markdownGoal) {
+    return summarizeText(markdownGoal, 320);
+  }
+
+  if (/routa coordinator|you plan, delegate, and verify/i.test(normalized)) {
+    return undefined;
+  }
+
+  return summarizeText(normalized, 320);
+}
+
+function findObjectiveText(session: SessionInfo | null, rootHistory: SessionHistoryEntry[], notes: NoteData[]): string {
+  const sessionName = session?.name?.replace(/^Team\s*-\s*/i, "").trim();
+  if (sessionName && !/^team automation verifier$/i.test(sessionName)) {
+    return sessionName;
+  }
+
+  const latestUserRequest = rootHistory.find((entry) => entry.update?.sessionUpdate === "user_message");
+  const explicitRequest = extractGoalFromPrompt(extractHistoryText(latestUserRequest?.update));
+  if (explicitRequest) return explicitRequest;
+
+  const specNote = notes
+    .filter((note) => note.metadata.type === "spec")
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
+  if (specNote?.content.trim()) {
+    return extractGoalFromPrompt(specNote.content) ?? summarizeText(specNote.content, 320) ?? specNote.content;
+  }
+
+  return session?.name ?? "Team objective not captured yet.";
 }
 
 export function TeamRunPageClient() {
@@ -245,6 +386,7 @@ export function TeamRunPageClient() {
 
     const pendingText = pendingPromptTextRef.current;
     if (!pendingText) return;
+
     const lastStatusUpdate = acpUpdates.findLast(
       (entry) =>
         (entry as Record<string, unknown>).update &&
@@ -301,6 +443,7 @@ export function TeamRunPageClient() {
 
   useEffect(() => {
     const controller = new AbortController();
+
     (async () => {
       try {
         const [sessionRes, sessionsRes, specialistsRes] = await Promise.all([
@@ -322,8 +465,9 @@ export function TeamRunPageClient() {
         setSpecialists([]);
       }
     })();
+
     return () => controller.abort();
-  }, [sessionId, workspaceId, refreshKey]);
+  }, [refreshKey, sessionId, workspaceId]);
 
   const workspace = workspacesHook.workspaces.find((item) => item.id === workspaceId);
   const specialistsById = useMemo(
@@ -374,16 +518,17 @@ export function TeamRunPageClient() {
     })();
 
     return () => controller.abort();
-  }, [descendantSessions, session, refreshKey]);
+  }, [descendantSessions, refreshKey, session]);
 
   const taskTree = useMemo<TeamTaskNode[]>(() => {
     const taskNotes = notesHook.notes.filter((note) => note.metadata.type === "task");
+    const taskById = new Map(taskNotes.map((note) => [note.id, note]));
     const childrenByParent = new Map<string, typeof taskNotes>();
     const rootNotes: typeof taskNotes = [];
 
     for (const note of taskNotes) {
       const parentId = note.metadata.parentNoteId;
-      if (!parentId) {
+      if (!parentId || !taskById.has(parentId)) {
         rootNotes.push(note);
         continue;
       }
@@ -393,7 +538,7 @@ export function TeamRunPageClient() {
     }
 
     const buildNode = (noteId: string): TeamTaskNode | null => {
-      const note = taskNotes.find((candidate) => candidate.id === noteId);
+      const note = taskById.get(noteId);
       if (!note) return null;
       const children = (childrenByParent.get(note.id) ?? [])
         .map((child) => buildNode(child.id))
@@ -401,7 +546,7 @@ export function TeamRunPageClient() {
       return {
         id: note.id,
         title: note.title,
-        status: note.metadata.taskStatus ?? "PENDING",
+        status: normalizeTaskStatus(note.metadata.taskStatus),
         details: note.content.trim() || undefined,
         children,
       };
@@ -412,7 +557,21 @@ export function TeamRunPageClient() {
       .filter((node): node is TeamTaskNode => Boolean(node));
   }, [notesHook.notes]);
 
-  const allRunSessions = useMemo(() => (session ? [session, ...descendantSessions] : descendantSessions), [descendantSessions, session]);
+  const flatTasks = useMemo(() => flattenTaskTree(taskTree), [taskTree]);
+  const taskCounts = useMemo(
+    () => ({
+      total: flatTasks.length,
+      done: flatTasks.filter((task) => task.status === "done").length,
+      active: flatTasks.filter((task) => task.status === "in-progress" || task.status === "waiting-review").length,
+      blocked: flatTasks.filter((task) => task.status === "blocked").length,
+    }),
+    [flatTasks],
+  );
+
+  const allRunSessions = useMemo(
+    () => (session ? [session, ...descendantSessions] : descendantSessions),
+    [descendantSessions, session],
+  );
 
   const sessionStreams = useMemo<SessionStreamSummary[]>(() => {
     return allRunSessions
@@ -449,171 +608,194 @@ export function TeamRunPageClient() {
       });
   }, [allRunSessions, historiesBySessionId, sessionId, specialistsById]);
 
+  const selectedSessionStream = useMemo(
+    () => sessionStreams.find((item) => item.session.sessionId === selectedSessionForModal) ?? null,
+    [selectedSessionForModal, sessionStreams],
+  );
+
+  const rootHistory = useMemo(
+    () => historiesBySessionId[sessionId] ?? [],
+    [historiesBySessionId, sessionId],
+  );
+  const objective = useMemo(() => findObjectiveText(session, rootHistory, notesHook.notes), [notesHook.notes, rootHistory, session]);
+
   const coordinationItems = useMemo<TeamActivityItem[]>(() => {
     const items: Array<TeamActivityItem & { sortKey: number }> = [];
-    const sessionStart = session?.createdAt ? new Date(session.createdAt).getTime() : 0;
+    const leadName = specialistsById.get(TEAM_LEAD_SPECIALIST_ID)?.name ?? "Agent Lead";
 
-    if (session) {
+    const requestEntry = rootHistory.find((entry) => entry.update?.sessionUpdate === "user_message");
+    if (requestEntry && session) {
       items.push({
-        id: `${session.sessionId}-start`,
-        type: "assign",
-        actor: specialistsById.get(TEAM_LEAD_SPECIALIST_ID)?.name ?? "Team Lead",
-        message: "Started the coordination run",
+        id: `${session.sessionId}-objective`,
+        type: "plan",
+        title: "Objective set",
+        actor: "User",
+        target: leadName,
         timestamp: formatRelativeTime(session.createdAt),
-        details: session.name ?? session.specialistId ?? TEAM_LEAD_SPECIALIST_ID,
-        sortKey: sessionStart,
+        summary: extractGoalFromPrompt(extractHistoryText(requestEntry.update)) ?? extractHistoryText(requestEntry.update),
+        sessionId: session.sessionId,
+        sortKey: new Date(session.createdAt).getTime(),
       });
     }
 
-    const rootHistory = historiesBySessionId[sessionId] ?? [];
+    const latestSpec = notesHook.notes
+      .filter((note) => note.metadata.type === "spec")
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
+    if (latestSpec) {
+      items.push({
+        id: `spec-${latestSpec.id}`,
+        type: "plan",
+        title: "Lead created plan",
+        actor: leadName,
+        timestamp: formatRelativeTime(latestSpec.updatedAt),
+        summary: extractGoalFromPrompt(latestSpec.content) ?? summarizeText(latestSpec.content),
+        sessionId: latestSpec.sessionId ?? sessionId,
+        sortKey: new Date(latestSpec.updatedAt).getTime(),
+      });
+    }
+
     rootHistory.forEach((entry, index) => {
       const update = entry.update;
       const updateType = update?.sessionUpdate;
-      if (!updateType) return;
-      const sortKey = sessionStart + index / 1000;
-
-      if (updateType === "user_message") {
-        items.push({
-          id: `${sessionId}-user-${index}`,
-          type: "plan",
-          actor: "User",
-          message: "Submitted requirement",
-          timestamp: formatRelativeTime(session?.createdAt ?? new Date().toISOString()),
-          details: extractHistoryText(update),
-          sortKey,
-        });
-        return;
-      }
+      if (!updateType || !session) return;
+      const sortKey = new Date(session.createdAt).getTime() + index / 1000;
 
       if (updateType === "tool_call_update" && getToolEventLabel(update as Record<string, unknown>).includes("delegate_task")) {
-        const target = resolveDelegationTarget(update) ?? "specialist";
+        const target = resolveDelegationTarget(update) ?? "team member";
         items.push({
           id: `${sessionId}-delegate-${index}`,
           type: update.status === "failed" ? "blocked" : "assign",
-          actor: specialistsById.get(TEAM_LEAD_SPECIALIST_ID)?.name ?? "Team Lead",
-          message: update.status === "failed" ? `Failed to dispatch ${target}` : `Dispatched ${target}`,
-          timestamp: formatRelativeTime(session?.createdAt ?? new Date().toISOString()),
-          details: summarizeText(
-            typeof update.rawOutput?.output === "string"
-              ? update.rawOutput.output
-              : typeof update.rawInput?.additionalInstructions === "string"
-                ? update.rawInput.additionalInstructions
-                : undefined,
+          title: update.status === "failed" ? `Dispatch failed for ${target}` : `Task assigned to ${target}`,
+          actor: leadName,
+          target,
+          timestamp: formatRelativeTime(session.createdAt),
+          summary: summarizeText(
+            typeof update.rawInput?.additionalInstructions === "string"
+              ? update.rawInput.additionalInstructions
+              : update.rawOutput?.output,
           ),
+          sessionId: session.sessionId,
           sortKey,
         });
       }
     });
 
     for (const child of descendantSessions) {
-      const childStart = new Date(child.createdAt).getTime();
       const actor = getActorLabel(child, specialistsById);
+      const childCreatedAt = new Date(child.createdAt).getTime();
+
       items.push({
-        id: `${child.sessionId}-created`,
+        id: `${child.sessionId}-opened`,
         type: "assign",
-        actor: specialistsById.get(TEAM_LEAD_SPECIALIST_ID)?.name ?? "Team Lead",
-        message: `Opened session for ${actor}`,
+        title: `Opened session for ${actor}`,
+        actor: leadName,
+        target: actor,
         timestamp: formatRelativeTime(child.createdAt),
-        details: child.name ?? child.specialistId ?? child.role ?? child.provider,
-        sortKey: childStart,
+        summary: summarizeText(child.name ?? child.specialistId ?? child.role ?? child.provider),
+        sessionId: child.sessionId,
+        sortKey: childCreatedAt,
       });
 
       const history = historiesBySessionId[child.sessionId] ?? [];
       history.forEach((entry, index) => {
         const update = entry.update;
         const updateType = update?.sessionUpdate;
-        if (!updateType) return;
-        const sortKey = childStart + index / 1000;
+        if (!updateType || !update) return;
+        const sortKey = childCreatedAt + index / 1000;
 
-        switch (updateType) {
-          case "task_completion": {
-            const normalizedStatus = normalizeTaskStatus(update.taskStatus);
-            items.push({
-              id: `${child.sessionId}-completion-${index}`,
-              type: normalizedStatus === "blocked" ? "blocked" : "complete",
-              actor,
-              message: normalizedStatus === "blocked" ? "Reported a blocked result" : "Reported completion",
-              timestamp: formatRelativeTime(child.createdAt),
-              details: summarizeText(update.completionSummary ?? extractHistoryText(update)),
-              sortKey,
-            });
-            break;
-          }
-          case "acp_status":
-            if (update.status === "error") {
-              items.push({
-                id: `${child.sessionId}-status-${index}`,
-                type: "blocked",
-                actor,
-                message: "Hit a runtime error",
-                timestamp: formatRelativeTime(child.createdAt),
-                details: summarizeText(update.error),
-                sortKey,
-              });
-            }
-            break;
-          case "completed":
-          case "ended":
-          case "turn_complete":
-            items.push({
-              id: `${child.sessionId}-${updateType}-${index}`,
-              type: "complete",
-              actor,
-              message: "Finished the current turn",
-              timestamp: formatRelativeTime(child.createdAt),
-              details: extractHistoryText(update),
-              sortKey,
-            });
-            break;
-          default:
-            break;
+        if (updateType === "task_completion") {
+          const completion = inferCompletionEvent(child, actor, update);
+          items.push({
+            id: `${child.sessionId}-completion-${index}`,
+            type: completion.type,
+            title: completion.title,
+            actor,
+            timestamp: formatRelativeTime(child.createdAt),
+            summary: completion.summary,
+            sessionId: child.sessionId,
+            sortKey,
+          });
+          return;
+        }
+
+        if (updateType === "acp_status" && update.status === "error") {
+          items.push({
+            id: `${child.sessionId}-error-${index}`,
+            type: "blocked",
+            title: `${actor} hit a runtime error`,
+            actor,
+            timestamp: formatRelativeTime(child.createdAt),
+            summary: summarizeText(update.error),
+            sessionId: child.sessionId,
+            sortKey,
+          });
         }
       });
     }
 
     return items
       .sort((a, b) => b.sortKey - a.sortKey)
-      .slice(0, 18)
+      .slice(0, 24)
       .map(({ sortKey: _sortKey, ...item }) => item);
-  }, [descendantSessions, historiesBySessionId, session, sessionId, specialistsById]);
+  }, [descendantSessions, historiesBySessionId, notesHook.notes, rootHistory, session, sessionId, specialistsById]);
 
-  const teamMembers = useMemo(() => {
-    const teamSpecialists = specialists.filter((specialist) => specialist.id.startsWith("team-"));
-    return teamSpecialists.map((specialist) => {
-      const relatedSessions = descendantSessions
-        .filter((entry) => entry.specialistId === specialist.id)
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      const latest = relatedSessions[0];
-      let status: "idle" | "working" | "blocked" | "reviewing" = "idle";
-      if (latest?.acpStatus === "error") {
-        status = "blocked";
-      } else if (latest?.acpStatus === "connecting" || latest?.acpStatus === "ready") {
-        status = "working";
-      } else if (relatedSessions.length > 0) {
-        status = "reviewing";
+  const latestSessionBySpecialistId = useMemo(() => {
+    const map = new Map<string, SessionStreamSummary>();
+    for (const stream of sessionStreams) {
+      const specialistId = resolveRosterSpecialistId(stream.session);
+      if (!specialistId) continue;
+      if (!map.has(specialistId)) {
+        map.set(specialistId, stream);
       }
+    }
+    return map;
+  }, [sessionStreams]);
+
+  const teamMembers = useMemo<TeamMemberItem[]>(() => {
+    const teamSpecialists = specialists
+      .filter((specialist) => specialist.id.startsWith("team-"))
+      .sort((a, b) => {
+        if (a.id === TEAM_LEAD_SPECIALIST_ID) return -1;
+        if (b.id === TEAM_LEAD_SPECIALIST_ID) return 1;
+        return a.name.localeCompare(b.name);
+      });
+
+    return teamSpecialists.map((specialist) => {
+      const latest = latestSessionBySpecialistId.get(specialist.id);
+      const latestHistory = latest ? historiesBySessionId[latest.session.sessionId] ?? [] : [];
+      const latestCompletion = [...latestHistory].reverse().find((entry) => entry.update?.sessionUpdate === "task_completion");
+      let status: TeamMemberStatus = "idle";
 
       if (specialist.id === TEAM_LEAD_SPECIALIST_ID && session) {
         status = session.acpStatus === "error" ? "blocked" : "working";
+      } else if (latest?.session.acpStatus === "error" || normalizeTaskStatus(latestCompletion?.update?.taskStatus) === "blocked") {
+        status = "blocked";
+      } else if (normalizeTaskStatus(latestCompletion?.update?.taskStatus) === "waiting-review") {
+        status = "reviewing";
+      } else if (latest && !latestCompletion) {
+        status = "working";
       }
 
       return {
         specialist,
+        actor: specialist.name,
         status,
-        latest,
+        lastUpdatedLabel: latest?.lastUpdatedLabel,
+        sessionId: latest?.session.sessionId,
+        preview: latest?.preview,
       };
     });
-  }, [descendantSessions, session, specialists]);
+  }, [historiesBySessionId, latestSessionBySpecialistId, session, specialists]);
 
   const deliverables = useMemo<DeliverableItem[]>(() => {
-    return notesHook.notes
-      .filter((note) => note.metadata.type === "spec" || note.metadata.type === "task" || note.metadata.type === "general")
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-      .slice(0, 10)
-      .map((note) => ({
-        id: note.id,
-        name: note.title,
-        type: note.metadata.type,
+    const noteDeliverables = notesHook.notes.map((note) => {
+      const sourceSession = note.sessionId ? allRunSessions.find((entry) => entry.sessionId === note.sessionId) : undefined;
+      const ownerId = sourceSession ? resolveRosterSpecialistId(sourceSession) ?? sourceSession.specialistId : undefined;
+      return {
+        id: `note-${note.id}`,
+        label: inferDeliverableLabel(note, ownerId),
+        title: note.title,
+        owner: sourceSession ? getActorLabel(sourceSession, specialistsById) : "Agent Lead",
         status:
           note.metadata.type === "spec"
             ? "approved"
@@ -622,13 +804,45 @@ export function TeamRunPageClient() {
               : normalizeTaskStatus(note.metadata.taskStatus) === "waiting-review"
                 ? "review"
                 : "draft",
-      }));
-  }, [notesHook.notes]);
+        summary: summarizeText(note.content),
+        sessionId: note.sessionId,
+        updatedAt: new Date(note.updatedAt).getTime(),
+      } satisfies DeliverableItem;
+    });
 
-  const selectedSessionStream = useMemo(
-    () => sessionStreams.find((item) => item.session.sessionId === selectedSessionForModal) ?? null,
-    [selectedSessionForModal, sessionStreams],
-  );
+    const sessionDeliverables = descendantSessions.flatMap((entry) => {
+      const actor = getActorLabel(entry, specialistsById);
+      const history = historiesBySessionId[entry.sessionId] ?? [];
+      const latestCompletion = [...history].reverse().find((item) => item.update?.sessionUpdate === "task_completion");
+      if (!latestCompletion?.update) return [];
+      return [{
+        id: `session-${entry.sessionId}`,
+        label: inferSessionDeliverableLabel(entry.specialistId),
+        title: entry.name ?? actor,
+        owner: actor,
+        status:
+          normalizeTaskStatus(latestCompletion.update.taskStatus) === "done"
+            ? "approved"
+            : normalizeTaskStatus(latestCompletion.update.taskStatus) === "waiting-review"
+              ? "review"
+              : "draft",
+        summary: summarizeText(latestCompletion.update.completionSummary ?? extractHistoryText(latestCompletion.update)),
+        sessionId: entry.sessionId,
+        updatedAt: new Date(entry.createdAt).getTime(),
+      } satisfies DeliverableItem];
+    });
+
+    return [...noteDeliverables, ...sessionDeliverables]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 8);
+  }, [allRunSessions, descendantSessions, historiesBySessionId, notesHook.notes, specialistsById]);
+
+  const reviewTargetSessionId = useMemo(() => {
+    const reviewingMember = teamMembers.find((member) => member.status === "reviewing" && member.sessionId);
+    if (reviewingMember?.sessionId) return reviewingMember.sessionId;
+    const qaMember = teamMembers.find((member) => member.specialist.id.includes("qa") && member.sessionId);
+    return qaMember?.sessionId ?? sessionId;
+  }, [sessionId, teamMembers]);
 
   if (!session) {
     return (
@@ -709,130 +923,120 @@ export function TeamRunPageClient() {
           </div>
         </header>
 
-        <div className="grid min-h-0 flex-1 lg:grid-cols-[280px_minmax(0,1fr)_320px]">
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[300px_minmax(0,1fr)_340px]">
           <section className="min-h-0 overflow-hidden border-r border-desktop-border bg-desktop-bg-secondary">
+            <div className="border-b border-desktop-border px-4 py-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-desktop-text-muted">Objective</div>
+              <div className="mt-3 rounded-2xl border border-desktop-border bg-desktop-bg-primary p-4">
+                <div className="text-sm leading-6 text-desktop-text-primary">{objective}</div>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                <MetricChip label="Done" value={taskCounts.done} tone="emerald" />
+                <MetricChip label="Active" value={taskCounts.active} tone="cyan" />
+                <MetricChip label="Blocked" value={taskCounts.blocked} tone="rose" />
+              </div>
+            </div>
+
             <div className="border-b border-desktop-border px-4 py-3">
               <h2 className="text-sm font-semibold text-desktop-text-primary">Plan / Task Tree</h2>
-              <p className="mt-1 text-xs text-desktop-text-secondary">Task notes and execution state for this Team run.</p>
+              <p className="mt-1 text-xs text-desktop-text-secondary">Lead decomposition and current execution state.</p>
             </div>
-            <div className="h-[calc(100%-57px)] overflow-y-auto px-2 py-2">
+            <div className="h-[calc(100%-216px)] overflow-y-auto px-3 py-3">
               {taskTree.length === 0 ? (
                 <EmptyPanel message="No task notes yet." />
               ) : (
-                taskTree.map((node) => <TaskTreeNode key={node.id} node={node} />)
+                <div className="space-y-1">
+                  {taskTree.map((node) => <TaskTreeNode key={node.id} node={node} />)}
+                </div>
               )}
             </div>
           </section>
 
           <section className="min-h-0 overflow-hidden bg-desktop-bg-primary">
-            <div className="border-b border-desktop-border px-4 py-3">
-              <h2 className="text-sm font-semibold text-desktop-text-primary">Coordination Feed</h2>
-              <p className="mt-1 text-xs text-desktop-text-secondary">Delegation, handoffs, completions, and failures between agents.</p>
-            </div>
-            <div className="grid h-[calc(100%-57px)] grid-rows-[220px_minmax(0,1fr)]">
-              <div className="border-b border-desktop-border px-4 py-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold text-desktop-text-primary">Session Streams</h3>
-                    <p className="mt-1 text-xs text-desktop-text-secondary">Each agent session lives here. Click to inspect transcript in a popup.</p>
-                  </div>
-                  <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-[11px] text-desktop-text-secondary">
+            <div className="border-b border-desktop-border px-5 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-desktop-text-primary">Coordination Feed</h2>
+                  <p className="mt-1 text-xs text-desktop-text-secondary">
+                    Supervision events only: planning, delegation, review, findings, and completion.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-[11px] text-desktop-text-secondary">
+                  <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1">
+                    {coordinationItems.length} events
+                  </span>
+                  <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1">
                     {sessionStreams.length} sessions
                   </span>
                 </div>
-                <div className="flex gap-3 overflow-x-auto pb-1">
-                  {sessionStreams.map((stream) => (
-                    <button
-                      key={stream.session.sessionId}
-                      type="button"
-                      onClick={() => setSelectedSessionForModal(stream.session.sessionId)}
-                      className="min-w-[260px] max-w-[280px] rounded-2xl border border-desktop-border bg-desktop-bg-secondary p-3 text-left transition hover:border-cyan-300 hover:bg-desktop-bg-active/80"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-desktop-text-primary">{stream.actor}</div>
-                          <div className="mt-1 truncate text-[11px] text-desktop-text-secondary">{stream.session.name ?? stream.session.sessionId}</div>
-                        </div>
-                        <span className="shrink-0 rounded-full border border-desktop-border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-desktop-text-secondary">
-                          {stream.badge}
-                        </span>
-                      </div>
-                      <div className="mt-3 line-clamp-3 min-h-[54px] text-xs leading-5 text-desktop-text-secondary">
-                        {stream.preview ?? "No transcript content yet."}
-                      </div>
-                      <div className="mt-3 flex items-center justify-between text-[11px] text-desktop-text-muted">
-                        <span>{stream.eventCount} events</span>
-                        <span>{stream.lastUpdatedLabel}</span>
-                      </div>
-                    </button>
+              </div>
+            </div>
+
+            <div className="h-[calc(100%-73px)] overflow-y-auto px-5 py-5">
+              {coordinationItems.length === 0 ? (
+                <EmptyPanel message="No coordination events yet." />
+              ) : (
+                <div className="space-y-4">
+                  {coordinationItems.map((item, index) => (
+                    <CoordinationFeedItem
+                      key={item.id}
+                      item={item}
+                      isLast={index === coordinationItems.length - 1}
+                      onInspectSession={item.sessionId ? () => setSelectedSessionForModal(item.sessionId ?? null) : undefined}
+                    />
                   ))}
                 </div>
-              </div>
-
-              <div className="overflow-y-auto px-4 py-4">
-                <div className="space-y-4">
-                  {coordinationItems.length === 0 ? (
-                    <EmptyPanel message="No coordination events yet." />
-                  ) : (
-                    coordinationItems.map((item, index) => (
-                      <div key={item.id} className="relative">
-                        {index < coordinationItems.length - 1 && (
-                          <div className="absolute left-[11px] top-8 bottom-0 w-px bg-desktop-border" />
-                        )}
-                        <div className="flex gap-3">
-                          <div className={`relative z-10 flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold ${activityTone(item.type)}`}>
-                            {item.type[0].toUpperCase()}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-baseline justify-between gap-3">
-                              <div className="min-w-0">
-                                <span className="text-sm font-medium text-desktop-text-primary">{item.actor}</span>
-                                <span className="ml-2 text-sm text-desktop-text-secondary">{item.message}</span>
-                              </div>
-                              <span className="shrink-0 text-xs text-desktop-text-muted">{item.timestamp}</span>
-                            </div>
-                            {item.details && (
-                              <div className="mt-2 rounded-xl border border-desktop-border bg-desktop-bg-secondary px-3 py-2 text-sm leading-6 text-desktop-text-secondary">
-                                {item.details}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
+              )}
             </div>
           </section>
 
-          <section className="min-h-0 overflow-hidden border-l border-desktop-border bg-desktop-bg-secondary">
+          <aside className="min-h-0 overflow-hidden border-l border-desktop-border bg-desktop-bg-secondary">
             <div className="border-b border-desktop-border px-4 py-3">
               <h2 className="text-sm font-semibold text-desktop-text-primary">Team Panel</h2>
+              <p className="mt-1 text-xs text-desktop-text-secondary">
+                Team supervision, outputs, and live controls routed into shared session UI.
+              </p>
             </div>
-            <div className="h-[calc(100%-57px)] overflow-y-auto p-4">
-              <div className="space-y-5">
+
+            <div className="h-[calc(100%-73px)] overflow-y-auto p-4">
+              <div className="space-y-4">
                 <PanelCard title="Team Members">
                   <div className="space-y-2">
-                    {teamMembers.map(({ specialist, status, latest }) => (
-                      <div key={specialist.id} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-desktop-bg-active/80">
-                        <div className="relative">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-desktop-bg-active text-xs font-semibold text-desktop-text-primary">
-                            {specialist.name.slice(0, 2).toUpperCase()}
-                          </div>
-                          <div className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-desktop-bg-secondary ${statusDotClass(status)}`} />
+                    {teamMembers.map((member) => (
+                      <button
+                        key={member.specialist.id}
+                        type="button"
+                        onClick={() => member.sessionId && setSelectedSessionForModal(member.sessionId)}
+                        disabled={!member.sessionId}
+                        className={`flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition ${
+                          member.sessionId
+                            ? "hover:bg-desktop-bg-active/80"
+                            : "cursor-default opacity-80"
+                        }`}
+                      >
+                        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-desktop-bg-active text-xs font-semibold text-desktop-text-primary">
+                          {member.actor
+                            .split(" ")
+                            .map((part) => part.charAt(0))
+                            .join("")
+                            .slice(0, 2)
+                            .toUpperCase()}
+                          <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-desktop-bg-secondary ${statusDotClass(member.status)}`} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-desktop-text-primary">{specialist.name}</div>
-                          <div className="truncate text-xs text-desktop-text-secondary">{specialist.id}</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-[11px] font-medium capitalize text-desktop-text-secondary">{status}</div>
-                          {latest?.createdAt && (
-                            <div className="text-[10px] text-desktop-text-muted">{formatRelativeTime(latest.createdAt)}</div>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="truncate text-sm font-medium text-desktop-text-primary">{member.actor}</div>
+                            <span className="shrink-0 text-[11px] capitalize text-desktop-text-secondary">{member.status}</span>
+                          </div>
+                          <div className="mt-0.5 truncate text-xs text-desktop-text-secondary">{member.specialist.id}</div>
+                          {member.preview && (
+                            <div className="mt-2 line-clamp-2 text-xs leading-5 text-desktop-text-muted">{member.preview}</div>
+                          )}
+                          {member.lastUpdatedLabel && (
+                            <div className="mt-2 text-[11px] text-desktop-text-muted">{member.lastUpdatedLabel}</div>
                           )}
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </PanelCard>
@@ -843,16 +1047,34 @@ export function TeamRunPageClient() {
                       <EmptyPanel message="No notes or deliverables yet." />
                     ) : (
                       deliverables.map((item) => (
-                        <div key={item.id} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-desktop-bg-active/80">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-desktop-bg-active text-xs font-semibold text-desktop-text-primary">
-                            {item.type.slice(0, 1).toUpperCase()}
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => item.sessionId && setSelectedSessionForModal(item.sessionId)}
+                          disabled={!item.sessionId}
+                          className={`flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition ${
+                            item.sessionId
+                              ? "hover:bg-desktop-bg-active/80"
+                              : "cursor-default"
+                          }`}
+                        >
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-desktop-bg-active text-[11px] font-semibold uppercase tracking-[0.14em] text-desktop-text-primary">
+                            {item.label.slice(0, 2)}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm text-desktop-text-primary">{item.name}</div>
-                            <div className="text-xs capitalize text-desktop-text-secondary">{item.type}</div>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="truncate text-sm font-medium text-desktop-text-primary">{item.label}</div>
+                              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${deliverableTone(item.status)}`}>
+                                {item.status}
+                              </span>
+                            </div>
+                            <div className="mt-1 truncate text-xs text-desktop-text-secondary">{item.title}</div>
+                            <div className="mt-1 text-[11px] text-desktop-text-muted">{item.owner}</div>
+                            {item.summary && (
+                              <div className="mt-2 line-clamp-2 text-xs leading-5 text-desktop-text-muted">{item.summary}</div>
+                            )}
                           </div>
-                          <DeliverableBadge status={item.status} />
-                        </div>
+                        </button>
                       ))
                     )}
                   </div>
@@ -860,30 +1082,40 @@ export function TeamRunPageClient() {
 
                 <PanelCard title="Controls">
                   <div className="space-y-2">
+                    <ControlButton
+                      title="Pause run"
+                      description="Pause API is not wired yet. Use the raw session for manual intervention."
+                      disabled
+                    />
+                    <ControlButton
+                      title="Ask lead to revise plan"
+                      description="Open the lead session in the shared chat UI and send revision guidance."
+                      onClick={() => setSelectedSessionForModal(sessionId)}
+                    />
+                    <ControlButton
+                      title="Add context"
+                      description="Open the lead session and append missing requirements or repo context."
+                      onClick={() => setSelectedSessionForModal(sessionId)}
+                    />
+                    <ControlButton
+                      title="Escalate review"
+                      description="Jump to the current QA or review session when a phase needs scrutiny."
+                      onClick={() => setSelectedSessionForModal(reviewTargetSessionId)}
+                    />
                     <Link
                       href={`/workspace/${workspaceId}/sessions/${sessionId}`}
-                      className="flex items-center gap-2 rounded-xl border border-desktop-border px-3 py-2 text-sm text-desktop-text-secondary transition-colors hover:bg-desktop-bg-active hover:text-desktop-text-primary"
+                      className="mt-2 flex items-center gap-2 rounded-2xl border border-desktop-border px-3 py-3 text-sm text-desktop-text-secondary transition-colors hover:bg-desktop-bg-active hover:text-desktop-text-primary"
                     >
                       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75l6 6 13.5-13.5" />
                       </svg>
                       Continue in raw session
                     </Link>
-                    <button
-                      type="button"
-                      onClick={() => setRefreshKey((current) => current + 1)}
-                      className="flex w-full items-center gap-2 rounded-xl border border-desktop-border px-3 py-2 text-sm text-desktop-text-secondary transition-colors hover:bg-desktop-bg-active hover:text-desktop-text-primary"
-                    >
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992V4.356m-1.636 9.744a9 9 0 11-2.87-5.814l4.992 4.992" />
-                      </svg>
-                      Refresh Team view
-                    </button>
                   </div>
                 </PanelCard>
               </div>
             </div>
-          </section>
+          </aside>
         </div>
       </div>
 
@@ -896,7 +1128,7 @@ export function TeamRunPageClient() {
             <div className="flex w-80 shrink-0 flex-col border-r border-desktop-border bg-desktop-bg-secondary">
               <div className="border-b border-desktop-border px-4 py-3">
                 <div className="text-sm font-semibold text-desktop-text-primary">Run Sessions</div>
-                <div className="mt-1 text-xs text-desktop-text-secondary">Reuse the same session UI as kanban/chat.</div>
+                <div className="mt-1 text-xs text-desktop-text-secondary">Shared session viewer reused from kanban/chat.</div>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-3">
                 <div className="space-y-2">
@@ -971,6 +1203,29 @@ export function TeamRunPageClient() {
   );
 }
 
+function MetricChip({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "emerald" | "cyan" | "rose";
+}) {
+  const toneClass =
+    tone === "emerald"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300"
+      : tone === "rose"
+        ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300"
+        : "border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-500/20 dark:bg-cyan-500/10 dark:text-cyan-300";
+  return (
+    <div className={`rounded-xl border px-3 py-2 ${toneClass}`}>
+      <div className="text-lg font-semibold tabular-nums">{value}</div>
+      <div className="mt-0.5 text-[11px] uppercase tracking-[0.12em]">{label}</div>
+    </div>
+  );
+}
+
 function TaskTreeNode({
   node,
   level = 0,
@@ -978,18 +1233,22 @@ function TaskTreeNode({
   node: TeamTaskNode;
   level?: number;
 }) {
-  const normalizedStatus = normalizeTaskStatus(node.status);
   return (
     <div>
       <div
-        className="rounded-xl px-3 py-2 transition-colors hover:bg-desktop-bg-active/80"
+        className="rounded-2xl border border-transparent px-3 py-2 transition-colors hover:border-desktop-border hover:bg-desktop-bg-active/70"
         style={{ marginLeft: level * 16 }}
       >
-        <div className="flex items-start gap-2">
-          <TaskStatusGlyph status={normalizedStatus} />
+        <div className="flex items-start gap-3">
+          <div className="pt-0.5">
+            <TaskStatusGlyph status={node.status} />
+          </div>
           <div className="min-w-0 flex-1">
-            <div className={`text-sm ${normalizedStatus === "done" ? "text-desktop-text-muted line-through" : "text-desktop-text-primary"}`}>
-              {node.title}
+            <div className="flex items-center justify-between gap-3">
+              <div className={`text-sm ${node.status === "done" ? "text-desktop-text-muted line-through" : "text-desktop-text-primary"}`}>
+                {node.title}
+              </div>
+              <TaskStatusPill status={node.status} />
             </div>
             {node.details && (
               <div className="mt-1 line-clamp-2 text-xs leading-5 text-desktop-text-secondary">
@@ -1009,11 +1268,11 @@ function TaskTreeNode({
 function TaskStatusGlyph({
   status,
 }: {
-  status: "not-started" | "in-progress" | "waiting-review" | "done" | "blocked";
+  status: NormalizedTaskStatus;
 }) {
   if (status === "done") {
     return (
-      <div className="mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
         <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
         </svg>
@@ -1021,11 +1280,11 @@ function TaskStatusGlyph({
     );
   }
   if (status === "in-progress") {
-    return <div className="mt-0.5 h-4 w-4 rounded-full border-2 border-cyan-500 border-t-transparent animate-spin" />;
+    return <div className="h-5 w-5 rounded-full border-2 border-cyan-500 border-t-transparent animate-spin" />;
   }
   if (status === "waiting-review") {
     return (
-      <div className="mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
         <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12S5.25 6.75 12 6.75 21.75 12 21.75 12 18.75 17.25 12 17.25 2.25 12 2.25 12z" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
@@ -1035,14 +1294,88 @@ function TaskStatusGlyph({
   }
   if (status === "blocked") {
     return (
-      <div className="mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
         <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 4.5h.008v.008H12v-.008z" />
         </svg>
       </div>
     );
   }
-  return <div className="mt-0.5 h-4 w-4 rounded-full border-2 border-slate-400" />;
+  return <div className="h-5 w-5 rounded-full border-2 border-slate-400" />;
+}
+
+function TaskStatusPill({ status }: { status: NormalizedTaskStatus }) {
+  const tone =
+    status === "done"
+      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+      : status === "in-progress"
+        ? "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300"
+        : status === "waiting-review"
+          ? "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
+          : status === "blocked"
+            ? "bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300"
+            : "bg-slate-100 text-slate-700 dark:bg-slate-700/50 dark:text-slate-300";
+  return (
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] ${tone}`}>
+      {status.replace("-", " ")}
+    </span>
+  );
+}
+
+function CoordinationFeedItem({
+  item,
+  isLast,
+  onInspectSession,
+}: {
+  item: TeamActivityItem;
+  isLast: boolean;
+  onInspectSession?: () => void;
+}) {
+  return (
+    <div className="relative">
+      {!isLast && (
+        <div className="absolute bottom-[-18px] left-[13px] top-10 w-px bg-desktop-border" />
+      )}
+      <div className="flex gap-3">
+        <div className={`relative z-10 flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold ${activityTone(item.type)}`}>
+          {item.type[0].toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1 rounded-2xl border border-desktop-border bg-desktop-bg-secondary p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-desktop-text-primary">{item.title}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-desktop-text-secondary">
+                <span>{item.actor}</span>
+                {item.target && (
+                  <>
+                    <span className="opacity-40">→</span>
+                    <span>{item.target}</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {onInspectSession && (
+                <button
+                  type="button"
+                  onClick={onInspectSession}
+                  className="rounded-full border border-desktop-border px-2.5 py-1 text-[11px] font-medium text-desktop-text-secondary transition-colors hover:bg-desktop-bg-active hover:text-desktop-text-primary"
+                >
+                  Inspect session
+                </button>
+              )}
+              <span className="text-[11px] text-desktop-text-muted">{item.timestamp}</span>
+            </div>
+          </div>
+          {item.summary && (
+            <div className="mt-3 rounded-xl border border-desktop-border bg-desktop-bg-primary px-3 py-2 text-sm leading-6 text-desktop-text-secondary">
+              {item.summary}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function PanelCard({
@@ -1062,21 +1395,31 @@ function PanelCard({
   );
 }
 
-function DeliverableBadge({
-  status,
+function ControlButton({
+  title,
+  description,
+  disabled = false,
+  onClick,
 }: {
-  status: DeliverableItem["status"];
+  title: string;
+  description: string;
+  disabled?: boolean;
+  onClick?: () => void;
 }) {
-  const tone =
-    status === "approved"
-      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
-      : status === "review"
-        ? "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
-        : "bg-slate-100 text-slate-700 dark:bg-slate-700/50 dark:text-slate-300";
   return (
-    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${tone}`}>
-      {status}
-    </span>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
+        disabled
+          ? "cursor-not-allowed border-desktop-border bg-desktop-bg-secondary/70 text-desktop-text-muted"
+          : "border-desktop-border bg-desktop-bg-primary hover:bg-desktop-bg-active/80"
+      }`}
+    >
+      <div className="text-sm font-medium text-desktop-text-primary">{title}</div>
+      <div className="mt-1 text-xs leading-5 text-desktop-text-secondary">{description}</div>
+    </button>
   );
 }
 
