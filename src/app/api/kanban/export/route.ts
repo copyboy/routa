@@ -41,7 +41,7 @@ function normalizeAutomation(automation: Record<string, unknown> | undefined): R
     || normalized.specialistName
     || steps.length > 0,
   );
-  if (hasEffectiveConfig && normalized.enabled !== true) {
+  if (hasEffectiveConfig && normalized.enabled === undefined) {
     normalized.enabled = true;
   }
   return normalized;
