@@ -31,6 +31,9 @@ entrix run --parallel
 # 仅查看会执行什么（不实际运行）
 entrix run --dry-run
 
+# 仅运行指定维度（可重复传参）
+entrix run --tier normal --scope ci --dimension code_quality --dimension testability
+
 # 校验维度权重
 entrix validate
 ```
@@ -65,7 +68,7 @@ Fitness = Σ (Weight_i × Score_i) / 100
 阻断: < 80 | 强告警: 80-90 | 通过: ≥ 90
 ```
 
-## Dimensions (七大维度)
+## Dimensions（九个维度）
 
 | 维度 | 权重 | 描述 | 关键指标 | 证据文件 |
 |------|------|------|----------|----------|
@@ -73,11 +76,18 @@ Fitness = Σ (Weight_i × Score_i) / 100
 | testability | 20% | 测试覆盖与通过率 | 覆盖率≥80%, 通过率100% | [unit-test.md](unit-test.md) |
 | security | 20% | 依赖漏洞与安全扫描 | critical=0, high≤阈值 | [security.md](security.md) |
 | api_contract | 10% | API 契约测试 | Rust API 测试通过, 契约同步 | [rust-api-test.md](rust-api-test.md) |
-| design_system | 10% | 设计系统质量 | 视觉回归, 可访问性, 性能 | [design-system-quality-layers.md](design-system-quality-layers.md) |
+| design_system | 10% | 设计系统质量 | CSS 契约, 组件视觉回归, 可访问性 | [design-system-quality-layers.md](design-system-quality-layers.md) |
 | evolvability | 8% | API 兼容性与契约 | breaking changes=0, parity=100% | [api-contract.md](api-contract.md) |
 | ui_consistency | 8% | UI 一致性 | Shell 组件覆盖, Token 接入 | [design-system-shell.md](design-system-shell.md) |
+| observability | 0% | 运行时可观测性 | instrumentation, error visibility, trace recorder | [runtime/observability.md](runtime/observability.md) |
+| performance | 0% | 运行时性能证据 | route smoke, SQLite WAL | [runtime/performance.md](runtime/performance.md) |
 
 **Total: 100%**
+
+说明：
+
+- `observability` 与 `performance` 目前是 runtime 维度，权重为 `0`，不会改变总分，但会作为执行证据出现在报告里。
+- `security` 维度仍由 `entrix` 评分，同时 GitHub Actions 会继续保留 SARIF / scanner 类型的独立安全作业。
 
 ## Hard Gates
 
@@ -90,6 +100,22 @@ Fitness = Σ (Weight_i × Score_i) / 100
 | api_contract_parity | `npm run api:check` | pass |
 | lint_pass | `npm run lint` | 0 errors |
 | no_critical_vulnerabilities | `snyk test` | 0 critical |
+
+## CI Fan-out
+
+`Defense` workflow 现在按维度拆分 `entrix run --dimension ...`，每个 job 对应一个 fitness 维度：
+
+- `Gate: Code Quality`
+- `Gate: Testability`
+- `Gate: Security`
+- `Gate: API Contract`
+- `Gate: Design System`
+- `Gate: Evolvability`
+- `Gate: UI Consistency`
+- `Gate: Observability`
+- `Gate: Performance`
+
+这保证了 CI 展示和 `docs/fitness/*.md` 的维度定义保持一一对应，而不是回退到手写命令的旧 gate 模式。
 
 ## 规则（AI Verifier / 人工都按同一标准执行）
 

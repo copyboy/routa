@@ -40,12 +40,34 @@ env:
 
 jobs:
   # ══════════════════════════════════════════════════════════════
-  # HARD GATE: Fitness CI (统一由 entrix 驱动)
+  # FITNESS DIMENSIONS: 按 docs/fitness 维度拆分执行
   # ══════════════════════════════════════════════════════════════
-  fitness-ci:
-    name: 'Gate: Fitness'
+  fitness-dimensions:
+    name: 'Gate: ${{ matrix.label }}'
     runs-on: ubuntu-latest
     if: github.event_name != 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dimension: code_quality
+            label: Code Quality
+          - dimension: testability
+            label: Testability
+          - dimension: security
+            label: Security
+          - dimension: api_contract
+            label: API Contract
+          - dimension: design_system
+            label: Design System
+          - dimension: evolvability
+            label: Evolvability
+          - dimension: ui_consistency
+            label: UI Consistency
+          - dimension: observability
+            label: Observability
+          - dimension: performance
+            label: Performance
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,32 +112,55 @@ jobs:
       - name: Install entrix
         run: pip install -e tools/entrix
 
-      - name: Run fitness check
+      - name: Run fitness dimension
         id: fitness
         run: |
           mkdir -p .artifacts
-          entrix run --parallel --tier normal --scope ci --min-score 0 --output .artifacts/fitness-report.json
+          entrix run \
+            --parallel \
+            --tier normal \
+            --scope ci \
+            --min-score 0 \
+            --dimension "${{ matrix.dimension }}" \
+            --output ".artifacts/fitness-report-${{ matrix.dimension }}.json"
 
       - name: Summary
         if: always()
         run: |
           {
-            echo "## Fitness Report"
+            echo "## Fitness Dimension Report"
             echo ""
             echo "| Gate | Status |"
             echo "|------|--------|"
-            echo "| Fitness CI | ${{ steps.fitness.outcome == 'success' && '✅' || '❌' }} |"
+            echo "| ${{ matrix.label }} | ${{ steps.fitness.outcome == 'success' && '✅' || '❌' }} |"
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ -f .artifacts/fitness-report.json ]; then
-            python3 -c 'import json; from pathlib import Path; payload=json.loads(Path(".artifacts/fitness-report.json").read_text(encoding="utf-8")); print(""); print("- Final score: {:.1f}".format(payload.get("final_score", 0))); print("- Hard gate blocked: {}".format(payload.get("hard_gate_blocked", False))); print("- Score blocked: {}".format(payload.get("score_blocked", False))); [print("- {}: score={:.1f} passed={}/{}".format(dimension["name"], dimension["score"], dimension["passed"], dimension["total"])) for dimension in payload.get("dimensions", [])]' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f ".artifacts/fitness-report-${{ matrix.dimension }}.json" ]; then
+            python3 -c 'import json; from pathlib import Path; payload=json.loads(Path(".artifacts/fitness-report-${{ matrix.dimension }}.json").read_text(encoding="utf-8")); print(""); print("- Dimension: {}".format("${{ matrix.dimension }}")); print("- Final score: {:.1f}".format(payload.get("final_score", 0))); print("- Hard gate blocked: {}".format(payload.get("hard_gate_blocked", False))); print("- Score blocked: {}".format(payload.get("score_blocked", False))); [print("- {}: score={:.1f} passed={}/{}".format(dimension["name"], dimension["score"], dimension["passed"], dimension["total"])) for dimension in payload.get("dimensions", [])]' >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload fitness artifact
-        if: always() && hashFiles('.artifacts/fitness-report.json') != ''
+        if: always() && hashFiles(format('.artifacts/fitness-report-{0}.json', matrix.dimension)) != ''
         uses: actions/upload-artifact@v4
         with:
-          name: fitness-report
-          path: .artifacts/fitness-report.json
+          name: fitness-report-${{ matrix.dimension }}
+          path: .artifacts/fitness-report-${{ matrix.dimension }}.json
+
+  fitness-summary:
+    name: 'Fitness Summary'
+    runs-on: ubuntu-latest
+    needs: [fitness-dimensions]
+    if: always() && github.event_name != 'schedule'
+    steps:
+      - name: Download fitness artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: fitness-report-*
+          path: .artifacts
+          merge-multiple: true
+
+      - name: Summary
+        run: |
+          python3 -c 'import json; from pathlib import Path; files=sorted(Path(".artifacts").glob("fitness-report-*.json")); print("## Fitness Summary"); print(""); print("| Dimension | Final score | Hard gate blocked | Score blocked |"); print("|-----------|-------------|-------------------|---------------|"); [print("| {} | {:.1f} | {} | {} |".format(((payload.get("dimensions") or [{}])[0].get("name") or file_path.stem.removeprefix("fitness-report-")), payload.get("final_score", 0), payload.get("hard_gate_blocked", False), payload.get("score_blocked", False))) for file_path in files for payload in [json.loads(file_path.read_text(encoding="utf-8"))]] or print("| none | n/a | n/a | n/a |")' >> "$GITHUB_STEP_SUMMARY"
 
   # ══════════════════════════════════════════════════════════════
   # SECURITY DIMENSION: 依赖漏洞扫描
