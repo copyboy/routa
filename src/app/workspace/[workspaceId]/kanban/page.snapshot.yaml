@@ -1,28 +1,132 @@
 # page-id: kanban
 # route: /workspace/default/kanban
 # source-page: src/app/workspace/[workspaceId]/kanban/page.tsx
-# url: http://127.0.0.1:3000/workspace/default/kanban
+# url: http://127.0.0.1:3210/workspace/default/kanban
 # title: Routa - Multi-Agent Coordinator
-# generated-at: 2026-03-19T15:26:23.929Z
-# generator: playwright
-# playwright-version: 1.58.2
-- text: Backlog 1 cards -> Default · CRAFTER · Backlog Refiner
-- button "Open Stabilize Page Snapshot Fixtures":
-  - img
-  - button "Delete task":
-    - img
-  - text: Idle Not synced Stabilize Page Snapshot Fixtures high
-  - paragraph: Introduce deterministic fixture data for snapshot validation.
-  - text: snapshot ci
-  - button "Run"
-  - text: Automation Card override
-  - button "Edit"
-- text: Todo 0 cards -> Default · CRAFTER · Todo Orchestrator Dev 0 cards -> Default · CRAFTER · Dev Crafter Review 0 cards -> Default · GATE · QA Frontend -> Default · GATE · Review Guard Done 1 cards -> Default · GATE · Done Reporter
-- button "Open Validate Snapshot Pipeline":
-  - img
-  - button "Delete task":
-    - img
-  - text: Idle Not synced Validate Snapshot Pipeline medium
-  - paragraph: Verify the snapshot validator runs against fixture data.
-  - text: snapshot Automation Card override
-  - button "Edit"
+# generated-at: 2026-03-20T04:33:28.873Z
+# generator: playwright-cli
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e5]:
+        - img "Routa" [ref=e6]
+        - generic [ref=e7]: Routa
+      - button "Default Workspace" [ref=e10]:
+        - img [ref=e11]
+        - generic [ref=e13]: Default Workspace
+        - img [ref=e14]
+    - generic [ref=e17]:
+      - complementary [ref=e18]:
+        - navigation [ref=e19]:
+          - link "Home" [ref=e20] [cursor=pointer]:
+            - /url: /
+            - img [ref=e21]
+          - link "Overview" [ref=e23] [cursor=pointer]:
+            - /url: /workspace/default
+            - img [ref=e24]
+          - link "Kanban" [ref=e26] [cursor=pointer]:
+            - /url: /workspace/default/kanban
+            - img [ref=e28]
+          - link "Traces" [ref=e30] [cursor=pointer]:
+            - /url: /traces
+            - img [ref=e31]
+        - link "Settings" [ref=e35] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e36]
+      - main [ref=e39]:
+        - generic [ref=e42]:
+          - generic [ref=e44]:
+            - generic [ref=e45]:
+              - img [ref=e46]
+              - heading "Kanban Board" [level=1] [ref=e48]
+              - generic [ref=e64]: (6 tasks)
+            - generic [ref=e49]:
+              - generic [ref=e65]: Limit 1
+              - generic "Running No cards" [ref=e66]: Running 0
+              - generic "Queued No cards" [ref=e67]: Queued 0
+              - combobox [active] [ref=e68]:
+                - option "Board"
+                - option "Imported Board Default" [selected]
+              - button "Backend Agents" [ref=e51]:
+                - img [ref=e52]
+                - text: Backend Agents
+              - button "Settings" [ref=e54]
+              - generic [ref=e55]:
+                - generic [ref=e56]: Language
+                - button "English" [pressed] [ref=e57]
+                - button "Chinese" [ref=e58]
+              - button "Refresh" [ref=e59]:
+                - img [ref=e60]
+          - generic [ref=e70]:
+            - generic [ref=e72]:
+              - generic [ref=e73]: Repos
+              - generic [ref=e74]:
+                - generic [ref=e75]: No repositories linked.
+                - button "Select or clone a repository..." [ref=e78]:
+                  - img [ref=e79]
+                  - generic [ref=e81]: Select or clone a repository...
+            - generic [ref=e83]:
+              - generic [ref=e84]:
+                - combobox "KanbanTask Agent provider" [ref=e85]:
+                  - option "Auggie" [selected]
+                  - option "Auggie CLI (Registry)"
+                  - option "Autohand Code"
+                  - option "Claude Agent"
+                  - option "Claude Code"
+                  - option "Cline"
+                  - option "Codebuddy Code"
+                  - option "Codex"
+                  - option "Codex CLI (Registry)"
+                  - option "DeepAgents"
+                  - option "DimCode"
+                  - option "Factory Droid"
+                  - option "Gemini"
+                  - option "Gemini CLI (Registry)"
+                  - option "GitHub Copilot"
+                  - option "GitHub Copilot"
+                  - option "Kilo"
+                  - option "Kimi"
+                  - option "Kiro"
+                  - option "Minion Code"
+                  - option "Nova"
+                  - option "OpenCode"
+                  - option "Qoder CLI"
+                  - option "Qwen Code"
+                  - option "crow-cli"
+                  - option "fast-agent"
+                  - option "pi ACP"
+                - img
+              - textbox "Describe work to plan in Kanban..." [ref=e86]
+              - button "Send" [disabled] [ref=e87]:
+                - generic [ref=e88]: Send
+                - img [ref=e89]
+              - button "Manual" [ref=e91]
+          - generic [ref=e95]:
+            - generic [ref=e98]:
+              - generic [ref=e99]: Backlog
+              - generic [ref=e100]: 0 cards
+            - generic [ref=e202]:
+              - generic [ref=e203]:
+                - generic [ref=e204]:
+                  - generic [ref=e205]: Todo
+                  - generic [ref=e206]: 1 cards
+                - generic "-> OpenCode · CRAFTER" [ref=e232]
+              - button "Open Test full auto 1773980780" [ref=e233]:
+                - generic "Drag card":
+                  - img
+                - button "Delete task" [ref=e234]:
+                  - img [ref=e235]
+                - generic [ref=e237]:
+                  - generic [ref=e238]:
+                    - generic [ref=e239]:
+                      - generic [ref=e240]: Idle
+                      - generic [ref=e241]: Not synced
+                    - generic [ref=e242]: Test full auto 1773980780
+                  - generic [ref=e243]: medium
+                - paragraph [ref=e244]: "Test full auto-chain replay: input -> backlog -> todo -> dev. Import board config, create card from top Kanban input, then move same card through Todo and Dev. Confirm each automated lane transition can create a fresh OpenCode session."
+                - generic [ref=e247]:
+                  - generic [ref=e249]:
+                    - generic [ref=e250]: Automation
+                    - generic [ref=e251]: Card override
+                  - button "Edit" [ref=e252]
+  - alert [ref=e63]
