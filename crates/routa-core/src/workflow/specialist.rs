@@ -37,6 +37,17 @@ pub struct SpecialistExecutionDef {
     pub model: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SpecialistCapabilities {
+    /// Candidate categories the specialist can process in dispatch mode.
+    #[serde(default)]
+    pub categories: Vec<String>,
+
+    /// Optional cap on number of candidates per dispatch invocation.
+    #[serde(default)]
+    pub max_candidates: Option<usize>,
+}
+
 /// A specialist agent definition loaded from YAML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpecialistDef {
@@ -84,6 +95,10 @@ pub struct SpecialistDef {
     /// Custom metadata
     #[serde(default)]
     pub metadata: HashMap<String, String>,
+
+    /// Capability metadata for dynamic specialist selection.
+    #[serde(default)]
+    pub capabilities: Option<SpecialistCapabilities>,
 }
 
 fn default_role() -> String {
@@ -329,6 +344,7 @@ impl SpecialistLoader {
                 default_adapter: None,
                 default_model: None,
                 metadata: HashMap::new(),
+                capabilities: None,
             },
             SpecialistDef {
                 id: "crafter".to_string(),
@@ -344,6 +360,7 @@ impl SpecialistLoader {
                 default_adapter: None,
                 default_model: None,
                 metadata: HashMap::new(),
+                capabilities: None,
             },
             SpecialistDef {
                 id: "gate".to_string(),
@@ -360,6 +377,7 @@ impl SpecialistLoader {
                 default_adapter: None,
                 default_model: None,
                 metadata: HashMap::new(),
+                capabilities: None,
             },
             SpecialistDef {
                 id: "issue-refiner".to_string(),
@@ -376,6 +394,7 @@ impl SpecialistLoader {
                 default_adapter: None,
                 default_model: None,
                 metadata: HashMap::new(),
+                capabilities: None,
             },
         ]
     }
