@@ -607,6 +607,7 @@ export class AcpProcessManager {
         const adapter = new ClaudeCodeSdkAdapter(cwd, onNotification, {
             allowedNativeTools: sessionRecord?.allowedNativeTools,
             mcpServers,
+            systemPromptAppend: sessionRecord?.specialistSystemPrompt,
         });
         await adapter.connect();
         // Use existing session ID instead of creating new one

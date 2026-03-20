@@ -53,6 +53,8 @@ export interface AgentInstanceConfig {
   allowedNativeTools?: string[];
   /** Optional MCP servers exposed to the adapter session */
   mcpServers?: Record<string, McpServerConfig>;
+  /** Optional system prompt append content passed through to the provider SDK */
+  systemPromptAppend?: string;
 }
 
 /**
@@ -184,6 +186,7 @@ export class AgentInstanceFactory {
       apiKey: resolved.apiKey,
       allowedNativeTools: resolved.allowedNativeTools,
       mcpServers: resolved.mcpServers,
+      systemPromptAppend: resolved.systemPromptAppend,
       lifecycleNotifier,
     });
 

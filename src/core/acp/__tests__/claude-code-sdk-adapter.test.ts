@@ -310,6 +310,24 @@ describe("ClaudeCodeSdkAdapter", () => {
       ).resolves.toEqual({ behavior: "allow", updatedInput: {} });
     });
 
+    it("passes provider-level systemPrompt append to the SDK query", async () => {
+      mockQuery.mockReturnValue(makeStream([]));
+
+      const { handler } = collectNotifications();
+      const adapter = new ClaudeCodeSdkAdapter("/tmp/test-cwd", handler, {
+        systemPromptAppend: "You are the team lead. Delegate instead of implementing.",
+      });
+      await adapter.connect();
+      await adapter.prompt("Delegate work");
+
+      const callArgs = mockQuery.mock.calls[0][0];
+      expect(callArgs.options.systemPrompt).toEqual({
+        type: "preset",
+        preset: "claude_code",
+        append: "You are the team lead. Delegate instead of implementing.",
+      });
+    });
+
     it("emits agent_message_chunk notifications from text_delta stream events", async () => {
       const textDeltaMsg: SDKMessage = {
         type: "stream_event",

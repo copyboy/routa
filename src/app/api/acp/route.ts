@@ -117,6 +117,45 @@ function markSessionPromptError(
   return message;
 }
 
+function buildSpecialistSystemPrompt(
+  specialist: SpecialistConfig | null,
+): string | undefined {
+  if (!specialist?.systemPrompt) {
+    return undefined;
+  }
+
+  if (!specialist.roleReminder) {
+    return specialist.systemPrompt;
+  }
+
+  return `${specialist.systemPrompt}\n\n---\n**Reminder:** ${specialist.roleReminder}`;
+}
+
+function deriveAllowedNativeTools(
+  requestedTools: unknown,
+  specialistId?: string,
+): string[] | undefined {
+  if (Array.isArray(requestedTools)) {
+    return requestedTools.filter((tool): tool is string => typeof tool === "string");
+  }
+
+  if (specialistId === "team-agent-lead") {
+    return [];
+  }
+
+  return undefined;
+}
+
+function buildCoordinatorContextPrompt(input: {
+  agentId: string;
+  workspaceId: string;
+  userRequest: string;
+}): string {
+  return `**Your Agent ID:** ${input.agentId}\n` +
+    `**Workspace ID:** ${input.workspaceId}\n\n` +
+    `## User Request\n\n${input.userRequest}\n`;
+}
+
 // ─── Idempotency cache for session/new requests ─────────────────────────
 // Prevents duplicate session creation when user clicks multiple times
 // before navigation completes. Cache entries expire after 30 seconds.
@@ -311,9 +350,10 @@ export async function POST(request: NextRequest) {
       const mcpProfile = resolveMcpServerProfile(
         typeof p.mcpProfile === "string" ? p.mcpProfile : undefined,
       );
-      const allowedNativeTools = Array.isArray(p.allowedNativeTools)
-        ? p.allowedNativeTools.filter((tool): tool is string => typeof tool === "string")
-        : undefined;
+      const allowedNativeTools = deriveAllowedNativeTools(
+        p.allowedNativeTools,
+        specialistId,
+      );
       const baseUrl = (p.baseUrl as string | undefined);
       const apiKey = (p.apiKey as string | undefined);
       const workspaceId = requireWorkspaceId(p.workspaceId);
@@ -412,6 +452,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      const specialistSystemPrompt = buildSpecialistSystemPrompt(specialist);
+
       // ── Register session in memory immediately (UI can navigate now) ──
       // If worktreeId provided, validate and override cwd with the worktree path
       // Session assignment is deferred until session creation succeeds
@@ -461,6 +503,7 @@ export async function POST(request: NextRequest) {
         model,
         specialistId: specialistId ?? undefined,
         sandboxId,
+        specialistSystemPrompt,
         acpStatus: "connecting",
         createdAt: now.toISOString(),
       });
@@ -584,6 +627,7 @@ export async function POST(request: NextRequest) {
               apiKey,
               allowedNativeTools,
               mcpServers: parseMcpServersFromConfigs(mcpConfigs),
+              systemPromptAppend: specialistSystemPrompt,
             };
             acpSessionId = await manager.createClaudeCodeSdkSession(
               sessionId,
@@ -702,16 +746,6 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // ── Load specialist system prompt ──────────────────────────────
-          let specialistSystemPrompt: string | undefined;
-          if (specialist?.systemPrompt) {
-            let prompt = specialist.systemPrompt;
-            if (specialist.roleReminder) {
-              prompt += `\n\n---\n**Reminder:** ${specialist.roleReminder}`;
-            }
-            specialistSystemPrompt = prompt;
-          }
-
           // ── Update session record with ACP details ─────────────────────
           store.upsertSession({
             sessionId,
@@ -722,6 +756,8 @@ export async function POST(request: NextRequest) {
             provider,
             role: role ?? "CRAFTER",
             toolMode,
+            mcpProfile,
+            allowedNativeTools,
             parentSessionId,
             modeId,
             model,
@@ -865,6 +901,8 @@ export async function POST(request: NextRequest) {
         const toolMode = storedSession?.toolMode;
         const mcpProfile = storedSession?.mcpProfile;
         const allowedNativeTools = storedSession?.allowedNativeTools;
+        const specialistId = storedSession?.specialistId;
+        const specialistSystemPrompt = storedSession?.specialistSystemPrompt;
 
         try {
           const preset = getPresetById(provider);
@@ -923,7 +961,14 @@ export async function POST(request: NextRequest) {
               cwd,
               forwardSessionUpdate,
               // Auto-created sessions pass role for tier-based model resolution
-              { provider: "claude-code-sdk", role, allowedNativeTools },
+              {
+                provider: "claude-code-sdk",
+                role,
+                specialistId,
+                model: storedSession?.model,
+                allowedNativeTools,
+                systemPromptAppend: specialistSystemPrompt,
+              },
             );
           } else if (isClaudeCode) {
             // Claude Code CLI session
@@ -966,6 +1011,8 @@ export async function POST(request: NextRequest) {
             toolMode,
             mcpProfile,
             allowedNativeTools,
+            specialistId,
+            specialistSystemPrompt,
             createdAt: now.toISOString(),
           });
 
@@ -1013,14 +1060,15 @@ export async function POST(request: NextRequest) {
             // First prompt for this coordinator - wrap with coordinator context
             const isFirstPrompt = !sessionRecord.firstPromptSent;
             if (isFirstPrompt) {
-              if (sessionRecord.specialistSystemPrompt) {
-                promptText = `${sessionRecord.specialistSystemPrompt}\n\n---\n\n` +
-                  `**Your Agent ID:** ${agent.id}\n` +
-                  `**Workspace ID:** ${sessionRecord.workspaceId}\n\n` +
-                  `## User Request\n\n${promptText}\n`;
-                console.log(
-                  `[ACP Route] Injected specialist coordinator prompt for ${sessionRecord.specialistId} into session ${sessionId}`
-                );
+              if (
+                sessionRecord.provider === "claude-code-sdk" &&
+                sessionRecord.specialistSystemPrompt
+              ) {
+                promptText = buildCoordinatorContextPrompt({
+                  agentId: agent.id,
+                  workspaceId: sessionRecord.workspaceId,
+                  userRequest: promptText,
+                });
               } else {
                 promptText = buildCoordinatorPrompt({
                   agentId: agent.id,
@@ -1038,7 +1086,13 @@ export async function POST(request: NextRequest) {
       {
         const sessionRecord = store.getSession(sessionId);
         if (sessionRecord?.specialistSystemPrompt && !sessionRecord.firstPromptSent) {
-          promptText = `${sessionRecord.specialistSystemPrompt}\n\n---\n\n${promptText}`;
+          if (sessionRecord.provider === "claude-code-sdk") {
+            console.log(
+              `[ACP Route] Using SDK systemPrompt for specialist ${sessionRecord.specialistId} in session ${sessionId}`
+            );
+          } else {
+            promptText = `${sessionRecord.specialistSystemPrompt}\n\n---\n\n${promptText}`;
+          }
           store.markFirstPromptSent(sessionId);
           console.log(
             `[ACP Route] Injected specialist systemPrompt for ${sessionRecord.specialistId} into session ${sessionId}`

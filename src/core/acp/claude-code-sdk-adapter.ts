@@ -128,6 +128,8 @@ export class ClaudeCodeSdkAdapter {
   private _allowedNativeTools: string[];
   /** Optional MCP servers exposed to Claude Code via the SDK. */
   private _mcpServers?: Record<string, McpServerConfig>;
+  /** Optional provider-level system prompt append content. */
+  private _systemPromptAppend?: string;
   /** Pending AskUserQuestion requests waiting for a UI response. */
   private pendingUserInputRequests = new Map<string, PendingUserInputRequest>();
   /** Completed AskUserQuestion responses keyed by tool call ID. */
@@ -145,6 +147,7 @@ export class ClaudeCodeSdkAdapter {
       apiKey?: string;
       allowedNativeTools?: string[];
       mcpServers?: Record<string, McpServerConfig>;
+      systemPromptAppend?: string;
       lifecycleNotifier?: LifecycleNotifier;
     }
   ) {
@@ -156,7 +159,33 @@ export class ClaudeCodeSdkAdapter {
     this._apiKeyOverride = options?.apiKey;
     this._allowedNativeTools = options?.allowedNativeTools ?? ["Skill", "Read", "Write", "Edit", "Bash", "Glob", "Grep"];
     this._mcpServers = options?.mcpServers;
+    this._systemPromptAppend = options?.systemPromptAppend;
     this.lifecycleNotifier = options?.lifecycleNotifier;
+  }
+
+  private buildSystemPromptOption(skillContent?: string):
+    | {
+        systemPrompt: {
+          type: "preset";
+          preset: "claude_code";
+          append: string;
+        };
+      }
+    | undefined {
+    const appendParts = [this._systemPromptAppend, skillContent]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+    if (appendParts.length === 0) {
+      return undefined;
+    }
+
+    return {
+      systemPrompt: {
+        type: "preset",
+        preset: "claude_code",
+        append: appendParts.join("\n\n---\n\n"),
+      },
+    };
   }
 
   private canUseConfiguredTool(
@@ -280,6 +309,7 @@ export class ClaudeCodeSdkAdapter {
     const disallowedTools = shouldLoadSettings
       ? undefined
       : ["Skill", "Read", "Write", "Edit", "Bash", "Glob", "Grep"];
+    const systemPromptOption = this.buildSystemPromptOption(skillContent);
 
     // Helper to format SSE event
     const formatSseEvent = (notification: JsonRpcMessage): string => {
@@ -309,15 +339,7 @@ export class ClaudeCodeSdkAdapter {
         // content into the system prompt using the preset+append mechanism.
         // This is the official SDK approach for skill integration — see:
         // https://platform.claude.com/docs/en/agent-sdk/skills
-        ...(skillContent
-          ? {
-              systemPrompt: {
-                type: "preset" as const,
-                preset: "claude_code" as const,
-                append: skillContent,
-              },
-            }
-          : {}),
+        ...(systemPromptOption ?? {}),
         env: {
           ...process.env,
           CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR ?? "/tmp/.claude",
@@ -478,6 +500,7 @@ export class ClaudeCodeSdkAdapter {
     const disallowedTools = shouldLoadSettings
       ? undefined
       : ["Skill", "Read", "Write", "Edit", "Bash", "Glob", "Grep"];
+    const systemPromptOption = this.buildSystemPromptOption();
 
     try {
       // Build query options with session continuity support
@@ -506,6 +529,7 @@ export class ClaudeCodeSdkAdapter {
         canUseTool: async (toolName, input, options) => {
           return this.canUseConfiguredTool(sessionId, toolName, input, options.toolUseID, options.signal);
         },
+        ...(systemPromptOption ?? {}),
         // Set CLAUDE_CONFIG_DIR to /tmp so the child process can write its
         // config/cache files in serverless environments (like Vercel Lambda)
         // where HOME or the default config directory is read-only.
