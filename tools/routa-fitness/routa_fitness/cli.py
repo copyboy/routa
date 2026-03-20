@@ -125,6 +125,16 @@ def _collect_changed_files(project_root: Path, base: str) -> list[str]:
     seen: set[str] = set()
     deduped: list[str] = []
     for file_path in files:
+        if file_path.startswith(
+            (
+                "tmp/",
+                "docs/",
+                ".routa-fitness/",
+                ".code-review-graph/",
+                "node_modules/",
+            )
+        ):
+            continue
         if file_path not in seen:
             seen.add(file_path)
             deduped.append(file_path)
@@ -133,8 +143,20 @@ def _collect_changed_files(project_root: Path, base: str) -> list[str]:
 
 def _domains_from_files(files: list[str]) -> set[str]:
     domains: set[str] = set()
+    config_files = {
+        "package.json",
+        "package-lock.json",
+        "Cargo.toml",
+        "Cargo.lock",
+        "api-contract.yaml",
+        "eslint.config.mjs",
+        "tsconfig.json",
+        "pyproject.toml",
+        "tools/routa-fitness/file_budgets.json",
+    }
     for file_path in files:
         suffix = Path(file_path).suffix.lower()
+        name = Path(file_path).name
         lowered = file_path.lower()
         if suffix == ".rs" or lowered.startswith("crates/"):
             domains.add("rust")
@@ -144,7 +166,7 @@ def _domains_from_files(files: list[str]) -> set[str]:
             domains.add("web")
         if suffix == ".py" or lowered.startswith("tools/routa-fitness/"):
             domains.add("python")
-        if suffix in {".toml", ".yaml", ".yml", ".json"}:
+        if file_path in config_files or name in config_files:
             domains.add("config")
     return domains
 
