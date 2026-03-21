@@ -76,6 +76,20 @@ function createSuggestionDropdown(triggerChar?: string) {
   let currentItems: SuggestionItem[] = [];
   let currentCommand: ((item: SuggestionItem) => void) | null = null;
   const currentTriggerChar = triggerChar ?? null;
+  let shouldSyncScroll = false;
+
+  const syncSelectedItemIntoView = () => {
+    const p = popup;
+    if (!p) return;
+
+    const selectedItem = p.children.item(selectedIndex);
+    if (!(selectedItem instanceof HTMLElement)) return;
+
+    selectedItem.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  };
 
   const renderList = () => {
     const p = popup;
@@ -137,10 +151,16 @@ function createSuggestionDropdown(triggerChar?: string) {
       };
       btn.onmouseenter = () => {
         selectedIndex = index;
+        shouldSyncScroll = false;
         renderList();
       };
       p.appendChild(btn);
     });
+
+    if (shouldSyncScroll) {
+      syncSelectedItemIntoView();
+      shouldSyncScroll = false;
+    }
   };
 
   // Click outside handler
@@ -206,6 +226,7 @@ function createSuggestionDropdown(triggerChar?: string) {
       currentItems = props.items || [];
       currentCommand = props.command;
       selectedIndex = 0;
+      shouldSyncScroll = false;
       renderList();
       const rect = props.clientRect?.();
       if (rect && popup) {
@@ -221,12 +242,14 @@ function createSuggestionDropdown(triggerChar?: string) {
       if (!currentItems.length) return false;
       if (props.event.key === "ArrowDown") {
         selectedIndex = (selectedIndex + 1) % currentItems.length;
+        shouldSyncScroll = true;
         renderList();
         return true;
       }
       if (props.event.key === "ArrowUp") {
         selectedIndex =
           (selectedIndex - 1 + currentItems.length) % currentItems.length;
+        shouldSyncScroll = true;
         renderList();
         return true;
       }

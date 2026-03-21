@@ -7,690 +7,55 @@ import { DesktopAppShell } from "@/client/components/desktop-app-shell";
 import { WorkspaceSwitcher } from "@/client/components/workspace-switcher";
 import { ChatPanel } from "@/client/components/chat-panel";
 import { getToolEventLabel } from "@/client/components/chat-panel/tool-call-name";
-import type { ChatMessage } from "@/client/components/chat-panel/types";
-import { MarkdownViewer } from "@/client/components/markdown/markdown-viewer";
 import { useAcp } from "@/client/hooks/use-acp";
-import { type NoteData, useNotes } from "@/client/hooks/use-notes";
-import { AskUserQuestionBubble } from "@/client/components/message-bubble";
+import { useNotes } from "@/client/hooks/use-notes";
 import { consumePendingPrompt } from "@/client/utils/pending-prompt";
 import { useWorkspaces } from "@/client/hooks/use-workspaces";
 import { desktopAwareFetch } from "@/client/utils/diagnostics";
 import { filterSpecialistsByCategory } from "@/client/utils/specialist-categories";
 import { formatRelativeTime, OverlayModal } from "../../ui-components";
 import type { SessionInfo } from "../../types";
-
-interface SpecialistSummary {
-  id: string;
-  name: string;
-  description?: string;
-  role?: string;
-}
-
-interface AgentSummary {
-  id: string;
-  name: string;
-  role: string;
-  status: string;
-  parentId?: string;
-  createdAt: string;
-  updatedAt?: string;
-  metadata?: Record<string, string>;
-}
-
-type NormalizedTaskStatus = "not-started" | "in-progress" | "waiting-review" | "done" | "blocked";
-type TeamMemberStatus = "idle" | "working" | "blocked" | "reviewing" | "done";
-type CoordinationEventType = "plan" | "assign" | "revision" | "finding" | "complete" | "blocked";
-type RoleTone = "lead" | "qa" | "research" | "frontend" | "backend" | "review" | "ux" | "ops" | "general" | "neutral";
-
-interface TeamTaskNode {
-  id: string;
-  title: string;
-  status: NormalizedTaskStatus;
-  details?: string;
-  children: TeamTaskNode[];
-}
-
-interface TeamActivityItem {
-  id: string;
-  type: CoordinationEventType;
-  title: string;
-  actor: string;
-  actorRoleId?: string;
-  target?: string;
-  targetRoleId?: string;
-  timestamp: string;
-  summary?: string;
-  sessionId?: string;
-  memberSession?: {
-    sessionId: string;
-    actor: string;
-    roleId?: string;
-    badge: string;
-    sessionName?: string;
-    preview?: string;
-    lastUpdatedLabel: string;
-    eventCount: number;
-    provider?: string;
-  };
-}
-
-interface SessionStreamSummary {
-  session: SessionInfo;
-  actor: string;
-  badge: string;
-  preview?: string;
-  eventCount: number;
-  lastUpdatedLabel: string;
-  lastUpdatedAt: number;
-}
-
-interface TeamMemberItem {
-  id: string;
-  actor: string;
-  roleId?: string;
-  roleLabel: string;
-  status: TeamMemberStatus;
-  lastUpdatedLabel?: string;
-  sessionId?: string;
-  preview?: string;
-  avatarLabel: string;
-}
-
-interface SessionLaneSnippet {
-  id: string;
-  label: string;
-  text: string;
-  kind: "user" | "message" | "tool" | "report" | "error";
-  tone: "default" | "tool" | "complete" | "blocked";
-}
-
-interface SessionLaneItem {
-  id: string;
-  sessionId: string;
-  actor: string;
-  roleId?: string;
-  badge: string;
-  sessionName: string;
-  status: TeamMemberStatus;
-  lastUpdatedLabel: string;
-  provider?: string;
-  eventCount: number;
-  snippets: SessionLaneSnippet[];
-  completionSummary?: string;
-  pendingQuestion?: PendingSessionQuestion | null;
-  isLead?: boolean;
-}
-
-interface SessionTimelineItem {
-  id: string;
-  sessionId: string;
-  title: string;
-  actor: string;
-  actorRoleId?: string;
-  timestamp: string;
-  summary?: string;
-  tone?: "default" | "tool" | "complete" | "blocked";
-  memberLane?: SessionLaneItem;
-  pendingQuestion?: PendingSessionQuestion | null;
-}
-
-interface DeliverableItem {
-  id: string;
-  label: string;
-  title: string;
-  owner: string;
-  status: "draft" | "review" | "approved";
-  summary?: string;
-  sessionId?: string;
-  updatedAt: number;
-}
-
-interface SessionHistoryEntry {
-  sessionId: string;
-  update?: {
-    sessionUpdate?: string;
-    content?:
-      | { type?: string; text?: string }
-      | Array<{ type?: string; text?: string; content?: { type?: string; text?: string } }>;
-    status?: string;
-    title?: string;
-    taskStatus?: string;
-    completionSummary?: string;
-    agentId?: string;
-    name?: string;
-    error?: string;
-    toolCallId?: string;
-    rawInput?: Record<string, unknown>;
-    rawOutput?: { output?: string };
-  };
-}
-
-interface AskUserQuestionItem {
-  question: string;
-  header: string;
-  options?: Array<{ label: string; description?: string }>;
-  multiSelect?: boolean;
-}
-
-interface PendingSessionQuestion {
-  sessionId: string;
-  toolCallId: string;
-  questions: AskUserQuestionItem[];
-  answers?: Record<string, string>;
-  status?: string;
-}
-
-const TEAM_LEAD_SPECIALIST_ID = "team-agent-lead";
-
-function mapAgentStatus(status?: string): TeamMemberStatus {
-  switch ((status ?? "").toUpperCase()) {
-    case "ACTIVE":
-      return "working";
-    case "COMPLETED":
-      return "done";
-    case "ERROR":
-    case "CANCELLED":
-      return "blocked";
-    default:
-      return "idle";
-  }
-}
-
-function avatarInitials(label: string): string {
-  return label
-    .split(/\s+/)
-    .map((part) => part.charAt(0))
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
-
-function normalizeTaskStatus(status?: string): NormalizedTaskStatus {
-  const normalized = status?.toUpperCase();
-  if (normalized === "COMPLETED" || normalized === "DONE") return "done";
-  if (normalized === "IN_PROGRESS" || normalized === "RUNNING" || normalized === "CONFIRMED") return "in-progress";
-  if (normalized === "REVIEW_REQUIRED" || normalized === "WAITING_REVIEW" || normalized === "NEEDS_REVIEW") return "waiting-review";
-  if (normalized === "FAILED" || normalized === "BLOCKED" || normalized === "NEEDS_FIX") return "blocked";
-  return "not-started";
-}
-
-function statusDotClass(status: TeamMemberStatus): string {
-  switch (status) {
-    case "working":
-      return "bg-cyan-500";
-    case "reviewing":
-      return "bg-amber-500";
-    case "blocked":
-      return "bg-rose-500";
-    case "done":
-      return "bg-emerald-500";
-    default:
-      return "bg-slate-400";
-  }
-}
-
-function deliverableTone(status: DeliverableItem["status"]): string {
-  if (status === "approved") {
-    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300";
-  }
-  if (status === "review") {
-    return "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300";
-  }
-  return "bg-slate-100 text-slate-700 dark:bg-slate-700/50 dark:text-slate-300";
-}
-
-function _activityTone(type: CoordinationEventType): string {
-  switch (type) {
-    case "plan":
-      return "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300";
-    case "assign":
-      return "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300";
-    case "revision":
-      return "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300";
-    case "finding":
-      return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300";
-    case "complete":
-      return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300";
-    case "blocked":
-      return "bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300";
-  }
-}
-
-function roleTone(roleId?: string): RoleTone {
-  if (!roleId) return "neutral";
-  if (roleId === TEAM_LEAD_SPECIALIST_ID) return "lead";
-  if (roleId.includes("qa")) return "qa";
-  if (roleId.includes("research")) return "research";
-  if (roleId.includes("frontend")) return "frontend";
-  if (roleId.includes("backend")) return "backend";
-  if (roleId.includes("review")) return "review";
-  if (roleId.includes("ux")) return "ux";
-  if (roleId.includes("operations")) return "ops";
-  if (roleId.includes("general")) return "general";
-  return "neutral";
-}
-
-function roleChipClass(roleId?: string, emphasis: "soft" | "strong" = "soft"): string {
-  const tone = roleTone(roleId);
-  const styles: Record<RoleTone, { soft: string; strong: string }> = {
-    lead: {
-      soft: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/20 dark:bg-violet-500/10 dark:text-violet-300",
-      strong: "border-violet-300 bg-violet-100 text-violet-800 dark:border-violet-400/30 dark:bg-violet-500/15 dark:text-violet-200",
-    },
-    qa: {
-      soft: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300",
-      strong: "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-400/30 dark:bg-amber-500/15 dark:text-amber-200",
-    },
-    research: {
-      soft: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300",
-      strong: "border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-500/15 dark:text-emerald-200",
-    },
-    frontend: {
-      soft: "border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-500/20 dark:bg-cyan-500/10 dark:text-cyan-300",
-      strong: "border-cyan-300 bg-cyan-100 text-cyan-800 dark:border-cyan-400/30 dark:bg-cyan-500/15 dark:text-cyan-200",
-    },
-    backend: {
-      soft: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300",
-      strong: "border-blue-300 bg-blue-100 text-blue-800 dark:border-blue-400/30 dark:bg-blue-500/15 dark:text-blue-200",
-    },
-    review: {
-      soft: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 dark:border-fuchsia-500/20 dark:bg-fuchsia-500/10 dark:text-fuchsia-300",
-      strong: "border-fuchsia-300 bg-fuchsia-100 text-fuchsia-800 dark:border-fuchsia-400/30 dark:bg-fuchsia-500/15 dark:text-fuchsia-200",
-    },
-    ux: {
-      soft: "border-pink-200 bg-pink-50 text-pink-700 dark:border-pink-500/20 dark:bg-pink-500/10 dark:text-pink-300",
-      strong: "border-pink-300 bg-pink-100 text-pink-800 dark:border-pink-400/30 dark:bg-pink-500/15 dark:text-pink-200",
-    },
-    ops: {
-      soft: "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
-      strong: "border-orange-300 bg-orange-100 text-orange-800 dark:border-orange-400/30 dark:bg-orange-500/15 dark:text-orange-200",
-    },
-    general: {
-      soft: "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/20 dark:bg-slate-500/10 dark:text-slate-300",
-      strong: "border-slate-300 bg-slate-100 text-slate-800 dark:border-slate-400/30 dark:bg-slate-500/15 dark:text-slate-200",
-    },
-    neutral: {
-      soft: "border-desktop-border bg-desktop-bg-primary text-desktop-text-secondary",
-      strong: "border-desktop-border bg-desktop-bg-active text-desktop-text-primary",
-    },
-  };
-  return styles[tone][emphasis];
-}
-
-function roleAvatarClass(roleId?: string): string {
-  const tone = roleTone(roleId);
-  const styles: Record<RoleTone, string> = {
-    lead: "bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-200",
-    qa: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
-    research: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200",
-    frontend: "bg-cyan-100 text-cyan-800 dark:bg-cyan-500/15 dark:text-cyan-200",
-    backend: "bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-200",
-    review: "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-500/15 dark:text-fuchsia-200",
-    ux: "bg-pink-100 text-pink-800 dark:bg-pink-500/15 dark:text-pink-200",
-    ops: "bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-200",
-    general: "bg-slate-100 text-slate-800 dark:bg-slate-500/15 dark:text-slate-200",
-    neutral: "bg-desktop-bg-active text-desktop-text-primary",
-  };
-  return styles[tone];
-}
-
-function sessionBadge(session: SessionInfo): string {
-  if (!session.parentSessionId) return "lead";
-  return session.specialistId ?? session.role ?? session.provider ?? "session";
-}
-
-function resolveRosterSpecialistId(
-  session: SessionInfo,
-  agentsById?: Map<string, AgentSummary>,
-): string | undefined {
-  const metadataRosterId = session.routaAgentId
-    ? agentsById?.get(session.routaAgentId)?.metadata?.rosterRoleId
-    : undefined;
-  if (metadataRosterId?.startsWith("team-")) return metadataRosterId;
-
-  const direct = session.specialistId;
-  if (direct?.startsWith("team-")) return direct;
-
-  const signature = `${session.specialistId ?? ""} ${session.role ?? ""} ${session.name ?? ""}`.toLowerCase();
-  if (signature.includes("agent lead") || signature.includes("team-agent-lead")) return TEAM_LEAD_SPECIALIST_ID;
-  if (signature.includes("qa") || signature.includes("gate")) return "team-qa";
-  if (signature.includes("research")) return "team-researcher";
-  if (signature.includes("frontend")) return "team-frontend-dev";
-  if (signature.includes("backend")) return "team-backend-dev";
-  if (signature.includes("review")) return "team-code-reviewer";
-  if (signature.includes("ux") || signature.includes("design")) return "team-ux-designer";
-  if (signature.includes("operations")) return "team-operations";
-  if (signature.includes("general")) return "team-general-engineer";
-  return undefined;
-}
-
-function getActorLabel(
-  session: SessionInfo,
-  specialistsById: Map<string, SpecialistSummary>,
-  agentsById?: Map<string, AgentSummary>,
-): string {
-  const displayLabel = session.routaAgentId
-    ? agentsById?.get(session.routaAgentId)?.metadata?.displayLabel
-    : undefined;
-  if (displayLabel) return displayLabel;
-
-  const rosterId = resolveRosterSpecialistId(session, agentsById);
-  return specialistsById.get(rosterId ?? session.specialistId ?? "")?.name ?? session.name ?? session.specialistId ?? session.role ?? "Agent";
-}
-
-function summarizeText(text?: string, max = 220): string | undefined {
-  const normalized = text?.replace(/\s+/g, " ").trim();
-  if (!normalized) return undefined;
-  return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
-}
-
-function extractHistoryText(update?: SessionHistoryEntry["update"]): string | undefined {
-  if (!update?.content) return undefined;
-  if (!Array.isArray(update.content)) {
-    return summarizeText(update.content.text);
-  }
-
-  const joined = update.content
-    .map((item) => item.text ?? item.content?.text ?? "")
-    .join(" ")
-    .trim();
-  return summarizeText(joined || undefined);
-}
-
-function extractFullHistoryText(update?: SessionHistoryEntry["update"]): string | undefined {
-  if (!update?.content) return undefined;
-  if (!Array.isArray(update.content)) {
-    return update.content.text?.trim() || undefined;
-  }
-
-  const joined = update.content
-    .map((item) => item.text ?? item.content?.text ?? "")
-    .join(" ")
-    .trim();
-  return joined || undefined;
-}
-
-function isLowSignalLeadMessage(text?: string): boolean {
-  const normalized = text?.replace(/\s+/g, " ").trim().toLowerCase();
-  if (!normalized) return true;
-  return (
-    normalized.includes("已派发 researcher 任务。正在等待回报")
-    || normalized.includes("reported completion back to lead (auto-submitted by orchestrator)")
-    || normalized.includes("正在等待回报")
-  );
-}
-
-function extractLeadHeadingKey(text?: string): string | null {
-  if (!text) return null;
-  const firstLine = text
-    .split("\n")
-    .map((line) => line.trim())
-    .find(Boolean);
-  if (!firstLine) return null;
-  const heading = firstLine.match(/^#+\s+(.*)$/)?.[1] ?? firstLine;
-  const normalized = heading.replace(/\s+/g, " ").trim().toLowerCase();
-  return normalized || null;
-}
-
-function resolveDelegationTarget(update?: SessionHistoryEntry["update"]): string | undefined {
-  const rawInput = update?.rawInput;
-  if (!rawInput) return undefined;
-
-  const specialist = typeof rawInput.specialist === "string" ? rawInput.specialist : undefined;
-  if (specialist?.startsWith("team-")) {
-    return specialist
-      .replace(/^team-/, "")
-      .split("-")
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ");
-  }
-
-  const additionalInstructions =
-    typeof rawInput.additionalInstructions === "string" ? rawInput.additionalInstructions : undefined;
-  const emphasizedRole = additionalInstructions?.match(/\*\*([^*]+)\*\*/)?.[1]?.trim();
-  if (emphasizedRole) return emphasizedRole;
-
-  if (!specialist) return undefined;
-  switch (specialist.toLowerCase()) {
-    case "crafter":
-      return "Implementor";
-    case "gate":
-      return "Verifier";
-    case "developer":
-      return "Developer";
-    default:
-      return specialist;
-  }
-}
-
-function resolveDelegationRosterSpecialistId(update?: SessionHistoryEntry["update"]): string | undefined {
-  const rawInput = update?.rawInput;
-  if (!rawInput) return undefined;
-
-  const directSpecialist = typeof rawInput.specialist === "string" ? rawInput.specialist : undefined;
-  if (directSpecialist?.startsWith("team-")) return directSpecialist;
-
-  const hintText = [
-    typeof rawInput.additionalInstructions === "string" ? rawInput.additionalInstructions : "",
-    typeof rawInput.description === "string" ? rawInput.description : "",
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  switch (directSpecialist?.toLowerCase()) {
-    case "gate":
-      return "team-qa";
-    case "crafter":
-    case "developer":
-      if (hintText.includes("research")) return "team-researcher";
-      if (hintText.includes("frontend")) return "team-frontend-dev";
-      if (hintText.includes("backend")) return "team-backend-dev";
-      if (hintText.includes("ux") || hintText.includes("design")) return "team-ux-designer";
-      if (hintText.includes("review")) return "team-code-reviewer";
-      return "team-general-engineer";
-    default:
-      return undefined;
-  }
-}
-
-function inferDeliverableLabel(note: NoteData, ownerId?: string): string {
-  const text = `${note.title} ${note.content}`.toLowerCase();
-  if (note.metadata.type === "spec") return "spec draft";
-  if (text.includes("ui") || text.includes("design")) return "ui proposal";
-  if (ownerId?.includes("qa") || ownerId?.includes("review")) return "test report";
-  if (ownerId?.includes("research")) return "findings";
-  if (ownerId?.includes("front") || ownerId?.includes("back") || ownerId?.includes("general")) return "patch";
-  return note.metadata.type === "task" ? "work package" : "team note";
-}
-
-function toMemberSessionSummary(
-  stream: SessionStreamSummary | undefined,
-  session: SessionInfo,
-  actor: string,
-  roleId?: string,
-) {
-  if (!stream) return undefined;
-  return {
-    sessionId: session.sessionId,
-    actor,
-    roleId,
-    badge: stream.badge,
-    sessionName: session.name ?? session.sessionId,
-    preview: stream.preview,
-    lastUpdatedLabel: stream.lastUpdatedLabel,
-    eventCount: stream.eventCount,
-    provider: session.provider ?? undefined,
-  };
-}
-
-function extractAskUserQuestionPayload(update?: SessionHistoryEntry["update"]): PendingSessionQuestion | null {
-  if (!update?.toolCallId) return null;
-  const rawInput = update.rawInput;
-  const questions = Array.isArray(rawInput?.questions)
-    ? rawInput.questions.filter((item): item is AskUserQuestionItem => Boolean(item && typeof item === "object" && typeof item.question === "string"))
-    : [];
-  const answers = rawInput?.answers && typeof rawInput.answers === "object"
-    ? Object.fromEntries(
-      Object.entries(rawInput.answers).filter(
-        ([, value]) => typeof value === "string" && value.trim().length > 0,
-      ) as Array<[string, string]>,
-    )
-    : undefined;
-  const looksLikeAskUserQuestion =
-    update.title === "AskUserQuestion"
-    || update.name === "AskUserQuestion"
-    || questions.length > 0;
-
-  if (!looksLikeAskUserQuestion) return null;
-
-  return {
-    sessionId: "",
-    toolCallId: update.toolCallId,
-    questions,
-    answers: answers && Object.keys(answers).length > 0 ? answers : undefined,
-    status: update.status,
-  };
-}
-
-function inferSessionDeliverableLabel(specialistId?: string): string {
-  if (!specialistId) return "deliverable";
-  if (specialistId.includes("research")) return "findings";
-  if (specialistId.includes("qa") || specialistId.includes("review")) return "test report";
-  if (specialistId.includes("ux")) return "ui proposal";
-  if (specialistId.includes("front") || specialistId.includes("back") || specialistId.includes("general")) return "patch";
-  return "deliverable";
-}
-
-function inferCompletionEvent(
-  session: SessionInfo,
-  actor: string,
-  update: NonNullable<SessionHistoryEntry["update"]>,
-): Pick<TeamActivityItem, "type" | "title" | "summary"> {
-  const specialistId = session.specialistId ?? "";
-  const taskStatus = normalizeTaskStatus(update.taskStatus);
-  const summary = summarizeText(update.completionSummary ?? extractHistoryText(update));
-
-  if (taskStatus === "blocked") {
-    return { type: "blocked", title: `${actor} reported a blocker`, summary };
-  }
-  if (specialistId.includes("qa") || specialistId.includes("review")) {
-    if (taskStatus === "waiting-review") {
-      return { type: "revision", title: `${actor} requested revision`, summary };
-    }
-    return { type: "complete", title: `${actor} returned review`, summary };
-  }
-  if (specialistId.includes("research")) {
-    return { type: "finding", title: `${actor} returned findings`, summary };
-  }
-  if (specialistId.includes("ux")) {
-    return { type: "complete", title: `${actor} delivered UI proposal`, summary };
-  }
-  return { type: "complete", title: `${actor} marked phase complete`, summary };
-}
-
-function laneSnippetTone(update?: SessionHistoryEntry["update"]): SessionLaneSnippet["tone"] {
-  if (update?.sessionUpdate === "task_completion") {
-    return normalizeTaskStatus(update.taskStatus) === "blocked" ? "blocked" : "complete";
-  }
-  if (update?.sessionUpdate === "tool_call_update") return "tool";
-  if (update?.sessionUpdate === "acp_status" && update.status === "error") return "blocked";
-  return "default";
-}
-
-function laneSnippetKind(update?: SessionHistoryEntry["update"]): SessionLaneSnippet["kind"] {
-  if (update?.sessionUpdate === "user_message") return "user";
-  if (update?.sessionUpdate === "agent_message") return "message";
-  if (update?.sessionUpdate === "tool_call_update") return "tool";
-  if (update?.sessionUpdate === "task_completion") return "report";
-  if (update?.sessionUpdate === "acp_status" && update.status === "error") return "error";
-  return "message";
-}
-
-function laneSnippetLabel(update?: SessionHistoryEntry["update"]): string {
-  if (!update?.sessionUpdate) return "Update";
-  if (update.sessionUpdate === "tool_call_update") {
-    return getToolEventLabel(update as Record<string, unknown>) || "Tool";
-  }
-  if (update.sessionUpdate === "task_completion") return "Report back";
-  if (update.sessionUpdate === "user_message") return "User";
-  if (update.sessionUpdate === "agent_message") return "Agent";
-  if (update.sessionUpdate === "acp_status" && update.status === "error") return "Runtime";
-  return update.sessionUpdate.replaceAll("_", " ");
-}
-
-function buildLaneSnippets(history: SessionHistoryEntry[], maxSnippets = 5): SessionLaneSnippet[] {
-  const snippets = history
-    .map((entry, index) => {
-      const update = entry.update;
-      const updateType = update?.sessionUpdate;
-      if (!updateType || updateType === "agent_message_chunk" || updateType === "agent_thought_chunk") return null;
-      if (updateType === "acp_status" && update.status !== "error") return null;
-
-      const text = updateType === "task_completion"
-        ? summarizeText(update.completionSummary ?? extractHistoryText(update) ?? "Member finished and handed the result back to lead.", 180)
-        : summarizeText(
-          extractHistoryText(update)
-            ?? update.rawOutput?.output
-            ?? update.error
-            ?? (typeof update.rawInput?.additionalInstructions === "string" ? update.rawInput.additionalInstructions : undefined)
-            ?? (typeof update.rawInput?.title === "string" ? update.rawInput.title : undefined),
-          180,
-        );
-
-      if (!text) return null;
-      if (isLowSignalLeadMessage(text)) return null;
-      return {
-        id: `${entry.sessionId}-${index}`,
-        label: laneSnippetLabel(update),
-        text,
-        kind: laneSnippetKind(update),
-        tone: laneSnippetTone(update),
-      } satisfies SessionLaneSnippet;
-    })
-    .filter((snippet): snippet is SessionLaneSnippet => Boolean(snippet))
-    .filter((snippet, index, all) => {
-      const previous = all[index - 1];
-      return !previous || previous.label !== snippet.label || previous.text !== snippet.text;
-    });
-
-  return snippets.slice(-maxSnippets);
-}
-
-function extractGoalFromPrompt(text?: string): string | undefined {
-  const normalized = text?.trim();
-  if (!normalized) return undefined;
-
-  const markdownGoal = normalized.match(/(?:^|\n)##\s*Goal\s+([\s\S]*?)(?=\n##\s|\n@@@|$)/i)?.[1]?.trim();
-  if (markdownGoal) {
-    return summarizeText(markdownGoal, 320);
-  }
-
-  if (/routa coordinator|you plan, delegate, and verify/i.test(normalized)) {
-    return undefined;
-  }
-
-  return summarizeText(normalized, 320);
-}
-
-function findObjectiveText(session: SessionInfo | null, rootHistory: SessionHistoryEntry[], notes: NoteData[]): string {
-  const sessionName = session?.name?.replace(/^Team\s*-\s*/i, "").trim();
-  if (sessionName && !/^team automation verifier$/i.test(sessionName)) {
-    return sessionName;
-  }
-
-  const latestUserRequest = rootHistory.find((entry) => entry.update?.sessionUpdate === "user_message");
-  const explicitRequest = extractGoalFromPrompt(extractHistoryText(latestUserRequest?.update));
-  if (explicitRequest) return explicitRequest;
-
-  const specNote = notes
-    .filter((note) => note.metadata.type === "spec")
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
-  if (specNote?.content.trim()) {
-    return extractGoalFromPrompt(specNote.content) ?? summarizeText(specNote.content, 320) ?? specNote.content;
-  }
-
-  return session?.name ?? "Team objective not captured yet.";
-}
+import {
+  avatarInitials,
+  buildLaneSnippets,
+  extractAskUserQuestionPayload,
+  extractFullHistoryText,
+  extractGoalFromPrompt,
+  extractHistoryText,
+  extractLeadHeadingKey,
+  findObjectiveText,
+  getActorLabel,
+  inferCompletionEvent,
+  inferDeliverableLabel,
+  inferSessionDeliverableLabel,
+  isLowSignalLeadMessage,
+  mapAgentStatus,
+  normalizeTaskStatus,
+  resolveDelegationRosterSpecialistId,
+  resolveDelegationTarget,
+  resolveRosterSpecialistId,
+  sessionBadge,
+  summarizeText,
+  TEAM_LEAD_SPECIALIST_ID,
+  toMemberSessionSummary,
+  type AgentSummary,
+  type DeliverableItem,
+  type PendingSessionQuestion,
+  type SessionHistoryEntry,
+  type TeamActivityItem,
+  type TeamMemberStatus,
+  type SessionLaneItem,
+  type SessionStreamSummary,
+  type SessionTimelineItem,
+  type SpecialistSummary,
+  type TeamMemberItem,
+  type TeamTaskNode,
+} from "./team-run-page-model";
+import {
+  ObjectiveSidebarSection,
+  SessionTimelineSection,
+  TeamMembersSection,
+} from "./team-run-page-sections";
 
 export function TeamRunPageClient() {
   const params = useParams();
@@ -1121,7 +486,9 @@ export function TeamRunPageClient() {
       if (updateType === "tool_call_update" && getToolEventLabel(update as Record<string, unknown>).includes("delegate_task")) {
         const target = resolveDelegationTarget(update) ?? "team member";
         const targetRosterId = resolveDelegationRosterSpecialistId(update);
-        const linkedStream = targetRosterId ? latestChildSessionByRosterId.get(targetRosterId) : undefined;
+        const linkedStream: SessionStreamSummary | undefined = targetRosterId
+          ? latestChildSessionByRosterId.get(targetRosterId)
+          : undefined;
         items.push({
           id: `${sessionId}-delegate-${index}`,
           type: update.status === "failed" ? "blocked" : "assign",
@@ -1561,7 +928,7 @@ export function TeamRunPageClient() {
   const sessionTimeline = useMemo<SessionTimelineItem[]>(() => {
     const leadName = specialistsById.get(TEAM_LEAD_SPECIALIST_ID)?.name ?? "Agent Lead";
 
-    const items = rootHistory.flatMap((entry, index) => {
+    const items = rootHistory.flatMap<SessionTimelineItem>((entry, index) => {
       const update = entry.update;
       const updateType = update?.sessionUpdate;
       if (!updateType || !session) return [];
@@ -1598,11 +965,13 @@ export function TeamRunPageClient() {
       }
 
       if (updateType === "task_completion") {
-        const linkedStream = typeof update.agentId === "string" ? sessionStreamByAgentId.get(update.agentId) : undefined;
+        const linkedStream: SessionStreamSummary | undefined = typeof update.agentId === "string"
+          ? sessionStreamByAgentId.get(update.agentId)
+          : undefined;
         if (linkedStream) {
           return [];
         }
-        const actor = linkedStream?.actor ?? "Team member";
+        const actor = "Team member";
         const summary = summarizeText(update.completionSummary ?? extractHistoryText(update), 260);
         if (isLowSignalLeadMessage(summary)) {
           return [];
@@ -1612,9 +981,7 @@ export function TeamRunPageClient() {
           sessionId,
           title: `Report back from ${actor}`,
           actor,
-          actorRoleId: linkedStream
-            ? (resolveRosterSpecialistId(linkedStream.session, agentsById) ?? linkedStream.session.specialistId)
-            : undefined,
+          actorRoleId: undefined,
           timestamp,
           summary,
           tone: normalizeTaskStatus(update.taskStatus) === "blocked" ? "blocked" : "complete",
@@ -1640,7 +1007,9 @@ export function TeamRunPageClient() {
       if (toolLabel.includes("delegate_task")) {
         const target = resolveDelegationTarget(update) ?? "team member";
         const targetRosterId = resolveDelegationRosterSpecialistId(update);
-        const linkedStream = targetRosterId ? latestChildSessionByRosterId.get(targetRosterId) : undefined;
+        const linkedStream: SessionStreamSummary | undefined = targetRosterId
+          ? latestChildSessionByRosterId.get(targetRosterId)
+          : undefined;
         const memberLane = linkedStream
           ? sessionLanes.find((lane) => lane.sessionId === linkedStream.session.sessionId)
           : undefined;
@@ -1695,7 +1064,7 @@ export function TeamRunPageClient() {
       const nextHeading = extractLeadHeadingKey(next.summary);
       return !currentHeading || !nextHeading || currentHeading !== nextHeading;
     });
-  }, [agentsById, latestChildSessionByRosterId, rootHistory, session, sessionId, sessionLanes, sessionStreamByAgentId, specialistsById]);
+  }, [latestChildSessionByRosterId, rootHistory, session, sessionId, sessionLanes, sessionStreamByAgentId, specialistsById]);
 
   if (!session) {
     return (
@@ -1791,172 +1160,31 @@ export function TeamRunPageClient() {
         </header>
 
         <div className="grid min-h-0 flex-1 lg:grid-cols-[280px_minmax(0,1fr)_320px] xl:grid-cols-[300px_minmax(0,1fr)_340px]">
-          <section className="min-h-0 overflow-hidden border-r border-desktop-border bg-desktop-bg-secondary">
-            <div className="border-b border-desktop-border px-4 py-2.5">
-              <div className="text-[13px] font-semibold uppercase tracking-[0.2em] text-desktop-text-muted">Objective</div>
-              <div className="mt-2 rounded-[18px] border border-desktop-border bg-desktop-bg-primary p-3">
-                <div className="text-sm leading-5 text-desktop-text-primary">{objective}</div>
-              </div>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-                <MetricChip label="Done" value={memberCounts.done} tone="emerald" />
-                <MetricChip label="Active" value={memberCounts.active} tone="cyan" />
-                <MetricChip label="Blocked" value={memberCounts.blocked} tone="rose" />
-              </div>
-            </div>
+          <ObjectiveSidebarSection
+            objective={objective}
+            memberCounts={memberCounts}
+            taskTree={taskTree}
+            deliverables={deliverables}
+            onFocusSession={focusSessionBlock}
+          />
 
-            <div className="border-b border-desktop-border px-4 py-2.5">
-              <h2 className="text-base font-semibold text-desktop-text-primary">Plan / Task Tree</h2>
-              <p className="mt-0.5 text-xs leading-5 text-desktop-text-secondary">Lead decomposition and current execution state.</p>
-            </div>
-            <div className="h-[calc(100%-176px)] overflow-y-auto px-2.5 py-2.5">
-              <div className="space-y-3">
-                {taskTree.length === 0 ? (
-                  <EmptyPanel message="No task notes yet." />
-                ) : (
-                  <div className="space-y-1.5">
-                    {taskTree.map((node) => <TaskTreeNode key={node.id} node={node} />)}
-                  </div>
-                )}
+          <SessionTimelineSection
+            sessionTimeline={sessionTimeline}
+            sessionLanes={sessionLanes}
+            selectedSessionId={selectedSessionId}
+            onSelectSession={focusSessionBlock}
+            onOpenViewer={(nextSessionId) => setSelectedSessionForModal(nextSessionId)}
+            onSubmitQuestion={handleSubmitSessionQuestion}
+            sessionBlockRef={(nextSessionId, node) => {
+              sessionBlockRefs.current[nextSessionId] = node;
+            }}
+          />
 
-                <div className="border-t border-desktop-border pt-2.5">
-                  <div className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-desktop-text-muted">
-                    Deliverables
-                  </div>
-                  {deliverables.length === 0 ? (
-                    <EmptyPanel message="No notes or deliverables yet." />
-                  ) : (
-                    <div className="divide-y divide-desktop-border rounded-[14px] border border-desktop-border bg-desktop-bg-primary">
-                      {deliverables.map((item) => (
-                      <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => item.sessionId && focusSessionBlock(item.sessionId)}
-                          disabled={!item.sessionId}
-                          className={`flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition ${
-                            item.sessionId ? "hover:bg-desktop-bg-active/70" : "cursor-default"
-                          }`}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="truncate text-xs font-semibold text-desktop-text-primary">{item.label}</div>
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium capitalize ${deliverableTone(item.status)}`}>
-                                {item.status}
-                              </span>
-                            </div>
-                            <div className="mt-0.5 truncate text-[11px] text-desktop-text-secondary">{item.title}</div>
-                            <div className="mt-0.5 text-[10px] text-desktop-text-muted">{item.owner}</div>
-                            {item.summary && (
-                              <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-desktop-text-muted">{item.summary}</div>
-                            )}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="flex min-h-0 flex-col overflow-hidden bg-desktop-bg-primary">
-            <div className="border-b border-desktop-border px-4 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-2.5">
-                <div>
-                  <h2 className="text-base font-semibold text-desktop-text-primary">Session Timeline</h2>
-                  <p className="mt-0.5 text-xs leading-5 text-desktop-text-secondary">
-                    Lead decisions stay on the main line. Member sessions appear inline when delegated, then report back into the lead flow.
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 text-[11px] text-desktop-text-secondary">
-                  <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1">
-                    {sessionTimeline.length} events
-                  </span>
-                  <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1">
-                    {Math.max(sessionLanes.length - 1, 0)} members
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-              {sessionTimeline.length === 0 ? (
-                  <EmptyPanel message="No lead timeline yet." />
-              ) : (
-                <div className="space-y-1.5">
-                  {sessionTimeline.map((item) => (
-                    <SessionTimelineCard
-                      key={item.id}
-                      item={item}
-                      activeSessionId={selectedSessionId}
-                      sessionBlockRef={item.memberLane ? (node) => {
-                        sessionBlockRefs.current[item.memberLane!.sessionId] = node;
-                      } : undefined}
-                      onSelectSession={item.memberLane ? () => focusSessionBlock(item.memberLane!.sessionId) : undefined}
-                      onOpenViewer={() => setSelectedSessionForModal(item.memberLane?.sessionId ?? sessionId)}
-                      onSubmitQuestion={handleSubmitSessionQuestion}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
-
-          <aside className="min-h-0 overflow-hidden border-l border-desktop-border bg-desktop-bg-secondary">
-            <div className="border-b border-desktop-border px-4 py-2.5">
-              <h2 className="text-base font-semibold text-desktop-text-primary">Team Members</h2>
-              <p className="mt-0.5 text-xs leading-5 text-desktop-text-secondary">
-                Watch who is running, who is idle, and switch to any active member session.
-              </p>
-            </div>
-
-            <div className="min-h-0 flex-1">
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                <div className="divide-y divide-desktop-border">
-                  {teamMembers.map((member) => {
-                    const isSelected = member.sessionId === selectedSessionStream?.session.sessionId;
-                    return (
-                      <button
-                        key={member.id}
-                        type="button"
-                        onClick={() => member.sessionId && focusSessionBlock(member.sessionId)}
-                        disabled={!member.sessionId}
-                        className={`flex w-full items-start gap-2.5 px-3 py-2 text-left transition ${
-                          isSelected
-                            ? "bg-cyan-50/80 dark:bg-cyan-950/20"
-                            : member.sessionId
-                              ? "hover:bg-desktop-bg-active/70"
-                              : "opacity-75"
-                        }`}
-                      >
-                        <div className={`relative mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${roleAvatarClass(member.roleId)}`}>
-                          {member.avatarLabel}
-                          <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-[#141821] ${statusDotClass(member.status)}`} />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="truncate text-[11px] font-semibold text-desktop-text-primary">{member.actor}</div>
-                            <span className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-desktop-text-secondary">{member.status}</span>
-                          </div>
-                          <div className="mt-0.5 truncate text-[10px] text-desktop-text-secondary">
-                            {member.sessionId ? member.roleLabel : `${member.roleLabel} · no session yet`}
-                          </div>
-                          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-desktop-text-muted">
-                            <span>{member.lastUpdatedLabel ?? "Waiting for delegation"}</span>
-                            {member.preview && (
-                              <>
-                                <span className="opacity-40">/</span>
-                                <span className="truncate">{member.preview}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </aside>
+          <TeamMembersSection
+            teamMembers={teamMembers}
+            selectedSessionId={selectedSessionStream?.session.sessionId}
+            onFocusSession={focusSessionBlock}
+          />
         </div>
       </div>
 
@@ -2041,317 +1269,5 @@ export function TeamRunPageClient() {
         </OverlayModal>
       )}
     </DesktopAppShell>
-  );
-}
-
-function MetricChip({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "emerald" | "cyan" | "rose";
-}) {
-  const toneClass =
-    tone === "emerald"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300"
-      : tone === "rose"
-        ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300"
-        : "border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-500/20 dark:bg-cyan-500/10 dark:text-cyan-300";
-  return (
-    <div className={`rounded-[16px] border px-2.5 py-2 ${toneClass}`}>
-      <div className="text-lg font-semibold tabular-nums">{value}</div>
-      <div className="mt-0.5 text-[10px] uppercase tracking-[0.12em]">{label}</div>
-    </div>
-  );
-}
-
-function TaskTreeNode({
-  node,
-  level = 0,
-}: {
-  node: TeamTaskNode;
-  level?: number;
-}) {
-  return (
-    <div>
-      <div
-        className="rounded-[16px] border border-transparent px-2.5 py-2 transition-colors hover:border-desktop-border hover:bg-desktop-bg-active/70"
-        style={{ marginLeft: level * 16 }}
-      >
-        <div className="flex items-start gap-3">
-          <div className="pt-0.5">
-            <TaskStatusGlyph status={node.status} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-3">
-              <div className={`text-sm leading-5 ${node.status === "done" ? "text-desktop-text-muted line-through" : "text-desktop-text-primary"}`}>
-                {node.title}
-              </div>
-              <TaskStatusPill status={node.status} />
-            </div>
-            {node.details && (
-              <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-desktop-text-secondary">
-                {node.details}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-      {node.children.map((child) => (
-        <TaskTreeNode key={child.id} node={child} level={level + 1} />
-      ))}
-    </div>
-  );
-}
-
-function TaskStatusGlyph({
-  status,
-}: {
-  status: NormalizedTaskStatus;
-}) {
-  if (status === "done") {
-    return (
-      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-        </svg>
-      </div>
-    );
-  }
-  if (status === "in-progress") {
-    return <div className="h-6 w-6 rounded-full border-2 border-cyan-500 border-t-transparent animate-spin" />;
-  }
-  if (status === "waiting-review") {
-    return (
-      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12S5.25 6.75 12 6.75 21.75 12 21.75 12 18.75 17.25 12 17.25 2.25 12 2.25 12z" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
-        </svg>
-      </div>
-    );
-  }
-  if (status === "blocked") {
-    return (
-      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
-        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 4.5h.008v.008H12v-.008z" />
-        </svg>
-      </div>
-    );
-  }
-  return <div className="h-6 w-6 rounded-full border-2 border-slate-400" />;
-}
-
-function TaskStatusPill({ status }: { status: NormalizedTaskStatus }) {
-  const tone =
-    status === "done"
-      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
-      : status === "in-progress"
-        ? "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300"
-        : status === "waiting-review"
-          ? "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
-          : status === "blocked"
-            ? "bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300"
-            : "bg-slate-100 text-slate-700 dark:bg-slate-700/50 dark:text-slate-300";
-  return (
-    <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] ${tone}`}>
-      {status.replace("-", " ")}
-    </span>
-  );
-}
-
-function SessionStatusPill({ status }: { status: TeamMemberStatus }) {
-  const tone =
-    status === "working"
-      ? "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300"
-      : status === "reviewing"
-        ? "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
-        : status === "done"
-          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
-          : status === "blocked"
-            ? "bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300"
-            : "bg-slate-100 text-slate-700 dark:bg-slate-700/50 dark:text-slate-300";
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] ${tone}`}>
-      {status}
-    </span>
-  );
-}
-
-function snippetBodyClass(snippet: SessionLaneSnippet): string {
-  if (snippet.kind === "report") {
-    return snippet.tone === "blocked"
-      ? "border-rose-200 bg-rose-50/90 dark:border-rose-500/20 dark:bg-rose-500/10"
-      : "border-emerald-200 bg-emerald-50/90 dark:border-emerald-500/20 dark:bg-emerald-500/10";
-  }
-  if (snippet.kind === "tool") return "border-cyan-200 bg-cyan-50/90 dark:border-cyan-500/20 dark:bg-cyan-500/10";
-  if (snippet.kind === "error") return "border-rose-200 bg-rose-50/90 dark:border-rose-500/20 dark:bg-rose-500/10";
-  if (snippet.kind === "user") return "border-slate-200 bg-slate-50/90 dark:border-slate-600 dark:bg-slate-800/50";
-  return "border-desktop-border bg-desktop-bg-primary";
-}
-
-function SessionTimelineCard({
-  item,
-  activeSessionId,
-  sessionBlockRef,
-  onSelectSession,
-  onOpenViewer,
-  onSubmitQuestion,
-}: {
-  item: SessionTimelineItem;
-  activeSessionId?: string;
-  sessionBlockRef?: (node: HTMLDivElement | null) => void;
-  onSelectSession?: () => void;
-  onOpenViewer: () => void;
-  onSubmitQuestion?: (sessionId: string, toolCallId: string, response: Record<string, unknown>) => Promise<void>;
-}) {
-  const lane = item.memberLane;
-  const isActive = lane?.sessionId === activeSessionId;
-  const pendingQuestionMessage = item.pendingQuestion ? {
-    id: `${item.pendingQuestion.sessionId}-${item.pendingQuestion.toolCallId}`,
-    role: "tool",
-    content: "AskUserQuestion",
-    timestamp: new Date(),
-    toolName: "AskUserQuestion",
-    toolStatus: "awaiting_input",
-    toolCallId: item.pendingQuestion.toolCallId,
-    toolKind: "ask-user-question",
-    toolRawInput: {
-      questions: item.pendingQuestion.questions,
-      answers: item.pendingQuestion.answers,
-    },
-  } satisfies ChatMessage : null;
-
-  const bubbleToneClass = item.actorRoleId === "user"
-    ? "border-blue-100/70 bg-blue-50/60 text-blue-900 dark:border-blue-900/30 dark:bg-blue-900/10 dark:text-blue-100"
-    : item.tone === "blocked"
-      ? "border-rose-200 bg-rose-50/90 text-rose-900 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-100"
-      : item.tone === "complete"
-        ? "border-emerald-200 bg-emerald-50/90 text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-100"
-        : item.tone === "tool"
-          ? "border-cyan-200 bg-cyan-50/90 text-cyan-900 dark:border-cyan-500/20 dark:bg-cyan-500/10 dark:text-cyan-100"
-          : "border-gray-200/70 bg-gray-50/50 text-gray-900 dark:border-gray-800 dark:bg-[#151924] dark:text-gray-100";
-
-  const metaLabel = item.title === "Lead update" || item.title === "Objective set"
-    ? null
-    : item.title;
-  const wrapperClass = lane
-    ? "rounded-[10px] border border-desktop-border bg-desktop-bg-secondary"
-    : "py-0";
-  const showMeta = item.actorRoleId !== TEAM_LEAD_SPECIALIST_ID;
-  const showInlineDelegation = Boolean(lane);
-
-  return (
-    <div className={wrapperClass}>
-      <div className={`flex items-start justify-between gap-2 ${lane ? "px-2 py-1" : "px-0.5 py-0"}`}>
-        <div className="min-w-0">
-          {showMeta ? (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] ${roleChipClass(item.actorRoleId, item.actorRoleId === TEAM_LEAD_SPECIALIST_ID ? "strong" : "soft")}`}>
-                {item.actor}
-              </span>
-              <span className="text-[10px] text-desktop-text-muted">{item.timestamp}</span>
-            </div>
-          ) : null}
-          {item.summary && (
-            showInlineDelegation ? (
-              <div className={`${showMeta ? "mt-1" : ""} flex items-center gap-1.5 text-[11px] leading-5 text-desktop-text-secondary`}>
-                {metaLabel ? (
-                  <span className="shrink-0 font-semibold uppercase tracking-[0.12em] text-cyan-700 dark:text-cyan-300">
-                    {metaLabel}
-                  </span>
-                ) : null}
-                <div className="min-w-0 flex-1 truncate">{item.summary}</div>
-              </div>
-            ) : (
-              <div className={`${showMeta ? "mt-1" : ""} rounded-xl border ${showMeta ? "px-3 py-2" : "px-2 py-1"} ${bubbleToneClass}`}>
-                {metaLabel && (
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">
-                    {metaLabel}
-                  </div>
-                )}
-                <MarkdownViewer content={item.summary} className={showMeta ? "text-sm leading-6" : "text-[13px] leading-[1.4]"} />
-              </div>
-            )
-          )}
-        </div>
-      </div>
-
-      {lane && (
-        <div
-          ref={sessionBlockRef}
-          className={`mx-2 mb-2 rounded-[10px] border ${isActive ? "border-cyan-300 bg-cyan-50/50 dark:border-cyan-800 dark:bg-cyan-950/20" : "border-desktop-border bg-desktop-bg-primary"}`}
-        >
-          <div className="flex items-center justify-between gap-2 px-2 py-1">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={onSelectSession}
-                  className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] transition ${roleChipClass(lane.roleId, "soft")}`}
-                >
-                  {lane.actor}
-                </button>
-                <span className="rounded-full border border-desktop-border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-desktop-text-secondary">
-                  member session
-                </span>
-                <SessionStatusPill status={lane.status} />
-                <span className="text-[10px] text-desktop-text-muted">{lane.lastUpdatedLabel}</span>
-                <span className="text-[10px] text-desktop-text-muted opacity-40">/</span>
-                <span className="text-[10px] text-desktop-text-muted">{lane.eventCount} updates</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={onOpenViewer}
-                className="rounded-[10px] border border-desktop-border bg-desktop-bg-secondary px-2 py-1 text-[10px] font-medium text-desktop-text-secondary transition-colors hover:bg-desktop-bg-active hover:text-desktop-text-primary"
-              >
-                Open viewer
-              </button>
-            </div>
-          </div>
-
-          <div className="border-t border-desktop-border/80 px-2 py-1">
-            {lane.snippets.length === 0 ? (
-              <div className="text-[11px] text-desktop-text-secondary">No transcript content yet.</div>
-            ) : (
-              <div className={`min-w-0 ${lane.snippets.at(-1)?.kind === "user" ? "flex justify-end" : ""}`}>
-                <div className={`min-w-0 ${lane.snippets.at(-1)?.kind === "user" ? "max-w-[85%]" : "w-full"}`}>
-                  <div className={`rounded-[10px] border px-2.5 py-1.5 ${snippetBodyClass(lane.snippets.at(-1)!)} `}>
-                    <div className="line-clamp-1 text-[11px] leading-5 text-desktop-text-secondary">
-                      {lane.snippets.at(-1)!.text}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {pendingQuestionMessage && onSubmitQuestion && item.pendingQuestion && (
-        <div className="border-t border-desktop-border/80 px-3 py-2">
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-muted">
-            Awaiting input
-          </div>
-          <AskUserQuestionBubble
-            message={pendingQuestionMessage}
-            onSubmit={(toolCallId, response) => onSubmitQuestion(item.pendingQuestion!.sessionId, toolCallId, response)}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function EmptyPanel({ message }: { message: string }) {
-  return (
-    <div className="rounded-[16px] border border-dashed border-desktop-border px-3 py-5 text-center text-sm text-desktop-text-secondary">
-      {message}
-    </div>
   );
 }
