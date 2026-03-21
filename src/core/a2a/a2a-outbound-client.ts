@@ -22,6 +22,7 @@ import type {
   GetTaskParams,
   GetTaskResult,
   JsonRpcRequest,
+  JsonRpcResponse,
   JsonRpcSuccessResponse,
   SendMessageParams,
   SendMessageResult,
@@ -30,6 +31,8 @@ import {
   A2AInvalidCardError,
   A2ANetworkError,
   A2ATimeoutError,
+} from "./types";
+import {
   fetchAgentCard,
   getRpcEndpoint,
 } from "./a2a-agent-card";
@@ -49,6 +52,18 @@ const DEFAULT_OPTIONS: Required<A2AOutboundClientOptions> = {
  * Terminal states for A2A tasks
  */
 const TERMINAL_STATES = new Set(["completed", "failed", "canceled", "rejected", "auth-required"]);
+
+type RemoteA2ATask = SendMessageResult["task"] | GetTaskResult["task"];
+
+function hasTaskHistory(task: RemoteA2ATask): task is GetTaskResult["task"] {
+  return "history" in task;
+}
+
+function hasStatusMessage(
+  status: RemoteA2ATask["status"]
+): status is GetTaskResult["task"]["status"] {
+  return "message" in status;
+}
 
 /**
  * A2A Outbound Client for calling remote A2A agents
@@ -94,11 +109,7 @@ export class A2AOutboundClient {
 
     // If the URL ends with .json, it's likely the card URL
     // Otherwise, assume it's the RPC endpoint
-    let rpcEndpoint = agentCardUrl;
-    if (agentCardUrl.endsWith(".json") || agentCardUrl.endsWith("/agent-card")) {
-      const card = await this.fetchAgentCard(agentCardUrl);
-      rpcEndpoint = getRpcEndpoint(card);
-    }
+    const rpcEndpoint = await this.resolveRpcEndpoint(agentCardUrl);
 
     // Build SendMessage request
     const params: SendMessageParams = {
@@ -133,12 +144,7 @@ export class A2AOutboundClient {
    * @throws {A2ANetworkError} If the network request fails
    */
   async getTask(agentCardUrl: string, taskId: string): Promise<A2ATask> {
-    // If the URL ends with .json, it's likely the card URL
-    let rpcEndpoint = agentCardUrl;
-    if (agentCardUrl.endsWith(".json") || agentCardUrl.endsWith("/agent-card")) {
-      const card = await this.fetchAgentCard(agentCardUrl);
-      rpcEndpoint = getRpcEndpoint(card);
-    }
+    const rpcEndpoint = await this.resolveRpcEndpoint(agentCardUrl);
 
     const params: GetTaskParams = { id: taskId };
     const request: JsonRpcRequest = {
@@ -164,10 +170,11 @@ export class A2AOutboundClient {
    * @throws {A2ANetworkError} If a network request fails
    */
   async waitForCompletion(agentCardUrl: string, taskId: string): Promise<A2ATask> {
+    const rpcEndpoint = await this.resolveRpcEndpoint(agentCardUrl);
     const startTime = Date.now();
 
     while (Date.now() - startTime < this.options.maxWaitTime) {
-      const task = await this.getTask(agentCardUrl, taskId);
+      const task = await this.getTask(rpcEndpoint, taskId);
 
       if (TERMINAL_STATES.has(task.status.state)) {
         return task;
@@ -200,8 +207,18 @@ export class A2AOutboundClient {
     message: string | { text?: string; data?: unknown; mediaType?: string },
     metadata?: Record<string, unknown>
   ): Promise<A2ATask> {
-    const task = await this.sendMessage(agentCardUrl, message, metadata);
-    return this.waitForCompletion(agentCardUrl, task.id);
+    const rpcEndpoint = await this.resolveRpcEndpoint(agentCardUrl);
+    const task = await this.sendMessage(rpcEndpoint, message, metadata);
+    return this.waitForCompletion(rpcEndpoint, task.id);
+  }
+
+  private async resolveRpcEndpoint(agentCardUrl: string): Promise<string> {
+    if (agentCardUrl.endsWith(".json") || agentCardUrl.endsWith("/agent-card")) {
+      const card = await this.fetchAgentCard(agentCardUrl);
+      return getRpcEndpoint(card);
+    }
+
+    return agentCardUrl;
   }
 
   /**
@@ -230,7 +247,7 @@ export class A2AOutboundClient {
           );
         }
 
-        const jsonRpcResponse = (await response.json()) as JsonRpcSuccessResponse;
+        const jsonRpcResponse = (await response.json()) as JsonRpcResponse;
 
         // Check for JSON-RPC error
         if (jsonRpcResponse.error) {
@@ -240,7 +257,7 @@ export class A2AOutboundClient {
           );
         }
 
-        return jsonRpcResponse;
+        return jsonRpcResponse as JsonRpcSuccessResponse;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
@@ -265,9 +282,13 @@ export class A2AOutboundClient {
   /**
    * Normalize a task from the remote format to local A2ATask format
    */
-  private normalizeTask(remoteTask: GetTaskResult["task"]): A2ATask {
+  private normalizeTask(remoteTask: RemoteA2ATask): A2ATask {
+    const historySource = hasTaskHistory(remoteTask) ? remoteTask.history : [];
+    const artifactSource = hasTaskHistory(remoteTask) ? remoteTask.artifacts : undefined;
+    const statusMessage = hasStatusMessage(remoteTask.status) ? remoteTask.status.message : undefined;
+
     // Normalize history messages
-    const history: A2AMessage[] = remoteTask.history.map((msg) => ({
+    const history: A2AMessage[] = historySource.map((msg) => ({
       messageId: msg.messageId,
       role: msg.role as "user" | "agent",
       parts: msg.parts.map((p) => ({
@@ -280,7 +301,7 @@ export class A2AOutboundClient {
     }));
 
     // Normalize artifacts
-    const artifacts = remoteTask.artifacts?.map((art) => ({
+    const artifacts = artifactSource?.map((art) => ({
       artifactId: art.artifactId,
       name: art.name,
       description: art.description,
@@ -298,11 +319,11 @@ export class A2AOutboundClient {
       status: {
         state: remoteTask.status.state as A2ATask["status"]["state"],
         timestamp: remoteTask.status.timestamp,
-        message: remoteTask.status.message
+        message: statusMessage
           ? {
-              messageId: remoteTask.status.message.messageId,
-              role: remoteTask.status.message.role as "user" | "agent",
-              parts: remoteTask.status.message.parts.map((p) => ({
+              messageId: statusMessage.messageId,
+              role: statusMessage.role as "user" | "agent",
+              parts: statusMessage.parts.map((p) => ({
                 text: p.text,
                 data: p.data,
                 mediaType: p.mediaType,

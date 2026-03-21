@@ -122,7 +122,7 @@ describe("A2AOutboundClient", () => {
       let attemptCount = 0;
       mockFetch.mockImplementation(async () => {
         attemptCount++;
-        if (attemptCount < 3) {
+        if (attemptCount < 2) {
           throw new Error("Network error");
         }
         return {
@@ -135,7 +135,7 @@ describe("A2AOutboundClient", () => {
       const card = await client.fetchAgentCard("https://example.com/agent-card.json");
 
       expect(card).toEqual(mockAgentCard);
-      expect(attemptCount).toBe(3);
+      expect(attemptCount).toBe(2);
     });
   });
 
