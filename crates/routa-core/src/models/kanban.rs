@@ -87,6 +87,12 @@ pub struct KanbanColumn {
     pub color: Option<String>,
     pub position: i64,
     pub stage: String,
+    /// Whether the column is visible on the board
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visible: Option<bool>,
+    /// Column visual width configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<String>,
     /// Automation configuration for this column
     #[serde(skip_serializing_if = "Option::is_none")]
     pub automation: Option<KanbanColumnAutomation>,
