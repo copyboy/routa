@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AcpProviderInfo } from "../acp-client";
+import { SettingsPanel } from "./settings-panel";
 import {
   dedupeProviderIds,
   getOrderedVisibleProviderIds,
@@ -54,6 +55,8 @@ export function AcpProviderDropdown({
   dataTestId,
 }: AcpProviderDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [dropdownPos, setDropdownPos] = useState<DropdownPosition | null>(null);
   const [visibleProviderIds, setVisibleProviderIds] = useState<string[]>(() =>
     getOrderedVisibleProviderIds([])
@@ -166,11 +169,18 @@ export function AcpProviderDropdown({
     }
 
     openDropdown();
+    setSettingsOpen(false);
   };
 
   const handleSelect = (providerId: string) => {
     onProviderChange(providerId);
     setIsOpen(false);
+  };
+
+  const handleOpenSettingsPanel = () => {
+    setIsOpen(false);
+    setSettingsOpen(false);
+    setShowSettingsPanel(true);
   };
 
   const handleVisibleToggle = (providerId: string, checked: boolean) => {
@@ -229,9 +239,6 @@ export function AcpProviderDropdown({
               <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-gray-500">
                 Providers
               </p>
-              <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                默认展示常用 Provider，下面可勾选并拖动排序。
-              </p>
             </div>
 
             <div className="overflow-y-auto">
@@ -267,58 +274,82 @@ export function AcpProviderDropdown({
                 )}
               </div>
 
-              <div className="border-t border-gray-100 px-3 py-2 dark:border-gray-800">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-gray-500">
-                  Settings
-                </p>
-                <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                  勾选显示在上方，拖动已勾选项调整顺序。
-                </p>
+              <div className="border-t border-gray-100 dark:border-gray-800">
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen((open) => !open)}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-gray-500">
+                    Settings
+                  </p>
+                  <svg
+                    className={`h-3.5 w-3.5 text-gray-400 transition-transform ${settingsOpen ? "rotate-180" : ""}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
               </div>
 
-              <div className="p-2 pt-1">
-                {settingsProviders.map((provider) => {
-                  const checked = visibleProviderIds.includes(provider.id);
-                  return (
-                    <div
-                      key={provider.id}
-                      draggable={checked}
-                      onDragStart={() => setDraggingProviderId(provider.id)}
-                      onDragEnd={() => setDraggingProviderId(null)}
-                      onDragOver={(event) => {
-                        if (!draggingProviderId || !checked) return;
-                        event.preventDefault();
-                        moveVisibleProvider(draggingProviderId, provider.id);
-                      }}
-                      className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs ${
-                        draggingProviderId === provider.id ? "bg-gray-50 dark:bg-gray-800/60" : ""
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        aria-label={`Drag ${provider.name}`}
-                        className={`flex h-6 w-6 items-center justify-center rounded text-gray-400 ${
-                          checked ? "cursor-grab hover:bg-gray-100 dark:hover:bg-gray-800" : "cursor-not-allowed opacity-40"
+              {settingsOpen && (
+                <div className="p-2 pt-1">
+                  {settingsProviders.map((provider) => {
+                    const checked = visibleProviderIds.includes(provider.id);
+                    return (
+                      <div
+                        key={provider.id}
+                        draggable={checked}
+                        onDragStart={() => setDraggingProviderId(provider.id)}
+                        onDragEnd={() => setDraggingProviderId(null)}
+                        onDragOver={(event) => {
+                          if (!draggingProviderId || !checked) return;
+                          event.preventDefault();
+                          moveVisibleProvider(draggingProviderId, provider.id);
+                        }}
+                        className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs ${
+                          draggingProviderId === provider.id ? "bg-gray-50 dark:bg-gray-800/60" : ""
                         }`}
                       >
-                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01" />
-                        </svg>
-                      </button>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(event) => handleVisibleToggle(provider.id, event.target.checked)}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 focus:ring-offset-0 dark:border-gray-600"
-                      />
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${provider.status === "available" ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium text-gray-900 dark:text-gray-100">{provider.name}</p>
-                        <p className="truncate font-mono text-[10px] text-gray-400 dark:text-gray-500">{provider.id}</p>
+                        <button
+                          type="button"
+                          aria-label={`Drag ${provider.name}`}
+                          className={`flex h-6 w-6 items-center justify-center rounded text-gray-400 ${
+                            checked ? "cursor-grab hover:bg-gray-100 dark:hover:bg-gray-800" : "cursor-not-allowed opacity-40"
+                          }`}
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01" />
+                          </svg>
+                        </button>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => handleVisibleToggle(provider.id, event.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 focus:ring-offset-0 dark:border-gray-600"
+                        />
+                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${provider.status === "available" ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`} />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium text-gray-900 dark:text-gray-100">{provider.name}</p>
+                          <p className="truncate font-mono text-[10px] text-gray-400 dark:text-gray-500">{provider.id}</p>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="border-t border-gray-100 p-2 dark:border-gray-800">
+                <button
+                  type="button"
+                  onClick={handleOpenSettingsPanel}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800/50"
+                >
+                  Manage Providers
+                </button>
               </div>
 
               {providers.length > 0 && visibleProviders.length === 0 && (
@@ -329,6 +360,13 @@ export function AcpProviderDropdown({
         </div>,
         document.body
       )}
+
+      <SettingsPanel
+        open={showSettingsPanel}
+        onClose={() => setShowSettingsPanel(false)}
+        providers={providers}
+        initialTab="providers"
+      />
     </div>
   );
 }
