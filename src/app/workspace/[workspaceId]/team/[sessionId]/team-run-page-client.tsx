@@ -1213,6 +1213,7 @@ export function TeamRunPageClient() {
                       isLast={index === coordinationItems.length - 1}
                       activeSessionId={selectedSessionId}
                       workspaceId={workspaceId}
+                      onOpenItemSession={item.sessionId ? () => setSelectedSessionForModal(item.sessionId ?? sessionId) : undefined}
                       onSelectSession={item.sessionId ? () => setSelectedSessionId(item.sessionId ?? sessionId) : undefined}
                       onOpenViewer={item.sessionId ? () => setSelectedSessionForModal(item.sessionId ?? sessionId) : undefined}
                     />
@@ -1494,6 +1495,7 @@ function CoordinationFeedItem({
   isLast,
   activeSessionId,
   workspaceId,
+  onOpenItemSession,
   onSelectSession,
   onOpenViewer,
 }: {
@@ -1501,10 +1503,12 @@ function CoordinationFeedItem({
   isLast: boolean;
   activeSessionId?: string;
   workspaceId: string;
+  onOpenItemSession?: () => void;
   onSelectSession?: () => void;
   onOpenViewer?: () => void;
 }) {
   const memberSessionActive = item.memberSession?.sessionId === activeSessionId;
+  const itemSessionActive = item.sessionId === activeSessionId;
 
   return (
     <div className="relative">
@@ -1515,7 +1519,22 @@ function CoordinationFeedItem({
         <div className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${activityTone(item.type)}`}>
           {item.type[0].toUpperCase()}
         </div>
-        <div className="min-w-0 flex-1 rounded-[16px] border border-desktop-border bg-desktop-bg-secondary p-3 text-left">
+        <div
+          role={onOpenItemSession ? "button" : undefined}
+          tabIndex={onOpenItemSession ? 0 : undefined}
+          onClick={onOpenItemSession}
+          onKeyDown={onOpenItemSession ? (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onOpenItemSession();
+            }
+          } : undefined}
+          className={`min-w-0 flex-1 rounded-[16px] border p-3 text-left transition ${
+            itemSessionActive
+              ? "border-cyan-300 bg-cyan-50/60 dark:border-cyan-800 dark:bg-cyan-950/20"
+              : "border-desktop-border bg-desktop-bg-secondary"
+          } ${onOpenItemSession ? "cursor-pointer hover:border-cyan-300 hover:bg-desktop-bg-active/50" : ""}`}
+        >
           <div className="flex flex-wrap items-center justify-between gap-2.5">
             <div className="min-w-0">
               <div className="text-sm font-semibold text-desktop-text-primary">{item.title}</div>
@@ -1558,7 +1577,10 @@ function CoordinationFeedItem({
                     <div className="flex flex-wrap items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={onSelectSession}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSelectSession?.();
+                        }}
                         className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] transition ${roleChipClass(item.memberSession.roleId, "strong")}`}
                       >
                         {item.memberSession.actor}
@@ -1583,12 +1605,16 @@ function CoordinationFeedItem({
                     <div className="mt-2 flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={onOpenViewer}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpenViewer?.();
+                        }}
                         className="rounded-[12px] border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1.5 text-[11px] font-medium text-desktop-text-secondary transition-colors hover:bg-desktop-bg-active hover:text-desktop-text-primary"
                       >
                         Open viewer
                       </button>
                       <Link
+                        onClick={(event) => event.stopPropagation()}
                         href={`/workspace/${workspaceId}/sessions/${item.memberSession.sessionId}`}
                         className="rounded-[12px] bg-desktop-accent px-2.5 py-1.5 text-[11px] font-medium text-desktop-accent-text transition-colors hover:opacity-90"
                       >
