@@ -1243,6 +1243,28 @@ export class SqliteAcpSessionStore implements AcpSessionStore {
     const session = await this.get(sessionId);
     if (!session) return;
     const history = [...session.messageHistory, notification];
+
+    const nextIndexRows = await this.db
+      .select({ messageIndex: sqliteSchema.sessionMessages.messageIndex })
+      .from(sqliteSchema.sessionMessages)
+      .where(eq(sqliteSchema.sessionMessages.sessionId, sessionId))
+      .orderBy(desc(sqliteSchema.sessionMessages.messageIndex))
+      .limit(1);
+    const nextIndex = nextIndexRows.length > 0 ? nextIndexRows[0].messageIndex + 1 : 0;
+    const eventType = String(
+      (notification.update as Record<string, unknown> | undefined)?.sessionUpdate ?? "notification",
+    );
+
+    await this.db
+      .insert(sqliteSchema.sessionMessages)
+      .values({
+        id: notification.eventId ?? `${sessionId}-${nextIndex}`,
+        sessionId,
+        messageIndex: nextIndex,
+        eventType,
+        payload: notification as Record<string, unknown>,
+      });
+
     await this.db
       .update(sqliteSchema.acpSessions)
       .set({ messageHistory: history, updatedAt: new Date() })
@@ -1250,6 +1272,16 @@ export class SqliteAcpSessionStore implements AcpSessionStore {
   }
 
   async getHistory(sessionId: string): Promise<AcpSessionNotification[]> {
+    const rows = await this.db
+      .select()
+      .from(sqliteSchema.sessionMessages)
+      .where(eq(sqliteSchema.sessionMessages.sessionId, sessionId))
+      .orderBy(asc(sqliteSchema.sessionMessages.messageIndex));
+
+    if (rows.length > 0) {
+      return rows.map((row) => row.payload as AcpSessionNotification);
+    }
+
     const session = await this.get(sessionId);
     return session?.messageHistory ?? [];
   }

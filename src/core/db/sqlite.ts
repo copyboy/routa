@@ -250,6 +250,21 @@ function initializeSqliteTables(db: SqliteDatabase): void {
   try { db.run(sql`ALTER TABLE acp_sessions ADD COLUMN lease_expires_at INTEGER`); } catch { /* column already exists */ }
 
   db.run(sql`
+    CREATE TABLE IF NOT EXISTS session_messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES acp_sessions(id) ON DELETE CASCADE,
+      message_index INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    )
+  `);
+  db.run(sql`
+    CREATE INDEX IF NOT EXISTS idx_session_messages_session_id
+    ON session_messages (session_id, message_index)
+  `);
+
+  db.run(sql`
     CREATE TABLE IF NOT EXISTS codebases (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,

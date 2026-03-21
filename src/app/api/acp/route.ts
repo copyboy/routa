@@ -50,7 +50,7 @@ import {
   withConversation,
   recordTrace,
 } from "@/core/trace";
-import { persistSessionToDb, renameSessionInDb, saveHistoryToDb } from "@/core/acp/session-db-persister";
+import { loadHistorySinceEventIdFromDb, persistSessionToDb, renameSessionInDb, saveHistoryToDb } from "@/core/acp/session-db-persister";
 import { updateSessionExecutionBindingInDb } from "@/core/acp/session-db-persister";
 import { resolveSkillContent } from "@/core/skills/skill-resolver";
 import type { SessionUpdateNotification } from "@/core/acp/http-session-store";
@@ -70,7 +70,6 @@ import {
   proxyRequestToRunner,
   runnerUnavailableResponse,
 } from "@/core/acp/runner-routing";
-import { loadSessionHistory } from "@/core/session-history";
 
 export const dynamic = "force-dynamic";
 
@@ -377,12 +376,15 @@ export async function GET(request: NextRequest) {
         ?? request.nextUrl.searchParams.get("lastEventId");
       let replayedFromLastEventId = false;
       if (lastEventId) {
-        const history = await loadSessionHistory(sessionId);
-        const replayIndex = history.findIndex((entry) => entry.eventId === lastEventId);
-        if (replayIndex >= 0) {
+        const history = await loadHistorySinceEventIdFromDb(
+          sessionId,
+          lastEventId,
+          store.getSession(sessionId)?.cwd,
+        );
+        if (history.length > 0) {
           replayedFromLastEventId = true;
           const encoder = new TextEncoder();
-          for (const entry of history.slice(replayIndex + 1)) {
+          for (const entry of history) {
             controller.enqueue(encoder.encode(encodeSsePayload({
               jsonrpc: "2.0",
               method: "session/update",

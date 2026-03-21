@@ -9,7 +9,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { SessionUpdateNotification } from "../http-session-store";
 import { getHttpSessionStore } from "../http-session-store";
-import { appendSessionNotificationEvent, hasUserMessageInHistory } from "../session-db-persister";
+import {
+  appendSessionNotificationEvent,
+  hasUserMessageInHistory,
+  loadHistorySinceEventIdFromDb,
+} from "../session-db-persister";
 import { LocalSessionProvider } from "../../storage/local-session-provider";
 
 let tmpDir: string;
@@ -89,5 +93,69 @@ describe("session-db-persister", () => {
     const history = await new LocalSessionProvider(projectPath).getHistory(sessionId);
     expect(history).toHaveLength(1);
     expect((history[0] as { message: SessionUpdateNotification }).message).toEqual(notification);
+  });
+
+  it("loads only notifications after a durable event id", async () => {
+    const projectPath = path.join(tmpDir, "project-replay");
+    const sessionId = "session-replay";
+    const store = getHttpSessionStore();
+    store.upsertSession({
+      sessionId,
+      cwd: projectPath,
+      workspaceId: "ws-1",
+      provider: "opencode",
+      createdAt: new Date().toISOString(),
+    });
+
+    const first: SessionUpdateNotification = {
+      sessionId,
+      eventId: "evt-1",
+      update: {
+        sessionUpdate: "user_message",
+        content: { type: "text", text: "first" },
+      },
+    };
+    const second: SessionUpdateNotification = {
+      sessionId,
+      eventId: "evt-2",
+      update: {
+        sessionUpdate: "agent_message",
+        content: { type: "text", text: "second" },
+      },
+    };
+
+    await appendSessionNotificationEvent(sessionId, first);
+    await appendSessionNotificationEvent(sessionId, second);
+
+    const replay = await loadHistorySinceEventIdFromDb(sessionId, "evt-1", projectPath);
+    expect(replay).toHaveLength(1);
+    expect(replay[0]).toEqual(second);
+  });
+
+  it("falls back to in-memory history when durable replay misses the event id", async () => {
+    const sessionId = "session-memory-fallback";
+    const store = getHttpSessionStore();
+    store.upsertSession({
+      sessionId,
+      cwd: path.join(tmpDir, "memory-fallback"),
+      workspaceId: "ws-1",
+      provider: "opencode",
+      createdAt: new Date().toISOString(),
+    });
+
+    store.pushNotification({
+      sessionId,
+      eventId: "evt-a",
+      update: { sessionUpdate: "user_message", content: { type: "text", text: "a" } },
+    });
+    store.pushNotification({
+      sessionId,
+      eventId: "evt-b",
+      update: { sessionUpdate: "agent_message", content: { type: "text", text: "b" } },
+    });
+
+    const replay = await loadHistorySinceEventIdFromDb(sessionId, "evt-a");
+    expect(replay).toHaveLength(1);
+    expect(replay[0].eventId).toBe("evt-b");
   });
 });

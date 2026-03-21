@@ -24,6 +24,10 @@ function getLocalProvider(cwd: string): LocalSessionProvider | null {
   return new LocalSessionProvider(cwd);
 }
 
+async function loadSqliteDatabaseModule() {
+  return import("@/core/db/sqlite");
+}
+
 export interface SessionPersistData {
   id: string;
   name?: string;
@@ -75,7 +79,7 @@ export async function persistSessionToDb(data: SessionPersistData): Promise<void
         const db = getPostgresDatabase();
         await new PgAcpSessionStore(db).save(sessionRecord);
       } else {
-        const { getSqliteDatabase } = require("../db/sqlite") as typeof import("../db/sqlite");
+        const { getSqliteDatabase } = await loadSqliteDatabaseModule();
         const db = getSqliteDatabase();
         await new SqliteAcpSessionStore(db).save(sessionRecord);
       }
@@ -124,7 +128,7 @@ export async function deleteSessionFromDb(sessionId: string): Promise<void> {
         const db = getPostgresDatabase();
         await new PgAcpSessionStore(db).delete(sessionId);
       } else {
-        const { getSqliteDatabase } = require("../db/sqlite") as typeof import("../db/sqlite");
+        const { getSqliteDatabase } = await loadSqliteDatabaseModule();
         const db = getSqliteDatabase();
         await new SqliteAcpSessionStore(db).delete(sessionId);
       }
@@ -147,7 +151,7 @@ export async function renameSessionInDb(sessionId: string, name: string): Promis
         const db = getPostgresDatabase();
         await new PgAcpSessionStore(db).rename(sessionId, name);
       } else {
-        const { getSqliteDatabase } = require("../db/sqlite") as typeof import("../db/sqlite");
+        const { getSqliteDatabase } = await loadSqliteDatabaseModule();
         const db = getSqliteDatabase();
         await new SqliteAcpSessionStore(db).rename(sessionId, name);
       }
@@ -185,7 +189,7 @@ export async function hydrateSessionsFromDb(): Promise<Array<{
       const db = getPostgresDatabase();
       return await new PgAcpSessionStore(db).list();
     } else {
-      const { getSqliteDatabase } = require("../db/sqlite") as typeof import("../db/sqlite");
+      const { getSqliteDatabase } = await loadSqliteDatabaseModule();
       const db = getSqliteDatabase();
       return await new SqliteAcpSessionStore(db).list();
     }
@@ -222,7 +226,7 @@ export async function updateSessionExecutionBindingInDb(
       return;
     }
 
-    const { getSqliteDatabase } = require("../db/sqlite") as typeof import("../db/sqlite");
+    const { getSqliteDatabase } = await loadSqliteDatabaseModule();
     const db = getSqliteDatabase();
     const store = new SqliteAcpSessionStore(db);
     const session = await store.get(sessionId);
@@ -262,7 +266,7 @@ export async function saveHistoryToDb(
           updatedAt: new Date(),
         });
       } else {
-        const { getSqliteDatabase } = require("../db/sqlite") as typeof import("../db/sqlite");
+        const { getSqliteDatabase } = await loadSqliteDatabaseModule();
         const db = getSqliteDatabase();
         const sqliteStore = new SqliteAcpSessionStore(db);
         const session = await sqliteStore.get(sessionId);
@@ -295,7 +299,7 @@ export async function saveHistoryToDb(
       // Fallback: SQLite session record (available after server restart)
       if (!cwd && driver === "sqlite") {
         try {
-          const { getSqliteDatabase } = require("../db/sqlite") as typeof import("../db/sqlite");
+          const { getSqliteDatabase } = await loadSqliteDatabaseModule();
           const db = getSqliteDatabase();
           const sqliteSession = await new SqliteAcpSessionStore(db).get(sessionId);
           cwd = sqliteSession?.cwd;
@@ -319,6 +323,23 @@ export async function appendSessionNotificationEvent(
   notification: import("@/core/acp/http-session-store").SessionUpdateNotification,
   cwdOverride?: string,
 ): Promise<void> {
+  const driver = getDatabaseDriver();
+
+  if (driver !== "memory") {
+    try {
+      if (driver === "postgres") {
+        const db = getPostgresDatabase();
+        await new PgAcpSessionStore(db).appendHistory(sessionId, notification);
+      } else {
+        const { getSqliteDatabase } = await loadSqliteDatabaseModule();
+        const db = getSqliteDatabase();
+        await new SqliteAcpSessionStore(db).appendHistory(sessionId, notification);
+      }
+    } catch {
+      // Non-fatal — DB append is best-effort
+    }
+  }
+
   if (isServerless()) return;
 
   try {
@@ -329,9 +350,9 @@ export async function appendSessionNotificationEvent(
       cwd = getHttpSessionStore().getSession(sessionId)?.cwd;
     }
 
-    if (!cwd && getDatabaseDriver() === "sqlite") {
+    if (!cwd && driver === "sqlite") {
       try {
-        const { getSqliteDatabase } = require("../db/sqlite") as typeof import("../db/sqlite");
+        const { getSqliteDatabase } = await loadSqliteDatabaseModule();
         const db = getSqliteDatabase();
         cwd = (await new SqliteAcpSessionStore(db).get(sessionId))?.cwd;
       } catch {
@@ -344,8 +365,23 @@ export async function appendSessionNotificationEvent(
     const local = new LocalSessionProvider(cwd);
     await local.appendMessage(sessionId, toJsonlHistoryEntry(sessionId, notification));
   } catch {
-    // Non-fatal — event log append is best-effort
+    // Non-fatal — local event log append is best-effort
   }
+}
+
+export async function loadHistorySinceEventIdFromDb(
+  sessionId: string,
+  lastEventId: string,
+  cwdOverride?: string,
+): Promise<import("@/core/acp/http-session-store").SessionUpdateNotification[]> {
+  const history = await loadHistoryFromDb(sessionId, cwdOverride);
+  const index = history.findIndex((entry) => entry.eventId === lastEventId);
+  if (index >= 0) {
+    return history.slice(index + 1);
+  }
+
+  const { getHttpSessionStore } = await import("@/core/acp/http-session-store");
+  return getHttpSessionStore().getHistorySinceEventId(sessionId, lastEventId);
 }
 
 export async function loadHistoryFromDb(
@@ -365,7 +401,7 @@ export async function loadHistoryFromDb(
         (await new PgAcpSessionStore(db).getHistory(sessionId)) as import("@/core/acp/http-session-store").SessionUpdateNotification[]
       );
     } else {
-      const { getSqliteDatabase } = require("../db/sqlite") as typeof import("../db/sqlite");
+      const { getSqliteDatabase } = await loadSqliteDatabaseModule();
       const db = getSqliteDatabase();
       const sqliteStore = new SqliteAcpSessionStore(db);
       dbHistory = normalizeSessionHistory(

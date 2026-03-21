@@ -2,9 +2,9 @@
  * PgAcpSessionStore — Postgres-backed ACP session store using Drizzle ORM.
  */
 
-import { eq, desc } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import type { Database } from "./index";
-import { acpSessions } from "./schema";
+import { acpSessions, sessionMessages } from "./schema";
 import type { AcpSessionStore, AcpSession, AcpSessionNotification } from "../store/acp-session-store";
 
 export class PgAcpSessionStore implements AcpSessionStore {
@@ -87,6 +87,19 @@ export class PgAcpSessionStore implements AcpSessionStore {
     const session = await this.get(sessionId);
     if (!session) return;
     const history = [...session.messageHistory, notification];
+    const nextIndex = await this.getNextMessageIndex(sessionId);
+    const eventType = String(
+      (notification.update as Record<string, unknown> | undefined)?.sessionUpdate ?? "notification",
+    );
+
+    await this.db.insert(sessionMessages).values({
+      id: notification.eventId ?? `${sessionId}-${nextIndex}`,
+      sessionId,
+      messageIndex: nextIndex,
+      eventType,
+      payload: notification as Record<string, unknown>,
+    });
+
     await this.db
       .update(acpSessions)
       .set({ messageHistory: history, updatedAt: new Date() })
@@ -94,6 +107,16 @@ export class PgAcpSessionStore implements AcpSessionStore {
   }
 
   async getHistory(sessionId: string): Promise<AcpSessionNotification[]> {
+    const rows = await this.db
+      .select()
+      .from(sessionMessages)
+      .where(eq(sessionMessages.sessionId, sessionId))
+      .orderBy(asc(sessionMessages.messageIndex));
+
+    if (rows.length > 0) {
+      return rows.map((row) => row.payload as AcpSessionNotification);
+    }
+
     const session = await this.get(sessionId);
     return session?.messageHistory ?? [];
   }
@@ -133,5 +156,16 @@ export class PgAcpSessionStore implements AcpSessionStore {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
+  }
+
+  private async getNextMessageIndex(sessionId: string): Promise<number> {
+    const rows = await this.db
+      .select({ messageIndex: sessionMessages.messageIndex })
+      .from(sessionMessages)
+      .where(eq(sessionMessages.sessionId, sessionId))
+      .orderBy(desc(sessionMessages.messageIndex))
+      .limit(1);
+
+    return rows.length > 0 ? rows[0].messageIndex + 1 : 0;
   }
 }

@@ -216,6 +216,15 @@ export const acpSessions = sqliteTable("acp_sessions", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
+export const sessionMessages = sqliteTable("session_messages", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull().references(() => acpSessions.id, { onDelete: "cascade" }),
+  messageIndex: integer("message_index").notNull(),
+  eventType: text("event_type").notNull(),
+  payload: text("payload", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
 // ─── Skills ───────────────────────────────────────────────────────────
 
 export interface SkillFileEntry {
