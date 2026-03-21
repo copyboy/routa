@@ -1,3 +1,4 @@
+import type { ChatMessage } from "@/client/components/chat-panel/types";
 import { getToolEventLabel } from "@/client/components/chat-panel/tool-call-name";
 import type { NoteData } from "@/client/hooks/use-notes";
 import type { SessionInfo } from "../../types";
@@ -99,6 +100,7 @@ export interface SessionLaneItem {
   provider?: string;
   eventCount: number;
   snippets: SessionLaneSnippet[];
+  messages: ChatMessage[];
   completionSummary?: string;
   pendingQuestion?: PendingSessionQuestion | null;
   isLead?: boolean;

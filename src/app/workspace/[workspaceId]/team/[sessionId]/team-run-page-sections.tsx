@@ -1,21 +1,19 @@
 "use client";
 
+import { MessageBubble } from "@/client/components/message-bubble";
 import type { ChatMessage } from "@/client/components/chat-panel/types";
-import { MarkdownViewer } from "@/client/components/markdown/markdown-viewer";
 import { AskUserQuestionBubble } from "@/client/components/message-bubble";
 import {
   deliverableTone,
   roleAvatarClass,
   roleChipClass,
   statusDotClass,
-  TEAM_LEAD_SPECIALIST_ID,
   type DeliverableItem,
   type NormalizedTaskStatus,
-  type SessionLaneSnippet,
-  type SessionTimelineItem,
   type TeamMemberItem,
   type TeamMemberStatus,
   type TeamTaskNode,
+  type SessionLaneItem,
 } from "./team-run-page-model";
 
 export function ObjectiveSidebarSection({
@@ -102,7 +100,8 @@ export function ObjectiveSidebarSection({
 }
 
 export function SessionTimelineSection({
-  sessionTimeline,
+  leadMessages,
+  memberLaneByToolCallId,
   sessionLanes,
   selectedSessionId,
   onSelectSession,
@@ -110,7 +109,8 @@ export function SessionTimelineSection({
   onSubmitQuestion,
   sessionBlockRef,
 }: {
-  sessionTimeline: SessionTimelineItem[];
+  leadMessages: ChatMessage[];
+  memberLaneByToolCallId: Map<string, SessionLaneItem>;
   sessionLanes: Array<{ sessionId: string }>;
   selectedSessionId?: string;
   onSelectSession: (sessionId: string) => void;
@@ -125,12 +125,12 @@ export function SessionTimelineSection({
           <div>
             <h2 className="text-base font-semibold text-desktop-text-primary">Session Timeline</h2>
             <p className="mt-0.5 text-xs leading-5 text-desktop-text-secondary">
-              Lead decisions stay on the main line. Member sessions appear inline when delegated, then report back into the lead flow.
+              The lead transcript uses the same chat renderer as the raw session. Member sessions appear inline beneath delegation tool calls.
             </p>
           </div>
           <div className="flex items-center gap-1.5 text-[11px] text-desktop-text-secondary">
             <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1">
-              {sessionTimeline.length} events
+              {leadMessages.length} messages
             </span>
             <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1">
               {Math.max(sessionLanes.length - 1, 0)} members
@@ -140,21 +140,25 @@ export function SessionTimelineSection({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-        {sessionTimeline.length === 0 ? (
+        {leadMessages.length === 0 ? (
           <EmptyPanel message="No lead timeline yet." />
         ) : (
           <div className="space-y-1.5">
-            {sessionTimeline.map((item) => (
-              <SessionTimelineCard
-                key={item.id}
-                item={item}
-                activeSessionId={selectedSessionId}
-                sessionBlockRef={item.memberLane ? (node) => sessionBlockRef(item.memberLane!.sessionId, node) : undefined}
-                onSelectSession={item.memberLane ? () => onSelectSession(item.memberLane!.sessionId) : undefined}
-                onOpenViewer={() => onOpenViewer(item.memberLane?.sessionId ?? item.sessionId)}
-                onSubmitQuestion={onSubmitQuestion}
-              />
-            ))}
+            {leadMessages.map((message, index) => {
+              const lane = message.toolCallId ? memberLaneByToolCallId.get(message.toolCallId) : undefined;
+              return (
+                <LeadMessageThread
+                  key={`${message.id}-${index}`}
+                  message={message}
+                  lane={lane}
+                  activeSessionId={selectedSessionId}
+                  sessionBlockRef={lane ? (node) => sessionBlockRef(lane.sessionId, node) : undefined}
+                  onSelectSession={lane ? () => onSelectSession(lane.sessionId) : undefined}
+                  onOpenViewer={lane ? () => onOpenViewer(lane.sessionId) : undefined}
+                  onSubmitQuestion={onSubmitQuestion}
+                />
+              );
+            })}
           </div>
         )}
       </div>
@@ -364,103 +368,43 @@ function SessionStatusPill({ status }: { status: TeamMemberStatus }) {
   );
 }
 
-function snippetBodyClass(snippet: SessionLaneSnippet): string {
-  if (snippet.kind === "report") {
-    return snippet.tone === "blocked"
-      ? "border-rose-200 bg-rose-50/90 dark:border-rose-500/20 dark:bg-rose-500/10"
-      : "border-emerald-200 bg-emerald-50/90 dark:border-emerald-500/20 dark:bg-emerald-500/10";
-  }
-  if (snippet.kind === "tool") return "border-cyan-200 bg-cyan-50/90 dark:border-cyan-500/20 dark:bg-cyan-500/10";
-  if (snippet.kind === "error") return "border-rose-200 bg-rose-50/90 dark:border-rose-500/20 dark:bg-rose-500/10";
-  if (snippet.kind === "user") return "border-slate-200 bg-slate-50/90 dark:border-slate-600 dark:bg-slate-800/50";
-  return "border-desktop-border bg-desktop-bg-primary";
-}
-
-function SessionTimelineCard({
-  item,
+function LeadMessageThread({
+  message,
+  lane,
   activeSessionId,
   sessionBlockRef,
   onSelectSession,
   onOpenViewer,
   onSubmitQuestion,
 }: {
-  item: SessionTimelineItem;
+  message: ChatMessage;
+  lane?: SessionLaneItem;
   activeSessionId?: string;
   sessionBlockRef?: (node: HTMLDivElement | null) => void;
   onSelectSession?: () => void;
-  onOpenViewer: () => void;
+  onOpenViewer?: () => void;
   onSubmitQuestion?: (sessionId: string, toolCallId: string, response: Record<string, unknown>) => Promise<void>;
 }) {
-  const lane = item.memberLane;
   const isActive = lane?.sessionId === activeSessionId;
-  const pendingQuestionMessage = item.pendingQuestion ? {
-    id: `${item.pendingQuestion.sessionId}-${item.pendingQuestion.toolCallId}`,
+  const pendingQuestionMessage = lane?.pendingQuestion ? {
+    id: `${lane.pendingQuestion.sessionId}-${lane.pendingQuestion.toolCallId}`,
     role: "tool",
     content: "AskUserQuestion",
     timestamp: new Date(),
     toolName: "AskUserQuestion",
     toolStatus: "awaiting_input",
-    toolCallId: item.pendingQuestion.toolCallId,
+    toolCallId: lane.pendingQuestion.toolCallId,
     toolKind: "ask-user-question",
     toolRawInput: {
-      questions: item.pendingQuestion.questions,
-      answers: item.pendingQuestion.answers,
+      questions: lane.pendingQuestion.questions,
+      answers: lane.pendingQuestion.answers,
     },
   } satisfies ChatMessage : null;
 
-  const bubbleToneClass = item.actorRoleId === "user"
-    ? "border-blue-100/70 bg-blue-50/60 text-blue-900 dark:border-blue-900/30 dark:bg-blue-900/10 dark:text-blue-100"
-    : item.tone === "blocked"
-      ? "border-rose-200 bg-rose-50/90 text-rose-900 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-100"
-      : item.tone === "complete"
-        ? "border-emerald-200 bg-emerald-50/90 text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-100"
-        : item.tone === "tool"
-          ? "border-cyan-200 bg-cyan-50/90 text-cyan-900 dark:border-cyan-500/20 dark:bg-cyan-500/10 dark:text-cyan-100"
-          : "border-gray-200/70 bg-gray-50/50 text-gray-900 dark:border-gray-800 dark:bg-[#151924] dark:text-gray-100";
-
-  const metaLabel = item.title === "Lead update" || item.title === "Objective set"
-    ? null
-    : item.title;
-  const wrapperClass = lane
-    ? "rounded-[10px] border border-desktop-border bg-desktop-bg-secondary"
-    : "py-0";
-  const showMeta = item.actorRoleId !== TEAM_LEAD_SPECIALIST_ID;
-  const showInlineDelegation = Boolean(lane);
-
   return (
-    <div className={wrapperClass}>
-      <div className={`flex items-start justify-between gap-2 ${lane ? "px-2 py-1" : "px-0.5 py-0"}`}>
-        <div className="min-w-0">
-          {showMeta ? (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] ${roleChipClass(item.actorRoleId, item.actorRoleId === TEAM_LEAD_SPECIALIST_ID ? "strong" : "soft")}`}>
-                {item.actor}
-              </span>
-              <span className="text-[10px] text-desktop-text-muted">{item.timestamp}</span>
-            </div>
-          ) : null}
-          {item.summary && (
-            showInlineDelegation ? (
-              <div className={`${showMeta ? "mt-1" : ""} flex items-center gap-1.5 text-[11px] leading-5 text-desktop-text-secondary`}>
-                {metaLabel ? (
-                  <span className="shrink-0 font-semibold uppercase tracking-[0.12em] text-cyan-700 dark:text-cyan-300">
-                    {metaLabel}
-                  </span>
-                ) : null}
-                <div className="min-w-0 flex-1 truncate">{item.summary}</div>
-              </div>
-            ) : (
-              <div className={`${showMeta ? "mt-1" : ""} rounded-xl border ${showMeta ? "px-3 py-2" : "px-2 py-1"} ${bubbleToneClass}`}>
-                {metaLabel && (
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">
-                    {metaLabel}
-                  </div>
-                )}
-                <MarkdownViewer content={item.summary} className={showMeta ? "text-sm leading-6" : "text-[13px] leading-[1.4]"} />
-              </div>
-            )
-          )}
-        </div>
+    <div className={lane ? "rounded-[10px] border border-desktop-border bg-desktop-bg-secondary" : ""}>
+      <div className={lane ? "px-2 py-1" : ""}>
+        <MessageBubble message={message} />
       </div>
 
       {lane && (
@@ -499,19 +443,13 @@ function SessionTimelineCard({
           </div>
 
           <div className="border-t border-desktop-border/80 px-2 py-1">
-            {lane.snippets.length === 0 ? (
+            {lane.messages.length === 0 ? (
               <div className="text-[11px] text-desktop-text-secondary">No transcript content yet.</div>
             ) : (
               <div className="space-y-1">
-                {lane.snippets.slice(-3).map((snippet) => (
-                  <div key={snippet.id} className={`min-w-0 ${snippet.kind === "user" ? "flex justify-end" : ""}`}>
-                    <div className={`min-w-0 ${snippet.kind === "user" ? "max-w-[85%]" : "w-full"}`}>
-                      <div className={`rounded-[10px] border px-2.5 py-1.5 ${snippetBodyClass(snippet)} `}>
-                        <div className="line-clamp-2 text-[11px] leading-5 text-desktop-text-secondary">
-                          {snippet.text}
-                        </div>
-                      </div>
-                    </div>
+                {lane.messages.slice(-4).map((laneMessage, index) => (
+                  <div key={`${laneMessage.id}-${index}`} className="[&_button]:text-[11px] [&_.markdown-body]:text-[11px] [&_.markdown-body]:leading-5">
+                    <MessageBubble message={laneMessage} />
                   </div>
                 ))}
               </div>
@@ -520,14 +458,14 @@ function SessionTimelineCard({
         </div>
       )}
 
-      {pendingQuestionMessage && onSubmitQuestion && item.pendingQuestion && (
+      {pendingQuestionMessage && onSubmitQuestion && lane?.pendingQuestion && (
         <div className="border-t border-desktop-border/80 px-3 py-2">
           <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-muted">
             Awaiting input
           </div>
           <AskUserQuestionBubble
             message={pendingQuestionMessage}
-            onSubmit={(toolCallId, response) => onSubmitQuestion(item.pendingQuestion!.sessionId, toolCallId, response)}
+            onSubmit={(toolCallId, response) => onSubmitQuestion(lane.pendingQuestion!.sessionId, toolCallId, response)}
           />
         </div>
       )}

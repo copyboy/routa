@@ -6,6 +6,8 @@ import { useParams, useRouter } from "next/navigation";
 import { DesktopAppShell } from "@/client/components/desktop-app-shell";
 import { WorkspaceSwitcher } from "@/client/components/workspace-switcher";
 import { ChatPanel } from "@/client/components/chat-panel";
+import { processUpdate } from "@/client/components/chat-panel/hooks";
+import type { ChatMessage } from "@/client/components/chat-panel/types";
 import { getToolEventLabel } from "@/client/components/chat-panel/tool-call-name";
 import { TiptapInput } from "@/client/components/tiptap-input";
 import { useAcp } from "@/client/hooks/use-acp";
@@ -23,7 +25,6 @@ import {
   extractFullHistoryText,
   extractGoalFromPrompt,
   extractHistoryText,
-  extractLeadHeadingKey,
   findObjectiveText,
   getActorLabel,
   inferCompletionEvent,
@@ -47,7 +48,6 @@ import {
   type TeamMemberStatus,
   type SessionLaneItem,
   type SessionStreamSummary,
-  type SessionTimelineItem,
   type SpecialistSummary,
   type TeamMemberItem,
   type TeamTaskNode,
@@ -57,6 +57,170 @@ import {
   SessionTimelineSection,
   TeamMembersSection,
 } from "./team-run-page-sections";
+
+function buildTranscriptMessages(
+  history: SessionHistoryEntry[],
+  sessionId: string,
+  {
+    hideLowSignalAssistant = false,
+  }: {
+    hideLowSignalAssistant?: boolean;
+  } = {},
+): ChatMessage[] {
+  const messages: ChatMessage[] = [];
+  const streamingMsgIdRef = { current: {} as Record<string, string | null> };
+  const streamingThoughtIdRef = { current: {} as Record<string, string | null> };
+  const noopChecklist = (() => {}) as React.Dispatch<React.SetStateAction<never[]>>;
+  const noopFileChanges = (() => {}) as React.Dispatch<React.SetStateAction<unknown>>;
+  const noopUsage = (() => {}) as React.Dispatch<React.SetStateAction<unknown>>;
+  const modeUpdates: Record<string, string> = {};
+  let lastKind: string | null = null;
+
+  const normalizedMessageText = (value?: string) => value?.replace(/\s+/g, " ").trim() ?? "";
+
+  for (const entry of history) {
+    const update = entry.update;
+    const kind = update?.sessionUpdate;
+    if (!update || !kind) continue;
+
+    if (kind === "user_message") {
+      const text = extractFullHistoryText(update) ?? extractHistoryText(update);
+      if (!text) {
+        lastKind = kind;
+        continue;
+      }
+      const lastMessage = messages.at(-1);
+      if (lastMessage?.role === "user" && normalizedMessageText(lastMessage.content) === normalizedMessageText(text)) {
+        lastKind = kind;
+        continue;
+      }
+      messages.push({
+        id: `${sessionId}-user-${messages.length}`,
+        role: "user",
+        content: text,
+        timestamp: new Date(),
+      });
+      lastKind = kind;
+      continue;
+    }
+
+    if (kind === "agent_message") {
+      const text = extractFullHistoryText(update);
+      if (!text || (hideLowSignalAssistant && isLowSignalLeadMessage(text))) {
+        lastKind = kind;
+        continue;
+      }
+      const lastMessage = messages.at(-1);
+      if (lastMessage?.role === "assistant" && normalizedMessageText(lastMessage.content) === normalizedMessageText(text)) {
+        lastKind = kind;
+        continue;
+      }
+      messages.push({
+        id: `${sessionId}-assistant-${messages.length}`,
+        role: "assistant",
+        content: text,
+        timestamp: new Date(),
+      });
+      lastKind = kind;
+      continue;
+    }
+
+    const extractText = () => {
+      if (!update.content) return "";
+      if (!Array.isArray(update.content)) {
+        return update.content.text ?? "";
+      }
+      return update.content
+        .map((item) => item.text ?? item.content?.text ?? "")
+        .join(" ")
+        .trim();
+    };
+
+    processUpdate(
+      kind,
+      update as Record<string, unknown>,
+      messages,
+      sessionId,
+      lastKind,
+      extractText,
+      streamingMsgIdRef,
+      streamingThoughtIdRef,
+      noopChecklist,
+      noopFileChanges,
+      noopUsage,
+      modeUpdates,
+    );
+
+    lastKind = kind;
+  }
+
+  return messages.filter((message) => {
+    if (hideLowSignalAssistant && message.role === "assistant" && isLowSignalLeadMessage(message.content)) {
+      return false;
+    }
+    if (message.role === "info" && !message.content.trim()) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function buildFallbackLeadMessages(
+  objective: string,
+  leadSessionId: string,
+  memberLanes: SessionLaneItem[],
+  rootHistory: SessionHistoryEntry[],
+): ChatMessage[] {
+  const messages: ChatMessage[] = [];
+
+  if (objective.trim()) {
+    messages.push({
+      id: `${leadSessionId}-fallback-user`,
+      role: "user",
+      content: objective,
+      timestamp: new Date(),
+    });
+  }
+
+  memberLanes
+    .filter((lane) => !lane.isLead)
+    .forEach((lane, index) => {
+      messages.push({
+        id: `${leadSessionId}-fallback-delegate-${lane.sessionId}`,
+        role: "tool",
+        content: "delegate_task",
+        timestamp: new Date(),
+        toolName: "delegate_task",
+        toolStatus: lane.status === "blocked" ? "failed" : lane.status === "done" ? "completed" : "running",
+        toolCallId: `synthetic-delegate-${lane.sessionId}`,
+        toolKind: "task",
+        toolRawInput: {
+          specialist: lane.roleId,
+          title: lane.sessionName,
+          additionalInstructions: lane.messages
+            .find((message) => message.role === "user" || message.role === "assistant")
+            ?.content,
+          order: index + 1,
+        },
+        toolRawOutput: lane.completionSummary ?? lane.messages.at(-1)?.content ?? lane.snippets.at(-1)?.text,
+      });
+    });
+
+  const latestCompletion = [...rootHistory]
+    .reverse()
+    .find((entry) => entry.update?.sessionUpdate === "task_completion");
+  const completionSummary = latestCompletion?.update?.completionSummary ?? extractHistoryText(latestCompletion?.update);
+  if (completionSummary && !isLowSignalLeadMessage(completionSummary)) {
+    messages.push({
+      id: `${leadSessionId}-fallback-complete`,
+      role: "assistant",
+      content: completionSummary,
+      timestamp: new Date(),
+    });
+  }
+
+  return messages;
+}
 
 export function TeamRunPageClient() {
   const params = useParams();
@@ -869,6 +1033,11 @@ export function TeamRunPageClient() {
     return map;
   }, [rootHistory]);
 
+  const leadMessages = useMemo(
+    () => buildTranscriptMessages(rootHistory, sessionId, { hideLowSignalAssistant: true }),
+    [rootHistory, sessionId],
+  );
+
   const sessionLanes = useMemo<SessionLaneItem[]>(() => {
     const leadStatus = session?.acpStatus === "error" ? "blocked" : "working";
     const leadSnippets = buildLaneSnippets(rootHistory.filter((entry) => {
@@ -890,6 +1059,7 @@ export function TeamRunPageClient() {
       provider: session?.provider,
       eventCount: rootHistory.length,
       snippets: leadSnippets,
+      messages: leadMessages,
       pendingQuestion: pendingQuestionsBySessionId.get(sessionId) ?? null,
       isLead: true,
     };
@@ -922,6 +1092,7 @@ export function TeamRunPageClient() {
           provider: stream.session.provider,
           eventCount: stream.eventCount,
           snippets: snippets.slice(-4),
+          messages: buildTranscriptMessages(history, stream.session.sessionId),
           completionSummary: completion?.completionSummary,
           pendingQuestion: pendingQuestionsBySessionId.get(stream.session.sessionId) ?? null,
         } satisfies SessionLaneItem;
@@ -935,187 +1106,46 @@ export function TeamRunPageClient() {
       });
 
     return [leadLane, ...childLanes];
-  }, [agentsById, completionByAgentId, historiesBySessionId, pendingQuestionsBySessionId, rootHistory, selectedSessionStream, session, sessionId, sessionStreams, specialistsById, teamMembers]);
-
-  const sessionTimeline = useMemo<SessionTimelineItem[]>(() => {
-    const leadName = specialistsById.get(TEAM_LEAD_SPECIALIST_ID)?.name ?? "Agent Lead";
-
-    const items = rootHistory.flatMap<SessionTimelineItem>((entry, index) => {
+  }, [agentsById, completionByAgentId, historiesBySessionId, leadMessages, pendingQuestionsBySessionId, rootHistory, selectedSessionStream, session, sessionId, sessionStreams, specialistsById, teamMembers]);
+  const memberLaneByToolCallId = useMemo(() => {
+    const toolCallMap = new Map<string, SessionLaneItem>();
+    for (const entry of rootHistory) {
       const update = entry.update;
-      const updateType = update?.sessionUpdate;
-      if (!updateType || !session) return [];
-
-      const timestamp = formatRelativeTime(session.createdAt);
-      if (updateType === "user_message") {
-        const text = extractGoalFromPrompt(extractHistoryText(update)) ?? extractHistoryText(update);
-        return text
-          ? [{
-            id: `${sessionId}-objective-${index}`,
-            sessionId,
-            title: "Objective set",
-            actor: "User",
-            actorRoleId: "user",
-            timestamp,
-            summary: text,
-          } satisfies SessionTimelineItem]
-          : [];
-      }
-
-      if (updateType === "agent_message") {
-        const text = extractFullHistoryText(update);
-        return text && !isLowSignalLeadMessage(text)
-          ? [{
-            id: `${sessionId}-lead-message-${index}`,
-            sessionId,
-            title: "Lead update",
-            actor: leadName,
-            actorRoleId: TEAM_LEAD_SPECIALIST_ID,
-            timestamp,
-            summary: text,
-          } satisfies SessionTimelineItem]
-          : [];
-      }
-
-      if (updateType === "task_completion") {
-        const linkedStream: SessionStreamSummary | undefined = typeof update.agentId === "string"
-          ? sessionStreamByAgentId.get(update.agentId)
-          : undefined;
-        if (linkedStream) {
-          return [];
-        }
-        const actor = "Team member";
-        const summary = summarizeText(update.completionSummary ?? extractHistoryText(update), 260);
-        if (isLowSignalLeadMessage(summary)) {
-          return [];
-        }
-        return [{
-          id: `${sessionId}-report-${index}`,
-          sessionId,
-          title: `Report back from ${actor}`,
-          actor,
-          actorRoleId: undefined,
-          timestamp,
-          summary,
-          tone: normalizeTaskStatus(update.taskStatus) === "blocked" ? "blocked" : "complete",
-        } satisfies SessionTimelineItem];
-      }
-
-      if (updateType === "acp_status" && update.status === "error") {
-        return [{
-          id: `${sessionId}-lead-error-${index}`,
-          sessionId,
-          title: "Lead hit a runtime error",
-          actor: leadName,
-          actorRoleId: TEAM_LEAD_SPECIALIST_ID,
-          timestamp,
-          summary: summarizeText(update.error, 260),
-          tone: "blocked",
-        } satisfies SessionTimelineItem];
-      }
-
-      if (updateType !== "tool_call_update") return [];
+      if (!update || update.sessionUpdate !== "tool_call_update" || !update.toolCallId) continue;
       const toolLabel = getToolEventLabel(update as Record<string, unknown>);
-
-      if (toolLabel.includes("delegate_task")) {
-        const target = resolveDelegationTarget(update) ?? "team member";
-        const targetRosterId = resolveDelegationRosterSpecialistId(update);
-        const linkedStream: SessionStreamSummary | undefined = targetRosterId
-          ? latestChildSessionByRosterId.get(targetRosterId)
-          : undefined;
-        const memberLane = linkedStream
-          ? sessionLanes.find((lane) => lane.sessionId === linkedStream.session.sessionId)
-          : undefined;
-        const displayTarget = memberLane?.actor ?? linkedStream?.actor ?? target;
-        return [{
-          id: `${sessionId}-delegate-${index}`,
-          sessionId: memberLane?.sessionId ?? sessionId,
-          title: `Lead assigned work to ${displayTarget}`,
-          actor: leadName,
-          actorRoleId: TEAM_LEAD_SPECIALIST_ID,
-          timestamp,
-          summary: summarizeText(
-            typeof update.rawInput?.additionalInstructions === "string"
-              ? update.rawInput.additionalInstructions
-              : update.rawOutput?.output,
-            260,
-          ),
-          tone: update.status === "failed" ? "blocked" : "tool",
-          memberLane,
-          pendingQuestion: memberLane?.pendingQuestion ?? null,
-        } satisfies SessionTimelineItem];
+      if (!toolLabel.includes("delegate_task")) continue;
+      const targetRosterId = resolveDelegationRosterSpecialistId(update);
+      const linkedStream = targetRosterId
+        ? latestChildSessionByRosterId.get(targetRosterId)
+        : undefined;
+      const lane = linkedStream
+        ? sessionLanes.find((item) => item.sessionId === linkedStream.session.sessionId)
+        : undefined;
+      if (lane) {
+        toolCallMap.set(update.toolCallId, lane);
       }
+    }
+    return toolCallMap;
+  }, [latestChildSessionByRosterId, rootHistory, sessionLanes]);
 
-      if (toolLabel.includes("create_agent")) {
-        const target = typeof update.rawInput?.name === "string" ? update.rawInput.name : "teammate";
-        const targetRole = typeof update.rawInput?.role === "string" ? update.rawInput.role : undefined;
-        return [{
-          id: `${sessionId}-create-agent-${index}`,
-          sessionId,
-          title: `Lead created teammate ${target}`,
-          actor: leadName,
-          actorRoleId: TEAM_LEAD_SPECIALIST_ID,
-          timestamp,
-          summary: summarizeText(targetRole ? `${target} joined as ${targetRole}` : undefined, 220),
-          tone: "tool",
-        } satisfies SessionTimelineItem];
-      }
+  const displayedLeadMessages = useMemo(
+    () => (
+      leadMessages.length > 0
+        ? leadMessages
+        : buildFallbackLeadMessages(objective, sessionId, sessionLanes, rootHistory)
+    ),
+    [leadMessages, objective, rootHistory, sessionId, sessionLanes],
+  );
 
-      return [{
-        id: `${sessionId}-tool-${index}`,
-        sessionId,
-        title: `Lead used ${toolLabel}`,
-        actor: leadName,
-        actorRoleId: TEAM_LEAD_SPECIALIST_ID,
-        timestamp,
-        summary: summarizeText(
-          typeof update.rawInput?.additionalInstructions === "string"
-            ? update.rawInput.additionalInstructions
-            : typeof update.rawInput?.title === "string"
-              ? update.rawInput.title
-              : update.rawOutput?.output ?? extractHistoryText(update) ?? update.error,
-          320,
-        ),
-        tone: update.status === "failed" ? "blocked" : "tool",
-      } satisfies SessionTimelineItem];
-    });
-
-    const referencedLaneIds = new Set(
-      items
-        .map((item) => item.memberLane?.sessionId)
-        .filter((laneSessionId): laneSessionId is string => Boolean(laneSessionId)),
-    );
-
-    const missingLaneItems = sessionLanes
-      .filter((lane) => !lane.isLead && !referencedLaneIds.has(lane.sessionId))
-      .map((lane) => ({
-        id: `${lane.sessionId}-lane-fallback`,
-        sessionId: lane.sessionId,
-        title: `Lead opened ${lane.actor}`,
-        actor: leadName,
-        actorRoleId: TEAM_LEAD_SPECIALIST_ID,
-        timestamp: lane.lastUpdatedLabel,
-        summary: lane.snippets.at(-1)?.text ?? lane.sessionName,
-        tone: "tool" as const,
-        memberLane: lane,
-        pendingQuestion: lane.pendingQuestion ?? null,
-      }));
-
-    const combined = [...items, ...missingLaneItems];
-
-    const deduped = combined.filter((item, index, all) => {
-      const previous = all[index - 1];
-      return !previous || previous.title !== item.title || previous.summary !== item.summary;
-    });
-
-    return deduped.filter((item, index, all) => {
-      if (item.actorRoleId !== TEAM_LEAD_SPECIALIST_ID || item.title !== "Lead update") return true;
-      const next = all[index + 1];
-      if (!next || next.actorRoleId !== TEAM_LEAD_SPECIALIST_ID || next.title !== "Lead update") return true;
-      const currentHeading = extractLeadHeadingKey(item.summary);
-      const nextHeading = extractLeadHeadingKey(next.summary);
-      return !currentHeading || !nextHeading || currentHeading !== nextHeading;
-    });
-  }, [latestChildSessionByRosterId, rootHistory, session, sessionId, sessionLanes, sessionStreamByAgentId, specialistsById]);
+  const displayedMemberLaneByToolCallId = useMemo(() => {
+    if (memberLaneByToolCallId.size > 0) return memberLaneByToolCallId;
+    const fallbackMap = new Map<string, SessionLaneItem>();
+    for (const lane of sessionLanes) {
+      if (lane.isLead) continue;
+      fallbackMap.set(`synthetic-delegate-${lane.sessionId}`, lane);
+    }
+    return fallbackMap;
+  }, [memberLaneByToolCallId, sessionLanes]);
 
   if (!session) {
     return (
@@ -1221,7 +1251,8 @@ export function TeamRunPageClient() {
 
           <div className="flex min-h-0 flex-col">
             <SessionTimelineSection
-              sessionTimeline={sessionTimeline}
+              leadMessages={displayedLeadMessages}
+              memberLaneByToolCallId={displayedMemberLaneByToolCallId}
               sessionLanes={sessionLanes}
               selectedSessionId={selectedSessionId}
               onSelectSession={focusSessionBlock}
