@@ -1,0 +1,180 @@
+import type { RefObject } from "react";
+import { KanbanBgAgentPanel } from "./kanban-bg-agent-panel";
+import {
+  KANBAN_SPECIALIST_LANGUAGE_LABELS,
+  type KanbanSpecialistLanguage,
+} from "./kanban-specialist-language";
+import { QueueStatusBadge } from "./kanban-tab-helpers";
+import type { KanbanBoardInfo } from "../types";
+
+interface KanbanTabHeaderProps {
+  workspaceId: string;
+  tasksCount: number;
+  board: KanbanBoardInfo | null;
+  boardQueue?: KanbanBoardInfo["queue"];
+  repoHealth: { missingRepoTasks: number; cwdMismatchTasks: number };
+  boards: KanbanBoardInfo[];
+  selectedBoardId: string | null;
+  onSelectBoard: (boardId: string) => void;
+  bgAgentPanelOpen: boolean;
+  bgAgentPanelRef: RefObject<HTMLDivElement | null>;
+  onToggleBgAgentPanel: () => void;
+  onOpenSettings: () => void;
+  specialistLanguage: KanbanSpecialistLanguage;
+  onSpecialistLanguageChange: (language: KanbanSpecialistLanguage) => void;
+  onRefresh: () => void;
+}
+
+export function KanbanTabHeader({
+  workspaceId,
+  tasksCount,
+  board,
+  boardQueue,
+  repoHealth,
+  boards,
+  selectedBoardId,
+  onSelectBoard,
+  bgAgentPanelOpen,
+  bgAgentPanelRef,
+  onToggleBgAgentPanel,
+  onOpenSettings,
+  specialistLanguage,
+  onSpecialistLanguageChange,
+  onRefresh,
+}: KanbanTabHeaderProps) {
+  const languageLabels = KANBAN_SPECIALIST_LANGUAGE_LABELS[specialistLanguage];
+
+  return (
+    <div
+      className="shrink-0 border-b border-gray-200/70 px-4 py-1 dark:border-[#1c1f2e]"
+      data-testid="kanban-page-header"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-h-6 items-center gap-2">
+          <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
+          </svg>
+          <h1 className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">Kanban Board</h1>
+          {tasksCount > 0 && (
+            <span className="text-[11px] text-gray-500 dark:text-gray-400" data-testid="kanban-task-count">
+              ({tasksCount} tasks)
+            </span>
+          )}
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          {board && (
+            <>
+              <span className="inline-flex h-6 items-center rounded-full bg-gray-100 px-2 text-[11px] dark:bg-[#191c28]">
+                Limit {board.sessionConcurrencyLimit ?? 1}
+              </span>
+              <QueueStatusBadge
+                label="Running"
+                count={boardQueue?.runningCount ?? 0}
+                cards={boardQueue?.runningCards ?? []}
+                className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+              />
+              <QueueStatusBadge
+                label="Queued"
+                count={boardQueue?.queuedCount ?? 0}
+                cards={boardQueue?.queuedCards ?? []}
+                className="bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+              />
+            </>
+          )}
+
+          {(repoHealth.missingRepoTasks > 0 || repoHealth.cwdMismatchTasks > 0) && (
+            <div className="inline-flex h-6 items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 text-[11px] text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-300">
+              <span className="font-medium">Kanban Health</span>
+              {repoHealth.missingRepoTasks > 0 && (
+                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                  {repoHealth.missingRepoTasks} missing
+                </span>
+              )}
+              {repoHealth.cwdMismatchTasks > 0 && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                  {repoHealth.cwdMismatchTasks} session mismatch
+                </span>
+              )}
+            </div>
+          )}
+
+          {boards.length > 1 && (
+            <select
+              value={selectedBoardId ?? ""}
+              onChange={(event) => onSelectBoard(event.target.value)}
+              className="h-6 min-h-6 rounded-md border border-gray-200 bg-white px-2 text-[12px] text-gray-700 dark:border-gray-700 dark:bg-[#12141c] dark:text-gray-200"
+            >
+              {boards.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </select>
+          )}
+          <div ref={bgAgentPanelRef} className="relative">
+            <button
+              type="button"
+              onClick={onToggleBgAgentPanel}
+              data-testid="kanban-bg-agent-toggle"
+              aria-expanded={bgAgentPanelOpen}
+              className="inline-flex h-6 items-center gap-2 rounded-md border border-gray-200 bg-white px-2 text-[12px] text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-[#12141c] dark:text-gray-300 dark:hover:bg-[#191c28]"
+            >
+              <svg
+                className={`h-3.5 w-3.5 text-gray-400 transition-transform ${bgAgentPanelOpen ? "rotate-90" : ""}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+              Backend Agents
+            </button>
+            {bgAgentPanelOpen && (
+              <div className="absolute right-0 top-full z-30 mt-2 max-h-[70vh] w-[min(72rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl shadow-2xl">
+                <KanbanBgAgentPanel workspaceId={workspaceId} />
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onOpenSettings}
+            className="inline-flex h-6 items-center rounded-md border border-gray-200 bg-white px-2 text-[12px] text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-[#12141c] dark:text-gray-300 dark:hover:bg-[#191c28]"
+            title="Board settings"
+          >
+            Settings
+          </button>
+          <div className="inline-flex h-6 items-center rounded-md border border-gray-200 bg-white p-0.5 dark:border-gray-700 dark:bg-[#12141c]">
+            <span className="px-1.5 text-[11px] font-medium text-gray-400 dark:text-gray-500">{languageLabels.language}</span>
+            {(["en", "zh-CN"] as const).map((language) => {
+              const active = specialistLanguage === language;
+              return (
+                <button
+                  key={language}
+                  type="button"
+                  onClick={() => onSpecialistLanguageChange(language)}
+                  data-testid={`kanban-specialist-language-${language}`}
+                  aria-pressed={active}
+                  className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                    active
+                      ? "bg-amber-500 text-white"
+                      : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-[#191c28] dark:hover:text-gray-200"
+                  }`}
+                >
+                  {language === "en" ? languageLabels.english : languageLabels.chinese}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            onClick={onRefresh}
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-[#1f232f] dark:hover:text-gray-200"
+            title="Refresh"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.581m15.356 2A8.001 8.001 0 004.581 9m0 0H9m11 11v-5h-.582m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
