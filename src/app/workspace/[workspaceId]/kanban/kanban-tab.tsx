@@ -1316,7 +1316,7 @@ export function KanbanTab({
               throw new Error(data.error ?? "Failed to clear tasks");
             }
 
-            setLocalTasks((current) => current.filter((task) => task.workspaceId !== workspaceId));
+            setLocalTasks([]);
             closeTaskDetail();
             setShowSettings(false);
             onRefresh();
@@ -1352,7 +1352,6 @@ export function KanbanTab({
       <KanbanCodebaseModal
         selectedCodebase={selectedCodebase}
         editingCodebase={editingCodebase}
-        setEditingCodebase={setEditingCodebase}
         codebases={codebases}
         editRepoSelection={editRepoSelection}
         onRepoSelectionChange={handleRepoSelectionChange}
@@ -1360,7 +1359,6 @@ export function KanbanTab({
         recloneError={recloneError}
         editSaving={editSaving}
         replacingAll={replacingAll}
-        showReplaceAllConfirm={showReplaceAllConfirm}
         setShowReplaceAllConfirm={setShowReplaceAllConfirm}
         handleCancelEditCodebase={handleCancelEditCodebase}
         codebaseWorktrees={codebaseWorktrees}
