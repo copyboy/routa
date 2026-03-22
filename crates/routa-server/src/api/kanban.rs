@@ -439,6 +439,8 @@ async fn export_config(
                                 color: column.color,
                                 stage: column.stage,
                                 automation: column.automation,
+                                visible: column.visible,
+                                width: column.width,
                             }
                         })
                         .collect(),
