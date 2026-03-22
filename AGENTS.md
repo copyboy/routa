@@ -20,6 +20,7 @@
 - `docs/issues/`: Feedback-driven incident and bug records. Capture WHAT happened and WHY it mattered.
 - `docs/fitness/`: Fitness function, code quality, API contract, testing, and verification guidance.
 - `docs/references/`: LLM-friendly reference material and distilled external docs for high-frequency dependencies.
+- `tools/entrix/docs/adr/README.md`: Entrix-specific architecture decisions, including why long-file analysis uses Git history as a physical design signal.
 
 ## Documentation Rules
 
