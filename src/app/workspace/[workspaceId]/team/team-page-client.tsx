@@ -71,15 +71,15 @@ function isTeamLeadRun(session: SessionInfo): boolean {
 function getRoleTone(role?: string): string {
   switch (role?.toUpperCase()) {
     case "ROUTA":
-      return "border-amber-200/80 bg-amber-50/80 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300";
+      return "border-blue-200/80 role-chip-routa dark:border-blue-500/20";
     case "CRAFTER":
-      return "border-cyan-200/80 bg-cyan-50/80 text-cyan-700 dark:border-cyan-500/20 dark:bg-cyan-500/10 dark:text-cyan-300";
+      return "border-amber-200/80 role-chip-crafter dark:border-amber-500/20";
     case "GATE":
-      return "border-emerald-200/80 bg-emerald-50/80 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300";
+      return "border-emerald-200/80 role-chip-gate dark:border-emerald-500/20";
     case "DEVELOPER":
-      return "border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-500/20 dark:bg-slate-500/10 dark:text-slate-300";
+      return "border-slate-200/80 role-chip-developer dark:border-slate-500/20";
     default:
-      return "border-slate-200/80 bg-slate-50/80 text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300";
+      return "border-slate-200/80 role-chip-developer dark:border-slate-700";
   }
 }
 

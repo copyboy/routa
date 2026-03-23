@@ -37,10 +37,10 @@ export function AgentPanel({ refreshKey, workspaceId = "" }: AgentPanelProps) {
 
   const roleColor: Record<string, string> = {
     ROUTA:
-      "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+      "role-chip-routa",
     CRAFTER:
-      "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
-    GATE: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
+      "role-chip-crafter",
+    GATE: "role-chip-gate",
   };
 
   const statusColor: Record<string, string> = {

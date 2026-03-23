@@ -110,6 +110,54 @@ body {
   font-family: system-ui, -apple-system, sans-serif;
 }
 
+.role-chip-routa {
+  background: var(--brand-blue-200);
+  border: 1px solid var(--brand-blue-300);
+  color: var(--brand-blue-800);
+}
+
+.role-chip-crafter {
+  background: var(--brand-amber-200);
+  border: 1px solid var(--brand-amber-300);
+  color: var(--brand-amber-800);
+}
+
+.role-chip-gate {
+  background: var(--brand-emerald-200);
+  border: 1px solid var(--brand-emerald-300);
+  color: var(--brand-emerald-800);
+}
+
+.role-chip-developer {
+  background: var(--brand-slate-200);
+  border: 1px solid var(--brand-slate-300);
+  color: var(--brand-slate-700);
+}
+
+html.dark .role-chip-routa {
+  background: color-mix(in srgb, var(--brand-blue-500) 28%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-blue-400) 32%, transparent);
+  color: var(--brand-blue-200);
+}
+
+html.dark .role-chip-crafter {
+  background: color-mix(in srgb, var(--brand-amber-500) 28%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-amber-400) 32%, transparent);
+  color: var(--brand-amber-200);
+}
+
+html.dark .role-chip-gate {
+  background: color-mix(in srgb, var(--brand-emerald-500) 28%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-emerald-400) 32%, transparent);
+  color: var(--brand-emerald-200);
+}
+
+html.dark .role-chip-developer {
+  background: color-mix(in srgb, var(--brand-slate-500) 28%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-slate-400) 24%, transparent);
+  color: var(--brand-slate-200);
+}
+
 @keyframes homeFloat {
   0%,
   100% {
