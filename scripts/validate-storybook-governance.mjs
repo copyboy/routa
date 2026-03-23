@@ -38,6 +38,8 @@ const requiredStories = {
   "src/client/components/markdown-viewer.stories.tsx": ["PlainText", "StaticMarkdown", "TaskList", "Streaming", "DarkMode"],
   "src/client/components/task-progress-bar.stories.tsx": ["Running", "Delegated", "AllCompleted", "WithFileChanges", "DarkMode"],
   "src/client/components/tiptap-input.stories.tsx": ["Default", "HeroVariant", "WithProvidersAndModels", "PrefilledSkill", "DarkMode"],
+  "src/client/components/notification-center.stories.tsx": ["Empty", "Unread", "OpenDropdown", "DarkMode"],
+  "src/client/components/code-block.stories.tsx": ["SimpleCode", "RichCode", "JsonAutoDetect", "WrappedContent", "DarkMode"],
   "src/client/components/desktop-color-tokens.stories.tsx": ["LightMode", "DarkMode"],
   "src/client/components/desktop-primitives.stories.tsx": ["Default", "InteractiveStates", "DarkMode"],
 };
