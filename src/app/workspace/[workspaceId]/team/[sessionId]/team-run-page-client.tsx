@@ -217,20 +217,44 @@ export function TeamRunPageClient() {
 
   useEffect(() => {
     if (session?.cwd) {
-      setRepoSelection({
-        path: session.cwd,
-        branch: session.branch ?? "",
-        name: session.cwd.split("/").pop() ?? session.cwd,
+      setRepoSelection((currentSelection) => {
+        const nextSelection: RepoSelection = {
+          path: session.cwd,
+          branch: session.branch ?? "",
+          name: session.cwd.split("/").pop() ?? session.cwd,
+        };
+
+        if (
+          currentSelection?.path === nextSelection.path
+          && currentSelection?.branch === nextSelection.branch
+          && currentSelection?.name === nextSelection.name
+        ) {
+          return currentSelection;
+        }
+
+        return nextSelection;
       });
       return;
     }
 
-    if (repoSelection || codebases.length === 0) return;
+    if (codebases.length === 0) return;
     const defaultCodebase = codebases.find((codebase) => codebase.isDefault) ?? codebases[0];
-    setRepoSelection({
-      path: defaultCodebase.repoPath,
-      branch: defaultCodebase.branch ?? "",
-      name: defaultCodebase.label ?? defaultCodebase.repoPath.split("/").pop() ?? defaultCodebase.repoPath,
+    setRepoSelection((currentSelection) => {
+      const nextSelection: RepoSelection = {
+        path: defaultCodebase.repoPath,
+        branch: defaultCodebase.branch ?? "",
+        name: defaultCodebase.label ?? defaultCodebase.repoPath.split("/").pop() ?? defaultCodebase.repoPath,
+      };
+
+      if (
+        currentSelection?.path === nextSelection.path
+        && currentSelection?.branch === nextSelection.branch
+        && currentSelection?.name === nextSelection.name
+      ) {
+        return currentSelection;
+      }
+
+      return nextSelection;
     });
   }, [codebases, repoSelection, session?.branch, session?.cwd]);
 
