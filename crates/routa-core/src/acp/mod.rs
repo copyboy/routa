@@ -144,6 +144,19 @@ impl Default for AcpManager {
 }
 
 impl AcpManager {
+    fn rewrite_notification_session_id(
+        session_id: &str,
+        mut notification: serde_json::Value,
+    ) -> serde_json::Value {
+        if let Some(object) = notification.as_object_mut() {
+            object.insert(
+                "sessionId".to_string(),
+                serde_json::Value::String(session_id.to_string()),
+            );
+        }
+        notification
+    }
+
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
@@ -432,7 +445,10 @@ impl AcpManager {
                             None => continue,
                         };
                         history_manager
-                            .push_to_history(&history_session_id, params)
+                            .push_to_history(
+                                &history_session_id,
+                                Self::rewrite_notification_session_id(&history_session_id, params),
+                            )
                             .await;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
@@ -912,5 +928,21 @@ mod tests {
 
         let history = manager.get_session_history("parent").await.unwrap_or_default();
         assert!(history.is_empty());
+    }
+
+    #[test]
+    fn rewrite_notification_session_id_overrides_provider_session_id() {
+        let rewritten = AcpManager::rewrite_notification_session_id(
+            "child-session",
+            serde_json::json!({
+                "sessionId": "provider-session",
+                "update": { "sessionUpdate": "agent_message_chunk", "content": { "text": "hi" } }
+            }),
+        );
+
+        assert_eq!(
+            rewritten["sessionId"].as_str(),
+            Some("child-session")
+        );
     }
 }
