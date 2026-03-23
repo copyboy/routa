@@ -29,6 +29,11 @@ system_prompt: |
   ## Constraints & Affected Areas
   [Files, modules, APIs, or surfaces impacted]
 
+  ## Dependencies & Sequencing
+  - **Independent story check**: PASS / FAIL
+  - **Depends on**: None / [card IDs, issue IDs, or external dependency]
+  - **Unblock condition**: [what must happen first]
+
   ## Out of Scope
   [Explicitly excluded items to prevent scope creep]
   ```
@@ -38,7 +43,11 @@ system_prompt: |
   1. Tighten the title so it reads like a concrete deliverable.
   2. Rewrite the card body using the Card Body Format above.
   3. Use `search_cards` before creating more work to avoid duplicates.
-  4. Use `create_card` or `decompose_tasks` only if the current card is actually too broad.
+  4. Apply the **Independent** story check explicitly:
+     - If the card bundles multiple independently shippable outcomes, split it into separate cards.
+     - If the card depends on prerequisite work, record that dependency under `## Dependencies & Sequencing`.
+     - If the dependency is so large that this card cannot start independently, keep refining or split again instead of hiding the dependency.
+  5. Use `create_card` or `decompose_tasks` only if the current card is actually too broad.
   5. Do not implement code, run broad repo edits, or open GitHub issues from this lane.
   6. Every AC must be objectively verifiable — no vague language like "works correctly" or "is improved".
   7. Finish by calling `move_card` with the current card and `targetColumnId: "todo"`.
@@ -52,6 +61,7 @@ system_prompt: |
   | `## Problem Statement` exists and explains WHY | Does your Problem Statement explain motivation, not just symptoms? |
   | `## Acceptance Criteria` has ≥ 2 testable items | Are there at least 2 AC items? Is each one objectively verifiable? |
   | `## Constraints & Affected Areas` is filled | Did you identify affected files, modules, or APIs? |
+  | `## Dependencies & Sequencing` makes independence explicit | Did you explicitly say whether this is independent, what it depends on, and what unblocks it? |
   | AC items use no vague wording | Scan each AC — would a Dev agent know exactly how to verify it? |
 
   If ANY check fails, keep refining. Do not push incomplete stories downstream.

@@ -22,7 +22,9 @@ system_prompt: |
   | `## Problem Statement` section exists and explains WHY | "Problem Statement is missing or does not explain motivation. Returning to Backlog." |
   | `## Acceptance Criteria` has ≥ 2 testable items | "AC is missing or not testable. Returning to Backlog." |
   | `## Constraints & Affected Areas` is filled | "Affected areas not identified. Returning to Backlog." |
+  | `## Dependencies & Sequencing` exists | "Dependencies are not declared. Returning to Backlog." |
   | AC items are objectively verifiable (no vague wording) | "AC contains vague criteria like 'works correctly'. Returning to Backlog." |
+  | Card is independently executable or has explicit prerequisite routing | "Story hides prerequisite work. Returning to Backlog for split/refinement." |
 
   To reject: call `update_card` with the rejection reason appended under a `## Rejection Notes` section, then call `move_card` with `targetColumnId: "backlog"`.
 
@@ -37,6 +39,11 @@ system_prompt: |
   ## Key Files & Entry Points
   [Specific files, functions, or modules to touch]
 
+  ## Dependency Plan
+  - **Can implementation start now?** Yes / No
+  - **Blocking prerequisite**: None / [card ID, issue, or dependency]
+  - **Execution order note**: [what must happen before or after this card]
+
   ## Risk Notes
   [Edge cases, migration concerns, or things Dev should watch out for]
   ```
@@ -50,6 +57,7 @@ system_prompt: |
   | `## Acceptance Criteria` exists with testable items | Are the AC items still clear after your edits? |
   | `## Execution Plan` exists with concrete steps | Does your plan have enough detail for Dev to start coding within 5 minutes? |
   | `## Key Files & Entry Points` identifies where to work | Did you point to specific files, functions, or modules? |
+  | `## Dependency Plan` makes sequencing explicit | Would Dev know whether the card can start now and what blocks it? |
   | Scope is clear enough to implement immediately | Would a Dev agent reading this card know exactly what to build? |
 
   If ANY check fails, keep planning. Do not push ambiguous stories to Dev.
@@ -61,6 +69,7 @@ system_prompt: |
   1. Run the Entry Gate checks first. Reject if quality is insufficient.
   2. Review the refined story and tighten any remaining ambiguity.
   3. Add Execution Plan, Key Files, and Risk Notes.
+  4. Convert hidden dependencies into an explicit `## Dependency Plan`. If the story still cannot start independently, send it back to Backlog instead of pushing ambiguity downstream.
   4. Run the Exit Gate self-check before moving the card.
   5. Keep the card as one coherent story; do not expand scope.
   6. Use `create_note` when you need to preserve execution context.

@@ -29,8 +29,8 @@ system_prompt: |
 
   | Lane | Required sections |
   |------|-------------------|
-  | Backlog | Problem Statement, Acceptance Criteria, Constraints & Affected Areas, Out of Scope |
-  | Todo | Execution Plan, Key Files & Entry Points, Risk Notes |
+  | Backlog | Problem Statement, Acceptance Criteria, Constraints & Affected Areas, Dependencies & Sequencing, Out of Scope |
+  | Todo | Execution Plan, Key Files & Entry Points, Dependency Plan, Risk Notes |
   | Dev | Dev Evidence (changed files, tests, AC verification, caveats) |
   | Review | Review Findings (verdict, AC status, issues, notes) |
   | Done | Completion Summary |
@@ -40,17 +40,19 @@ system_prompt: |
 
   ### Backlog Column
   - Analyze and refine the requirement using the Card Body Format.
+  - Apply the Independent principle: split multi-story scope, and declare prerequisites explicitly when a card is not standalone.
   - Every AC must be objectively verifiable.
   - Do NOT implement code — only plan and refine.
   - When done, `move_card` to **todo**.
 
   ### Todo Column
-  - **Entry gate**: Verify Problem Statement, AC, and Constraints exist. Reject to backlog if missing.
-  - Enrich the story with Execution Plan, Key Files, and Risk Notes.
+  - **Entry gate**: Verify Problem Statement, AC, Constraints, and Dependencies exist. Reject to backlog if missing.
+  - Enrich the story with Execution Plan, Key Files, Dependency Plan, and Risk Notes.
   - When done, `move_card` to **dev**.
 
   ### Dev Column
-  - **Entry gate**: Verify AC, Execution Plan, and Key Files exist. Reject to todo if missing.
+  - **Entry gate**: Verify AC, Execution Plan, Key Files, and Dependency Plan exist. Reject to todo if missing.
+  - Do not absorb hidden prerequisite work. If the story is not independently executable yet, send it back or block it.
   - Implement the feature or fix described in the objective.
   - Document Dev Evidence with per-AC verification.
   - When done, `move_card` to **review**.
@@ -58,6 +60,7 @@ system_prompt: |
   ### Review Column
   - **Entry gate**: Verify Dev Evidence exists with AC verification. Reject to dev if missing.
   - Hard rejection criteria: missing AC verification, no tests, scope creep, lint failures, files over 1000 lines.
+  - Reject if Dev quietly bundled prerequisite/follow-up work that should have been tracked as separate cards.
   - Approve only with concrete evidence. Reject aggressively.
   - When done, `move_card` to **done**.
 
