@@ -19,7 +19,10 @@ import { useAgentsRpc } from "@/client/hooks/use-agents-rpc";
 import { useNotes } from "@/client/hooks/use-notes";
 import { DesktopLayout } from "@/client/components/desktop-layout";
 import { AgentInstallPanel } from "@/client/components/agent-install-panel";
+import { CompactStat } from "@/client/components/compact-stat";
+import { OverviewCard } from "@/client/components/overview-card";
 import { WorkspaceTabBar } from "@/client/components/workspace-tab-bar";
+import { WorkspacePageHeader } from "@/client/components/workspace-page-header";
 import { SessionsOverview } from "@/app/workspace/[workspaceId]/sessions-overview";
 import { BackgroundTaskInfo, TaskInfo, SessionInfo, KanbanBoardInfo } from "@/app/workspace/[workspaceId]/types";
 import { NoteTasksTab } from "@/app/workspace/[workspaceId]/note-tasks-tab";
@@ -409,65 +412,18 @@ export function WorkspacePageClient({
       >
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="w-full px-4 py-4">
-            <header className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-desktop-border pb-3" data-testid="workspace-page-header">
-              <div className="min-w-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <svg className="h-4 w-4 shrink-0 text-desktop-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 5.25h16.5m-16.5 0A2.25 2.25 0 0 0 1.5 7.5v9A2.25 2.25 0 0 0 3.75 18.75h16.5A2.25 2.25 0 0 0 22.5 16.5v-9a2.25 2.25 0 0 0-2.25-2.25m-16.5 0V3.75A2.25 2.25 0 0 1 6 1.5h12a2.25 2.25 0 0 1 2.25 2.25v1.5" />
-                  </svg>
-                  <h1 className="truncate text-[14px] font-semibold text-desktop-text-primary">
-                    {workspace?.title ?? (isDefaultWorkspace ? "Default Workspace" : "Workspace")}
-                  </h1>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <div className="inline-flex items-center gap-1.5 rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
-                    <span>Workspace:</span>
-                    <code className="font-mono text-desktop-text-primary">{workspaceId}</code>
-                  </div>
-                  <div className="inline-flex items-center gap-1.5 rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
-                    <span>{activeBoard?.name ?? "No board"}</span>
-                    <span className="opacity-40">/</span>
-                    <span>{latestSession?.name ?? "No recent session"}</span>
-                  </div>
-                  <div className="inline-flex items-center gap-1.5 rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
-                    <span>{activeAgents.length > 0 ? `${activeAgents.length} active agents` : "Standby"}</span>
-                    <span className="opacity-40">/</span>
-                    <span>{pendingTasks.length > 0 ? `${pendingTasks.length} in flight` : "No pending tasks"}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleRefresh}
-                  className="rounded-md bg-desktop-bg-secondary px-2.5 py-1.5 text-[11px] font-medium text-desktop-text-secondary transition-colors hover:bg-desktop-bg-active/70 hover:text-desktop-text-primary"
-                >
-                  Refresh
-                </button>
-                <button
-                  type="button"
-                  onClick={() => router.push(`/workspace/${workspaceId}/team`)}
-                  className="rounded-md bg-desktop-bg-secondary px-2.5 py-1.5 text-[11px] font-medium text-desktop-text-secondary transition-colors hover:bg-desktop-bg-active/70 hover:text-desktop-text-primary"
-                >
-                  Team
-                </button>
-                <button
-                  type="button"
-                  onClick={() => router.push(`/workspace/${workspaceId}/kanban`)}
-                  className="rounded-md bg-desktop-accent px-2.5 py-1.5 text-[11px] font-medium text-desktop-accent-text transition-colors hover:opacity-90"
-                >
-                  Kanban
-                </button>
-                <button
-                  type="button"
-                  onClick={() => router.push("/traces")}
-                  className="rounded-md bg-desktop-bg-secondary px-2.5 py-1.5 text-[11px] font-medium text-desktop-text-secondary transition-colors hover:bg-desktop-bg-active/70 hover:text-desktop-text-primary"
-                >
-                  Traces
-                </button>
-              </div>
-            </header>
+            <WorkspacePageHeader
+              title={workspace?.title ?? (isDefaultWorkspace ? "Default Workspace" : "Workspace")}
+              workspaceId={workspaceId}
+              boardName={activeBoard?.name ?? "No board"}
+              latestSessionName={latestSession?.name ?? "No recent session"}
+              activeAgentsCount={activeAgents.length}
+              pendingTasksCount={pendingTasks.length}
+              onRefresh={handleRefresh}
+              onTeam={() => router.push(`/workspace/${workspaceId}/team`)}
+              onKanban={() => router.push(`/workspace/${workspaceId}/kanban`)}
+              onTraces={() => router.push("/traces")}
+            />
 
             <div className="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               <CompactStat label="Sessions" value={sessions.length} color="blue" />
@@ -538,86 +494,6 @@ export function WorkspacePageClient({
 }
 
 // ─── Desktop-optimized Sub-components ──────────────────────────────
-
-function CompactStat({
-  label,
-  value,
-  sub,
-  color,
-}: {
-  label: string;
-  value: number;
-  sub?: string;
-  color: "blue" | "violet" | "emerald" | "amber";
-}) {
-  const colorMap = {
-    blue: "text-blue-400 border-blue-500/18 bg-blue-500/6",
-    violet: "text-violet-400 border-violet-500/18 bg-violet-500/6",
-    emerald: "text-emerald-400 border-emerald-500/18 bg-emerald-500/6",
-    amber: "text-amber-400 border-amber-500/18 bg-amber-500/6",
-  };
-
-  return (
-    <div className={`rounded-xl border px-3 py-2.5 ${colorMap[color]}`}>
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-desktop-text-muted">{label}</div>
-        <div className="text-lg font-semibold tabular-nums">{value}</div>
-      </div>
-      <div className="mt-1 text-[10px] leading-4 text-desktop-text-secondary">
-        {sub ?? "Workspace aggregate"}
-      </div>
-    </div>
-  );
-}
-
-function OverviewCard({
-  className,
-  eyebrow,
-  title,
-  description,
-  meta,
-  actionLabel,
-  onAction,
-}: {
-  className?: string;
-  eyebrow: string;
-  title: string;
-  description: string;
-  meta: string[];
-  actionLabel: string;
-  onAction: () => void;
-}) {
-  return (
-    <section className={`rounded-[24px] border border-desktop-border bg-desktop-bg-secondary p-5 ${className ?? ""}`}>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-desktop-text-muted">
-        {eyebrow}
-      </div>
-      <div className="mt-3 text-xl font-semibold tracking-tight text-desktop-text-primary">
-        {title}
-      </div>
-      <div className="mt-2 text-sm leading-6 text-desktop-text-secondary">
-        {description}
-      </div>
-      <div className="mt-5 flex flex-wrap gap-2">
-        {meta.map((item) => (
-          <span
-            key={item}
-            className="rounded-full border border-desktop-border bg-desktop-bg-primary/50 px-2.5 py-1 text-[11px] text-desktop-text-secondary"
-          >
-            {item}
-          </span>
-        ))}
-      </div>
-      <button
-        type="button"
-        onClick={onAction}
-        className="mt-5 rounded-md border border-desktop-border px-3 py-2 text-[12px] font-medium text-desktop-text-secondary transition-colors hover:bg-desktop-bg-active hover:text-desktop-text-primary"
-      >
-        {actionLabel}
-      </button>
-    </section>
-  );
-}
 
 function OverlayModal({
   onClose,
