@@ -1096,6 +1096,68 @@ describe("KanbanCardDetail repository health", () => {
     expect(screen.getByText(/Current run failed on Auggie:/i)).toBeTruthy();
     expect(screen.getByText(/403 Forbidden/i)).toBeTruthy();
   });
+
+  it("syncs detail fields when the same task updates in the background", async () => {
+    const { rerender } = render(
+      <KanbanCardDetail
+        task={{
+          ...createTask("task-sync", "Story One"),
+          objective: "Initial objective",
+          testCases: ["Initial test"],
+          priority: "medium",
+        }}
+        boardColumns={board.columns}
+        availableProviders={[]}
+        specialists={[]}
+        specialistLanguage="en"
+        codebases={[]}
+        allCodebaseIds={[]}
+        worktreeCache={{}}
+        sessions={[]}
+        fullWidth
+        onPatchTask={vi.fn(async () => createTask("task-sync", "Story One"))}
+        onRetryTrigger={vi.fn()}
+        onDelete={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByDisplayValue("Story One")).toBeTruthy();
+    expect(screen.getByText("Initial objective")).toBeTruthy();
+    expect(screen.getByDisplayValue("Initial test")).toBeTruthy();
+    expect((screen.getByRole("combobox", { name: "Priority" }) as HTMLSelectElement).value).toBe("medium");
+
+    rerender(
+      <KanbanCardDetail
+        task={{
+          ...createTask("task-sync", "Story One Updated"),
+          objective: "Updated objective",
+          testCases: ["Updated test"],
+          priority: "high",
+        }}
+        boardColumns={board.columns}
+        availableProviders={[]}
+        specialists={[]}
+        specialistLanguage="en"
+        codebases={[]}
+        allCodebaseIds={[]}
+        worktreeCache={{}}
+        sessions={[]}
+        fullWidth
+        onPatchTask={vi.fn(async () => createTask("task-sync", "Story One Updated"))}
+        onRetryTrigger={vi.fn()}
+        onDelete={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Story One Updated")).toBeTruthy();
+      expect(screen.getByText("Updated objective")).toBeTruthy();
+      expect(screen.getByDisplayValue("Updated test")).toBeTruthy();
+      expect((screen.getByRole("combobox", { name: "Priority" }) as HTMLSelectElement).value).toBe("high");
+    });
+  });
 });
 
 describe("KanbanTab live session tail", () => {

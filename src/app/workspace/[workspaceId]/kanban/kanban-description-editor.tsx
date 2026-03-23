@@ -136,12 +136,14 @@ interface KanbanDescriptionEditorProps {
   value: string;
   compact?: boolean;
   onSave: (value: string) => Promise<void>;
+  onEditingChange?: (isEditing: boolean) => void;
 }
 
 export function KanbanDescriptionEditor({
   value,
   compact = false,
   onSave,
+  onEditingChange,
 }: KanbanDescriptionEditorProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -174,6 +176,10 @@ export function KanbanDescriptionEditor({
       editor.commands.setContent(nextHtml, { emitUpdate: false });
     }
   }, [editor, isEditing, value]);
+
+  useEffect(() => {
+    onEditingChange?.(isEditing);
+  }, [isEditing, onEditingChange]);
 
   const beginEdit = () => {
     setIsEditing(true);

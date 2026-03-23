@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpProviderInfo } from "@/client/acp-client";
 import type { CodebaseData } from "@/client/hooks/use-workspaces";
 import {
@@ -105,6 +105,15 @@ export function KanbanCardDetail({
   const [editTestCases, setEditTestCases] = useState((task.testCases ?? []).join("\n"));
   const [editPriority, setEditPriority] = useState(task.priority ?? "medium");
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [isTitleEditing, setIsTitleEditing] = useState(false);
+  const [isDescriptionEditing, setIsDescriptionEditing] = useState(false);
+  const [isTestCasesEditing, setIsTestCasesEditing] = useState(false);
+  const titleInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const testCasesInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const displayedTitle = isTitleEditing ? editTitle : task.title;
+  const displayedObjective = isDescriptionEditing ? editObjective : (task.objective ?? "");
+  const displayedTestCases = isTestCasesEditing ? editTestCases : (task.testCases ?? []).join("\n");
+  const displayedPriority = task.priority ?? editPriority;
 
   const getTaskRepositoryPath = (): string | null => {
     const worktreePath = task.worktreeId ? worktreeCache[task.worktreeId]?.worktreePath : null;
@@ -150,9 +159,15 @@ export function KanbanCardDetail({
             </button>
           </div>
           <textarea
-            value={editTitle}
+            ref={titleInputRef}
+            value={displayedTitle}
+            onFocus={() => {
+              setEditTitle(task.title);
+              setIsTitleEditing(true);
+            }}
             onChange={(event) => setEditTitle(event.target.value)}
             onBlur={async () => {
+              setIsTitleEditing(false);
               if (editTitle !== task.title) {
                 await onPatchTask(task.id, { title: editTitle });
                 onRefresh();
@@ -164,7 +179,7 @@ export function KanbanCardDetail({
           <div className={`flex flex-wrap items-center ${compactMode ? "mt-2 gap-1.5" : "mt-3 gap-2"}`}>
             <MetaSelect
               label="Priority"
-              value={editPriority}
+              value={displayedPriority}
               compact={compactMode}
               options={[
                 { value: "low", label: "Low" },
@@ -203,8 +218,14 @@ export function KanbanCardDetail({
             compact={compactMode}
           >
             <KanbanDescriptionEditor
-              value={editObjective}
+              value={displayedObjective}
               compact={compactMode}
+              onEditingChange={(nextEditing) => {
+                if (nextEditing) {
+                  setEditObjective(task.objective ?? "");
+                }
+                setIsDescriptionEditing(nextEditing);
+              }}
               onSave={async (nextObjective) => {
                 if (nextObjective !== (task.objective ?? "")) {
                   setEditObjective(nextObjective);
@@ -247,9 +268,15 @@ export function KanbanCardDetail({
             compact={compactMode}
           >
             <textarea
-              value={editTestCases}
+              ref={testCasesInputRef}
+              value={displayedTestCases}
+              onFocus={() => {
+                setEditTestCases((task.testCases ?? []).join("\n"));
+                setIsTestCasesEditing(true);
+              }}
               onChange={(event) => setEditTestCases(event.target.value)}
               onBlur={async () => {
+                setIsTestCasesEditing(false);
                 const normalizedCurrent = (task.testCases ?? []).join("\n");
                 if (editTestCases !== normalizedCurrent) {
                   await onPatchTask(task.id, {
