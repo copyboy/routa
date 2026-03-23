@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { Button } from "./button";
 
 export type TraceViewTab = "chat" | "event-bridge" | "ag-ui";
 
@@ -24,18 +25,20 @@ export function TracesViewTabs({ activeTab, onTabChange, className }: TracesView
         data-testid="traces-view-tabs"
       >
         {TAB_DEFINITIONS.map(({ key, label, color }) => (
-          <button
+          <Button
             key={key}
             type="button"
+            variant="ghost"
+            size="xs"
             onClick={() => onTabChange(key)}
-            className={`px-3 py-1.5 rounded-sm text-[11px] font-semibold tracking-wide transition-all ${
+            className={`rounded-none px-3 py-1.5 text-[11px] font-semibold tracking-wide transition-all ${
               activeTab === key
                 ? `${color} text-desktop-accent-text`
                 : "text-desktop-text-secondary hover:bg-desktop-bg-active/70 hover:text-desktop-text-primary"
             }`}
           >
             {label}
-          </button>
+          </Button>
         ))}
       </div>
     </div>

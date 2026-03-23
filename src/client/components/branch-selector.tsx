@@ -14,6 +14,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { desktopAwareFetch } from "../utils/diagnostics";
+import { Button } from "./button";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -204,9 +205,11 @@ export function BranchSelector({
   return (
     <div className="relative">
       {/* Trigger */}
-      <button
+      <Button
         ref={triggerRef}
         type="button"
+        variant="ghost"
+        size="sm"
         onClick={() => {
           if (!disabled) {
             if (showDropdown) {
@@ -234,7 +237,7 @@ export function BranchSelector({
           <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 ml-0.5" title="Uncommitted changes" />
         )}
         <ChevronIcon />
-      </button>
+      </Button>
 
       {/* Dropdown - opens upward since input is at the bottom */}
       {showDropdown && dropdownPos && createPortal(
@@ -256,8 +259,10 @@ export function BranchSelector({
               <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Switch branch
               </span>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="xs"
                 onClick={() => fetchBranches(true)}
                 disabled={loading}
                 className="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
@@ -272,7 +277,7 @@ export function BranchSelector({
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-              </button>
+              </Button>
             </div>
 
             {/* Search */}
@@ -296,8 +301,10 @@ export function BranchSelector({
 
           {/* Pull suggestion */}
           {status && status.behind > 0 && (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="xs"
               onClick={handlePull}
               disabled={loading}
               className="w-full px-3 py-2 flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/10 border-b border-gray-100 dark:border-gray-800 transition-colors"
@@ -306,7 +313,7 @@ export function BranchSelector({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
               Pull {status.behind} new commit{status.behind > 1 ? "s" : ""}
-            </button>
+            </Button>
           )}
 
           {/* Branch list */}
@@ -381,10 +388,12 @@ function BranchItem({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="xs"
       onClick={onClick}
-      className={`w-full text-left px-3 py-1.5 text-[11px] hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center gap-1.5 ${
+      className={`w-full justify-start rounded-none text-left px-3 py-1.5 text-[11px] hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center gap-1.5 ${
         isCurrent
           ? "text-blue-600 dark:text-blue-400 font-medium"
           : "text-gray-700 dark:text-gray-300"
@@ -401,7 +410,7 @@ function BranchItem({
         </svg>
       )}
       <span className="truncate font-mono">{branch}</span>
-    </button>
+    </Button>
   );
 }
 
