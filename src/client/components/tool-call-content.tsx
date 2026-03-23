@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button } from "./button";
 import { CodeBlock } from "./code-block";
 import { CodeRetrievalViewer } from "./code-retrieval-viewer";
 import { FileOutputViewer, parseFileOutput } from "./file-output-viewer";
@@ -29,14 +28,12 @@ function JsonNode({ value, depth = 0 }: { value: unknown; depth?: number }) {
     if (value.length === 0) return <span className="text-gray-500">[]</span>;
     return (
       <span>
-        <Button
-          variant="ghost"
-          size="xs"
+        <button
           onClick={() => setCollapsed((current) => !current)}
           className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 font-mono"
         >
           {collapsed ? `[…${value.length}]` : "["}
-        </Button>
+        </button>
         {!collapsed && (
           <>
             <div className="pl-3 border-l border-gray-200 dark:border-gray-700 ml-1">
@@ -60,14 +57,12 @@ function JsonNode({ value, depth = 0 }: { value: unknown; depth?: number }) {
     if (entries.length === 0) return <span className="text-gray-500">{"{}"}</span>;
     return (
       <span>
-        <Button
-          variant="ghost"
-          size="xs"
+        <button
           onClick={() => setCollapsed((current) => !current)}
           className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 font-mono"
         >
           {collapsed ? `{…${entries.length}}` : "{"}
-        </Button>
+        </button>
         {!collapsed && (
           <>
             <div className="pl-3 border-l border-gray-200 dark:border-gray-700 ml-1">
@@ -254,9 +249,7 @@ export function ToolOutputView({
     return (
       <div>
         <div className="px-2 py-1 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-700/60 flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="xs"
+          <button
             onClick={() => setRichTextExpanded((current) => !current)}
             className="flex items-center gap-1.5 text-[9px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300"
           >
@@ -270,7 +263,7 @@ export function ToolOutputView({
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
             Output (Rendered)
-          </Button>
+          </button>
           <span className="text-[9px] text-gray-400 dark:text-gray-500">{richTextContent.length} chars</span>
         </div>
         {richTextExpanded ? (
@@ -346,9 +339,7 @@ export function ToolOutputView({
           Output (JSON)
         </span>
         <div className="flex gap-1">
-          <Button
-            variant="ghost"
-            size="xs"
+          <button
             onClick={() => setMode("code")}
             className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${
               mode === "code"
@@ -357,10 +348,8 @@ export function ToolOutputView({
             }`}
           >
             Code
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
+          </button>
+          <button
             onClick={() => setMode("tree")}
             className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${
               mode === "tree"
@@ -369,10 +358,8 @@ export function ToolOutputView({
             }`}
           >
             Tree
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
+          </button>
+          <button
             onClick={() => setMode("raw")}
             className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${
               mode === "raw"
@@ -381,7 +368,7 @@ export function ToolOutputView({
             }`}
           >
             Raw
-          </Button>
+          </button>
         </div>
       </div>
       {mode === "tree" ? (
