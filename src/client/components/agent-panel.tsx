@@ -10,6 +10,7 @@
 
 import { useState, useEffect } from "react";
 import { useAgentsRpc } from "../hooks/use-agents-rpc";
+import { Button } from "./button";
 
 interface AgentPanelProps {
   refreshKey?: number;
@@ -68,13 +69,15 @@ export function AgentPanel({ refreshKey, workspaceId = "" }: AgentPanelProps) {
             </span>
           )}
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={fetchAgents}
           disabled={loading}
           className="text-sm text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
         >
           {loading ? "..." : "Refresh"}
-        </button>
+        </Button>
       </div>
 
       {/* Create agent form */}
@@ -96,12 +99,14 @@ export function AgentPanel({ refreshKey, workspaceId = "" }: AgentPanelProps) {
           <option value="CRAFTER">CRAFTER</option>
           <option value="GATE">GATE</option>
         </select>
-        <button
+        <Button
+          variant="primary"
+          size="sm"
           onClick={createAgent}
-          className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+          className="px-4 py-1.5 text-sm font-medium transition-colors"
         >
           Create
-        </button>
+        </Button>
       </div>
 
       {/* Agent list */}

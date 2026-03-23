@@ -16,6 +16,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Image from "next/image";
 import { isTauriRuntime, desktopAwareFetch } from "@/client/utils/diagnostics";
+import { Button } from "@/client/components/button";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -312,13 +313,15 @@ export function AgentInstallPanel({ embedded = false }: AgentInstallPanelProps) 
           </div>
           <div className="flex items-center gap-3">
             <RuntimeBadges npx={runtimeAvailability.npx} uvx={runtimeAvailability.uvx} />
-            <button
+            <Button
+              variant="ghost"
+              size="xs"
               onClick={() => fetchAgents(true)}
               disabled={loading}
               className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50"
             >
               {loading ? "Loading..." : "Refresh"}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -337,7 +340,14 @@ export function AgentInstallPanel({ embedded = false }: AgentInstallPanelProps) 
       {error && (
         <div className={`${embedded ? "mb-3" : "mx-5 mt-3"} rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400`}>
           {error}
-          <button onClick={() => setError(null)} className="ml-2 underline">Dismiss</button>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => setError(null)}
+            className="ml-2 underline"
+          >
+            Dismiss
+          </Button>
         </div>
       )}
 
@@ -477,21 +487,25 @@ function AgentCard({
         {/* Actions */}
         <div className="flex items-center gap-2 shrink-0">
           {uninstallable ? (
-            <button
+            <Button
+              variant="danger"
+              size="xs"
               onClick={() => onUninstall(agent.id)}
               disabled={installing}
-              className="px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors"
+              className="px-3 py-1.5 text-xs font-medium disabled:opacity-50 transition-colors"
             >
               {installing ? "..." : "Uninstall"}
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => onInstall(agent.id, availableDistType ?? undefined)}
               disabled={installing || !canInstall}
-              className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-3 py-1.5 text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {installing ? "Installing..." : canInstall ? "Install" : "Unavailable"}
-            </button>
+            </Button>
           )}
           {agent.repository && (
             <a
