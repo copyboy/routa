@@ -31,7 +31,7 @@ const requiredStories = {
   "src/client/components/overview-card.stories.tsx": ["Default", "LatestRecoveryPoint", "FocusState", "DarkMode"],
   "src/client/components/traces-page-header.stories.tsx": ["Default", "NoSessionSelected", "FocusState", "DarkMode"],
   "src/client/components/traces-view-tabs.stories.tsx": ["ChatActive", "TraceActive", "AgUiActive", "FocusState", "DarkMode"],
-  "src/client/components/button.stories.tsx": ["Primary", "Secondary", "Danger", "DesktopSecondary", "DesktopAccent", "DesktopOutline", "FocusState", "DarkMode"],
+  "src/client/components/button.stories.tsx": ["Primary", "Secondary", "Danger", "FocusState", "DarkMode"],
 };
 
 function readFile(relativePath) {
