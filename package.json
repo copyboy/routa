@@ -67,6 +67,7 @@
     "api:schema:validate": "npx tsx scripts/validate-openapi-schema.ts",
     "api:schema:validate:json": "npx tsx scripts/validate-openapi-schema.ts --json",
     "api:schema:report": "npx tsx scripts/validate-openapi-schema.ts --report",
+    "git:coauthor:stats": "node --experimental-strip-types scripts/coauthor-stats.mts",
     "api:validate": "./scripts/validate-api-parity.sh",
     "api:validate:full": "./scripts/validate-api-parity.sh --runtime",
     "docs:specialists:generate": "python3 scripts/generate-specialist-docs.py --save",
