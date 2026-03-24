@@ -466,14 +466,13 @@ export class ClaudeCodeSdkAdapter {
         // Dispatch message and yield SSE event
         const notification = this.createNotificationFromMessage(msg, sessionId);
         if (notification) {
-          const text = notification
-            .params?.update?.sessionUpdate === "agent_message_chunk"
-            && typeof notification.params?.update?.content === "object"
-            && notification.params.update.content !== null
-            && "text" in notification.params.update.content
-            && typeof notification.params.update.content.text === "string"
-              ? notification.params.update.content.text
-              : undefined;
+          const params = notification.params as Record<string, unknown> | undefined;
+          const update = params?.update as Record<string, unknown> | undefined;
+          const content = update?.content as Record<string, unknown> | undefined;
+          const text = update?.sessionUpdate === "agent_message_chunk"
+            && typeof content?.text === "string"
+            ? content.text
+            : undefined;
 
           if (text && text.length > 120) {
             for (const chunk of this.splitAssistantText(text)) {
