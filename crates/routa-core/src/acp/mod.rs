@@ -27,6 +27,7 @@ pub mod provider_adapter;
 pub mod registry_fetch;
 pub mod registry_types;
 pub mod runtime_manager;
+pub mod terminal_manager;
 pub mod warmup;
 
 pub use binary_manager::AcpBinaryManager;

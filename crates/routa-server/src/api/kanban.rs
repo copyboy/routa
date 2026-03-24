@@ -5,11 +5,12 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use routa_core::models::task::{Task, TaskLaneSessionStatus, TaskStatus};
 use routa_core::events::{AgentEvent, AgentEventType, EventBus};
 use routa_core::models::kanban::KanbanColumn;
 use routa_core::models::kanban_config::{KanbanBoardConfig, KanbanColumnConfig, KanbanConfig};
 use routa_core::models::workspace::Workspace;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use tokio::sync::mpsc;
@@ -148,6 +149,156 @@ fn get_session_concurrency_limit(metadata: &HashMap<String, String>, board_id: &
         .unwrap_or(1)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KanbanDevSessionSupervision {
+    mode: String,
+    inactivity_timeout_minutes: u32,
+    max_recovery_attempts: u32,
+    completion_requirement: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KanbanQueueCard {
+    card_id: String,
+    card_title: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KanbanBoardQueueSnapshot {
+    board_id: String,
+    running_count: usize,
+    running_cards: Vec<KanbanQueueCard>,
+    queued_count: usize,
+    queued_card_ids: Vec<String>,
+    queued_cards: Vec<KanbanQueueCard>,
+    queued_positions: HashMap<String, usize>,
+}
+
+fn default_dev_session_supervision() -> KanbanDevSessionSupervision {
+    KanbanDevSessionSupervision {
+        mode: "watchdog_retry".to_string(),
+        inactivity_timeout_minutes: 10,
+        max_recovery_attempts: 1,
+        completion_requirement: "turn_complete".to_string(),
+    }
+}
+
+fn dev_supervision_metadata_key(board_id: &str) -> String {
+    format!("kanbanDevSessionSupervision:{}", board_id)
+}
+
+fn normalize_dev_session_supervision(
+    value: PartialKanbanDevSessionSupervision,
+) -> KanbanDevSessionSupervision {
+    let defaults = default_dev_session_supervision();
+    let mode = match value.mode.as_deref() {
+        Some("disabled" | "watchdog_retry" | "ralph_loop") => {
+            value.mode.unwrap_or(defaults.mode)
+        }
+        _ => defaults.mode,
+    };
+    let inactivity_timeout_minutes = value
+        .inactivity_timeout_minutes
+        .unwrap_or(defaults.inactivity_timeout_minutes)
+        .clamp(1, 120);
+    let max_recovery_attempts = value
+        .max_recovery_attempts
+        .unwrap_or(defaults.max_recovery_attempts)
+        .clamp(0, 10);
+    let completion_requirement = match value.completion_requirement.as_deref() {
+        Some("turn_complete" | "completion_summary" | "verification_report") => value
+            .completion_requirement
+            .unwrap_or(defaults.completion_requirement),
+        _ => defaults.completion_requirement,
+    };
+
+    KanbanDevSessionSupervision {
+        mode,
+        inactivity_timeout_minutes,
+        max_recovery_attempts,
+        completion_requirement,
+    }
+}
+
+fn get_dev_session_supervision(
+    metadata: &HashMap<String, String>,
+    board_id: &str,
+) -> KanbanDevSessionSupervision {
+    let Some(raw) = metadata.get(&dev_supervision_metadata_key(board_id)) else {
+        return default_dev_session_supervision();
+    };
+
+    serde_json::from_str::<PartialKanbanDevSessionSupervision>(raw)
+        .map(normalize_dev_session_supervision)
+        .unwrap_or_else(|_| default_dev_session_supervision())
+}
+
+fn set_dev_session_supervision(
+    metadata: &HashMap<String, String>,
+    board_id: &str,
+    value: PartialKanbanDevSessionSupervision,
+) -> HashMap<String, String> {
+    let mut next = metadata.clone();
+    let normalized = normalize_dev_session_supervision(value);
+    next.insert(
+        dev_supervision_metadata_key(board_id),
+        serde_json::to_string(&normalized).unwrap_or_default(),
+    );
+    next
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PartialKanbanDevSessionSupervision {
+    mode: Option<String>,
+    inactivity_timeout_minutes: Option<u32>,
+    max_recovery_attempts: Option<u32>,
+    completion_requirement: Option<String>,
+}
+
+async fn build_board_queue_snapshot(
+    state: &AppState,
+    workspace_id: &str,
+    board_id: &str,
+) -> Result<KanbanBoardQueueSnapshot, ServerError> {
+    let tasks = state.task_store.list_by_workspace(workspace_id).await?;
+    let running_cards = tasks
+        .into_iter()
+        .filter(|task| task.board_id.as_deref() == Some(board_id))
+        .filter(task_has_running_lane_session)
+        .map(|task| KanbanQueueCard {
+            card_id: task.id,
+            card_title: task.title,
+        })
+        .collect::<Vec<_>>();
+
+    Ok(KanbanBoardQueueSnapshot {
+        board_id: board_id.to_string(),
+        running_count: running_cards.len(),
+        running_cards,
+        queued_count: 0,
+        queued_card_ids: Vec::new(),
+        queued_cards: Vec::new(),
+        queued_positions: HashMap::new(),
+    })
+}
+
+fn task_has_running_lane_session(task: &Task) -> bool {
+    if task
+        .lane_sessions
+        .iter()
+        .any(|session| session.status == TaskLaneSessionStatus::Running)
+    {
+        return true;
+    }
+
+    task.trigger_session_id.is_some()
+        && matches!(task.status, TaskStatus::InProgress | TaskStatus::ReviewRequired)
+}
+
 async fn list_boards(
     State(state): State<AppState>,
     Query(query): Query<BoardsQuery>,
@@ -192,7 +343,7 @@ async fn list_boards(
         )
         .await?;
         let mut board = strip_board_cards(&rpc_board);
-        add_board_runtime_meta(&mut board, &metadata);
+        add_board_runtime_meta(&state, &mut board, &metadata, &workspace_id).await?;
         boards.push(board);
     }
 
@@ -297,7 +448,7 @@ async fn get_board(
         .unwrap_or_default();
 
     let mut board = strip_board_cards(&rpc_result);
-    add_board_runtime_meta(&mut board, &metadata);
+    add_board_runtime_meta(&state, &mut board, &metadata, workspace_id).await?;
     Ok(Json(serde_json::json!({ "board": board })))
 }
 
@@ -308,6 +459,7 @@ struct UpdateBoardRequest {
     columns: Option<serde_json::Value>,
     is_default: Option<bool>,
     session_concurrency_limit: Option<u32>,
+    dev_session_supervision: Option<PartialKanbanDevSessionSupervision>,
 }
 
 async fn update_board(
@@ -346,6 +498,10 @@ async fn update_board(
     if let Some(limit) = body.session_concurrency_limit {
         persist_session_concurrency_limit(&state, &workspace_id, &board_id, limit).await?;
     }
+    if let Some(dev_session_supervision) = body.dev_session_supervision {
+        persist_dev_session_supervision(&state, &workspace_id, &board_id, dev_session_supervision)
+            .await?;
+    }
 
     let workspace = state
         .workspace_store
@@ -357,7 +513,7 @@ async fn update_board(
         .map(|workspace| workspace.metadata)
         .unwrap_or_default();
     let mut board = board;
-    add_board_runtime_meta(&mut board, &metadata);
+    add_board_runtime_meta(&state, &mut board, &metadata, &workspace_id).await?;
 
     Ok(Json(serde_json::json!({ "board": board })))
 }
@@ -642,6 +798,20 @@ async fn persist_session_concurrency_limit(
     Ok(())
 }
 
+async fn persist_dev_session_supervision(
+    state: &AppState,
+    workspace_id: &str,
+    board_id: &str,
+    value: PartialKanbanDevSessionSupervision,
+) -> Result<(), ServerError> {
+    let workspace = state.workspace_store.get(workspace_id).await.ok().flatten();
+    if let Some(mut workspace) = workspace {
+        workspace.metadata = set_dev_session_supervision(&workspace.metadata, board_id, value);
+        state.workspace_store.save(&workspace).await?;
+    }
+    Ok(())
+}
+
 async fn rpc_result(
     state: &AppState,
     method: &str,
@@ -709,31 +879,49 @@ fn strip_board_cards(board: &serde_json::Value) -> serde_json::Value {
     board
 }
 
-fn add_board_runtime_meta(board: &mut serde_json::Value, metadata: &HashMap<String, String>) {
+async fn add_board_runtime_meta(
+    state: &AppState,
+    board: &mut serde_json::Value,
+    metadata: &HashMap<String, String>,
+    workspace_id: &str,
+) -> Result<(), ServerError> {
     let Some(object) = board.as_object_mut() else {
-        return;
+        return Ok(());
     };
 
     let board_id = object
         .get("id")
         .and_then(|value| value.as_str())
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .to_string();
+    let queue = build_board_queue_snapshot(state, workspace_id, &board_id).await?;
     object.insert(
         "sessionConcurrencyLimit".to_string(),
-        serde_json::json!(get_session_concurrency_limit(metadata, board_id)),
+        serde_json::json!(get_session_concurrency_limit(metadata, &board_id)),
+    );
+    object.insert(
+        "devSessionSupervision".to_string(),
+        serde_json::to_value(get_dev_session_supervision(metadata, &board_id))
+            .unwrap_or(serde_json::Value::Null),
     );
     object.insert(
         "queue".to_string(),
-        serde_json::json!({ "runningCount": 0, "queuedCount": 0 }),
+        serde_json::to_value(queue).unwrap_or(serde_json::Value::Null),
     );
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::translate_agent_event_to_kanban_payload;
+    use super::{
+        default_dev_session_supervision, get_dev_session_supervision,
+        normalize_dev_session_supervision, translate_agent_event_to_kanban_payload,
+        PartialKanbanDevSessionSupervision,
+    };
     use chrono::Utc;
     use routa_core::events::{AgentEvent, AgentEventType};
     use serde_json::json;
+    use std::collections::HashMap;
 
     #[test]
     fn translates_workspace_updated_kanban_event() {
@@ -798,5 +986,30 @@ mod tests {
         assert_eq!(payload["action"].as_str(), Some("updated"));
         assert_eq!(payload["resourceId"].as_str(), Some("task-42"));
         assert_eq!(payload["source"].as_str(), Some("agent"));
+    }
+
+    #[test]
+    fn dev_session_supervision_defaults_when_missing() {
+        let metadata = HashMap::new();
+
+        assert_eq!(
+            serde_json::to_value(get_dev_session_supervision(&metadata, "board-1")).unwrap(),
+            serde_json::to_value(default_dev_session_supervision()).unwrap()
+        );
+    }
+
+    #[test]
+    fn normalize_dev_session_supervision_clamps_invalid_values() {
+        let normalized = normalize_dev_session_supervision(PartialKanbanDevSessionSupervision {
+            mode: Some("unknown".to_string()),
+            inactivity_timeout_minutes: Some(999),
+            max_recovery_attempts: Some(999),
+            completion_requirement: Some("bogus".to_string()),
+        });
+
+        assert_eq!(normalized.mode, "watchdog_retry");
+        assert_eq!(normalized.inactivity_timeout_minutes, 120);
+        assert_eq!(normalized.max_recovery_attempts, 10);
+        assert_eq!(normalized.completion_requirement, "turn_complete");
     }
 }

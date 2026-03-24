@@ -19,6 +19,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::{broadcast, oneshot, Mutex};
 
+use super::terminal_manager::TerminalManager;
 use crate::trace::{
     Contributor, TraceConversation, TraceEventType, TraceRecord, TraceTool, TraceWriter,
 };
@@ -216,7 +217,13 @@ impl AcpProcess {
                         method,
                         id_val
                     );
-                    let response = handle_agent_request(method, &msg["params"]).await;
+                    let response = handle_agent_request(
+                        method,
+                        &msg["params"],
+                        &our_sid,
+                        &ntx,
+                    )
+                    .await;
                     let reply = serde_json::json!({
                         "jsonrpc": "2.0",
                         "id": id_val,
@@ -697,7 +704,12 @@ impl AcpProcess {
 }
 
 /// Handle agent→client requests. Auto-approves permissions, handles fs ops.
-async fn handle_agent_request(method: &str, params: &serde_json::Value) -> serde_json::Value {
+async fn handle_agent_request(
+    method: &str,
+    params: &serde_json::Value,
+    session_id: &str,
+    notification_tx: &NotificationSender,
+) -> serde_json::Value {
     match method {
         "session/request_permission" => {
             // Auto-approve all permissions
@@ -728,16 +740,38 @@ async fn handle_agent_request(method: &str, params: &serde_json::Value) -> serde
             }
         }
         "terminal/create" => {
-            // Stub: return a fake terminal ID
-            serde_json::json!({ "terminalId": uuid::Uuid::new_v4().to_string() })
+            match TerminalManager::global()
+                .create(params, session_id, notification_tx)
+                .await
+            {
+                Ok(result) => result,
+                Err(error) => serde_json::json!({ "error": error }),
+            }
         }
         "terminal/output" => {
-            serde_json::json!({ "output": "" })
+            let terminal_id = params["terminalId"].as_str().unwrap_or("");
+            match TerminalManager::global().get_output(terminal_id).await {
+                Ok(result) => result,
+                Err(error) => serde_json::json!({ "error": error }),
+            }
         }
         "terminal/wait_for_exit" => {
-            serde_json::json!({ "exitCode": 0 })
+            let terminal_id = params["terminalId"].as_str().unwrap_or("");
+            match TerminalManager::global().wait_for_exit(terminal_id).await {
+                Ok(result) => result,
+                Err(error) => serde_json::json!({ "error": error }),
+            }
         }
-        "terminal/kill" | "terminal/release" => {
+        "terminal/kill" => {
+            let terminal_id = params["terminalId"].as_str().unwrap_or("");
+            match TerminalManager::global().kill(terminal_id).await {
+                Ok(_) => serde_json::json!({}),
+                Err(error) => serde_json::json!({ "error": error }),
+            }
+        }
+        "terminal/release" => {
+            let terminal_id = params["terminalId"].as_str().unwrap_or("");
+            TerminalManager::global().release(terminal_id).await;
             serde_json::json!({})
         }
         _ => {

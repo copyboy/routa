@@ -16,6 +16,7 @@ use crate::acp;
 use crate::error::ServerError;
 use crate::state::AppState;
 use routa_core::acp::SessionLaunchOptions;
+use routa_core::acp::terminal_manager::TerminalManager;
 use routa_core::models::agent::{Agent, AgentRole};
 use routa_core::orchestration::{OrchestratorConfig, RoutaOrchestrator, SpecialistConfig};
 use routa_core::storage::{LocalSessionProvider, SessionRecord};
@@ -995,6 +996,146 @@ async fn acp_rpc(
             }
         })))),
 
+        "session/respond_user_input" => {
+            let session_id = params.get("sessionId").and_then(|v| v.as_str());
+            let tool_call_id = params.get("toolCallId").and_then(|v| v.as_str());
+            let response = params.get("response");
+
+            if session_id.is_none() || tool_call_id.is_none() || response.is_none() {
+                return Ok(AcpResponse::Json(Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32602,
+                        "message": "Missing sessionId, toolCallId, or response"
+                    }
+                }))));
+            }
+
+            let session_id = session_id.unwrap_or_default();
+            let session_exists = state.acp_manager.get_session(session_id).await.is_some()
+                || state.acp_session_store.get(session_id).await.ok().flatten().is_some();
+            if !session_exists {
+                return Ok(AcpResponse::Json(Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32000,
+                        "message": format!("Session not found: {}", session_id)
+                    }
+                }))));
+            }
+
+            Ok(AcpResponse::Json(Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {
+                    "code": -32000,
+                    "message": "No pending AskUserQuestion request found for this session"
+                }
+            }))))
+        }
+
+        "terminal/write" => {
+            let session_id = params.get("sessionId").and_then(|v| v.as_str());
+            let terminal_id = params.get("terminalId").and_then(|v| v.as_str());
+            let data = params.get("data").and_then(|v| v.as_str());
+
+            if session_id.is_none() || terminal_id.is_none() || data.is_none() {
+                return Ok(AcpResponse::Json(Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32602,
+                        "message": "Missing sessionId, terminalId, or data"
+                    }
+                }))));
+            }
+
+            let session_id = session_id.unwrap_or_default();
+            let terminal_id = terminal_id.unwrap_or_default();
+            if !TerminalManager::global()
+                .has_terminal(session_id, terminal_id)
+                .await
+            {
+                return Ok(AcpResponse::Json(Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32000,
+                        "message": "Terminal not found for this session"
+                    }
+                }))));
+            }
+            if let Err(error) = TerminalManager::global().write(terminal_id, data.unwrap_or("")).await
+            {
+                return Ok(AcpResponse::Json(Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32000,
+                        "message": error
+                    }
+                }))));
+            }
+
+            Ok(AcpResponse::Json(Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": { "ok": true }
+            }))))
+        }
+
+        "terminal/resize" => {
+            let session_id = params.get("sessionId").and_then(|v| v.as_str());
+            let terminal_id = params.get("terminalId").and_then(|v| v.as_str());
+
+            if session_id.is_none() || terminal_id.is_none() {
+                return Ok(AcpResponse::Json(Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32602,
+                        "message": "Missing sessionId or terminalId"
+                    }
+                }))));
+            }
+
+            let session_id = session_id.unwrap_or_default();
+            let terminal_id = terminal_id.unwrap_or_default();
+            if !TerminalManager::global()
+                .has_terminal(session_id, terminal_id)
+                .await
+            {
+                return Ok(AcpResponse::Json(Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32000,
+                        "message": "Terminal not found for this session"
+                    }
+                }))));
+            }
+            let cols = params.get("cols").and_then(|v| v.as_u64()).map(|v| v as u16);
+            let rows = params.get("rows").and_then(|v| v.as_u64()).map(|v| v as u16);
+            if let Err(error) = TerminalManager::global().resize(terminal_id, cols, rows).await {
+                return Ok(AcpResponse::Json(Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32000,
+                        "message": error
+                    }
+                }))));
+            }
+
+            Ok(AcpResponse::Json(Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": { "ok": true }
+            }))))
+        }
+
         "session/set_mode" => {
             let _session_id = params.get("sessionId").and_then(|v| v.as_str());
             let _mode_id = params
@@ -1143,5 +1284,161 @@ async fn persist_session_to_jsonl(
     let local = LocalSessionProvider::new(cwd);
     if let Err(e) = local.save(&record).await {
         tracing::warn!("[ACP Route] Failed to persist session to JSONL: {}", e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use axum::{extract::State, Json};
+    use routa_core::{db::Database, state::AppStateInner};
+    use serde_json::json;
+    use tokio::sync::broadcast;
+
+    use super::{acp_rpc, AcpResponse};
+    use routa_core::acp::terminal_manager::TerminalManager;
+
+    fn json_response_value(response: AcpResponse) -> serde_json::Value {
+        match response {
+            AcpResponse::Json(Json(value)) => value,
+            AcpResponse::Sse(_) => panic!("expected JSON response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn session_respond_user_input_returns_explicit_no_pending_error() {
+        let db = Database::open_in_memory().expect("db should open");
+        let state = Arc::new(AppStateInner::new(db));
+        state
+            .workspace_store
+            .ensure_default()
+            .await
+            .expect("default workspace should exist");
+        state
+            .acp_session_store
+            .create(
+                "session-respond-user-input",
+                "/tmp",
+                Some("main"),
+                "default",
+                Some("opencode"),
+                Some("DEVELOPER"),
+                None,
+            )
+            .await
+            .expect("session should persist");
+
+        let response = acp_rpc(
+            State(state),
+            Json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "session/respond_user_input",
+                "params": {
+                    "sessionId": "session-respond-user-input",
+                    "toolCallId": "tool-1",
+                    "response": { "answer": "yes" }
+                }
+            })),
+        )
+        .await
+        .expect("request should succeed");
+
+        let value = json_response_value(response);
+        assert_eq!(
+            value["error"]["message"].as_str(),
+            Some("No pending AskUserQuestion request found for this session")
+        );
+    }
+
+    #[tokio::test]
+    async fn terminal_write_and_resize_use_real_terminal_manager() {
+        let db = Database::open_in_memory().expect("db should open");
+        let state = Arc::new(AppStateInner::new(db));
+        state
+            .workspace_store
+            .ensure_default()
+            .await
+            .expect("default workspace should exist");
+        let session_id = "session-terminal-route";
+        state
+            .acp_session_store
+            .create(
+                session_id,
+                "/tmp",
+                Some("main"),
+                "default",
+                Some("opencode"),
+                Some("DEVELOPER"),
+                None,
+            )
+            .await
+            .expect("session should persist");
+
+        let (tx, _rx) = broadcast::channel(32);
+        let created = TerminalManager::global()
+            .create(
+                &json!({
+                    "command": "/bin/cat",
+                    "args": [],
+                    "cwd": "/tmp",
+                    "cols": 80,
+                    "rows": 24
+                }),
+                session_id,
+                &tx,
+            )
+            .await
+            .expect("terminal should create");
+        let terminal_id = created["terminalId"]
+            .as_str()
+            .expect("terminal id")
+            .to_string();
+
+        let write_response = acp_rpc(
+            State(state.clone()),
+            Json(json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "terminal/write",
+                "params": {
+                    "sessionId": session_id,
+                    "terminalId": terminal_id,
+                    "data": "route terminal write\\n"
+                }
+            })),
+        )
+        .await
+        .expect("write should succeed");
+
+        let write_value = json_response_value(write_response);
+        assert_eq!(write_value["result"]["ok"], json!(true));
+
+        let resize_response = acp_rpc(
+            State(state.clone()),
+            Json(json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "terminal/resize",
+                "params": {
+                    "sessionId": session_id,
+                    "terminalId": terminal_id,
+                    "cols": 120,
+                    "rows": 40
+                }
+            })),
+        )
+        .await
+        .expect("resize should succeed");
+
+        let resize_value = json_response_value(resize_response);
+        assert_eq!(resize_value["result"]["ok"], json!(true));
+
+        TerminalManager::global()
+            .kill(&terminal_id)
+            .await
+            .expect("terminal should kill");
+        TerminalManager::global().release(&terminal_id).await;
     }
 }

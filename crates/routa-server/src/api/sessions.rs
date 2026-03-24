@@ -3,7 +3,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use chrono::{DateTime, Utc};
+use routa_core::trace::{TraceEventType, TraceQuery, TraceReader};
 use serde::Deserialize;
+use serde::Serialize;
+use serde_json::Value;
 
 use crate::application::sessions::{
     ListSessionsQuery as SessionListQuery, SessionApplicationService,
@@ -21,8 +25,43 @@ pub fn router() -> Router<AppState> {
                 .delete(delete_session),
         )
         .route("/{session_id}/history", get(get_session_history))
+        .route("/{session_id}/transcript", get(get_session_transcript))
         .route("/{session_id}/context", get(get_session_context))
         .route("/{session_id}/disconnect", post(disconnect_session))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionTranscriptPayload {
+    session_id: String,
+    history: Vec<Value>,
+    messages: Vec<TranscriptMessage>,
+    source: &'static str,
+    history_message_count: usize,
+    trace_message_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_event_kind: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranscriptMessage {
+    id: String,
+    role: &'static str,
+    content: String,
+    timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_raw_input: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_raw_output: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_data: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,6 +226,31 @@ async fn get_session_history(
     Ok(Json(serde_json::json!({ "history": result })))
 }
 
+/// GET /api/sessions/{session_id}/transcript — Get preferred transcript payload.
+///
+/// Mirrors the Next.js transcript route shape used by chat panels.
+async fn get_session_transcript(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ServerError> {
+    let service = SessionApplicationService::new(state);
+    let history = service.get_session_history(&session_id, true).await?;
+    let cwd = std::env::current_dir()
+        .map_err(|error| ServerError::Internal(format!("Failed to get cwd: {}", error)))?;
+    let traces = TraceReader::new(&cwd)
+        .query(&TraceQuery {
+            session_id: Some(session_id.clone()),
+            ..TraceQuery::default()
+        })
+        .await
+        .map_err(|error| ServerError::Internal(format!("Failed to query traces: {}", error)))?;
+
+    let payload = build_transcript_payload(&session_id, history, traces);
+    Ok(Json(serde_json::to_value(payload).map_err(|error| {
+        ServerError::Internal(format!("Failed to serialize transcript payload: {}", error))
+    })?))
+}
+
 /// GET /api/sessions/{session_id}/context — Get hierarchical context for a session.
 ///
 /// Returns the session's parent, children, siblings, and recent workspace sessions.
@@ -207,10 +271,337 @@ async fn get_session_context(
     })))
 }
 
+fn build_transcript_payload(
+    session_id: &str,
+    history: Vec<Value>,
+    traces: Vec<routa_core::trace::TraceRecord>,
+) -> SessionTranscriptPayload {
+    let history_messages = history_to_transcript_messages(&history);
+    let trace_messages = traces_to_transcript_messages(&traces);
+    let history_message_count = history_messages.len();
+    let trace_message_count = trace_messages.len();
+    let use_traces = trace_messages.len() > history_messages.len();
+    let preferred_messages = if use_traces {
+        trace_messages
+    } else {
+        history_messages
+    };
+    let latest_event_kind = history
+        .last()
+        .and_then(|entry| entry.get("update"))
+        .and_then(|update| update.get("sessionUpdate"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+
+    SessionTranscriptPayload {
+        session_id: session_id.to_string(),
+        history,
+        history_message_count,
+        trace_message_count,
+        source: if preferred_messages.is_empty() {
+            "empty"
+        } else if use_traces {
+            "traces"
+        } else {
+            "history"
+        },
+        latest_event_kind,
+        messages: preferred_messages,
+    }
+}
+
+fn history_to_transcript_messages(history: &[Value]) -> Vec<TranscriptMessage> {
+    let mut messages = Vec::new();
+
+    for (index, notification) in history.iter().enumerate() {
+        let Some(update) = notification.get("update").and_then(Value::as_object) else {
+            continue;
+        };
+        let Some(kind) = update.get("sessionUpdate").and_then(Value::as_str) else {
+            continue;
+        };
+        let timestamp = update
+            .get("timestamp")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(now_iso);
+        let fallback_id = notification
+            .get("eventId")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("history-{}-{}", kind, index));
+
+        match kind {
+            "user_message" => {
+                if let Some(text) = update
+                    .get("content")
+                    .and_then(Value::as_object)
+                    .and_then(|content| content.get("text"))
+                    .and_then(Value::as_str)
+                {
+                    messages.push(TranscriptMessage {
+                        id: fallback_id,
+                        role: "user",
+                        content: text.to_string(),
+                        timestamp,
+                        tool_name: None,
+                        tool_status: None,
+                        tool_call_id: None,
+                        tool_raw_input: None,
+                        tool_raw_output: None,
+                        raw_data: None,
+                    });
+                }
+            }
+            "agent_message" | "agent_message_chunk" => {
+                if let Some(text) = update
+                    .get("content")
+                    .and_then(Value::as_object)
+                    .and_then(|content| content.get("text"))
+                    .and_then(Value::as_str)
+                {
+                    messages.push(TranscriptMessage {
+                        id: fallback_id,
+                        role: "assistant",
+                        content: text.to_string(),
+                        timestamp,
+                        tool_name: None,
+                        tool_status: None,
+                        tool_call_id: None,
+                        tool_raw_input: None,
+                        tool_raw_output: None,
+                        raw_data: None,
+                    });
+                }
+            }
+            "agent_thought" | "agent_thought_chunk" => {
+                if let Some(text) = update
+                    .get("content")
+                    .and_then(Value::as_object)
+                    .and_then(|content| content.get("text"))
+                    .and_then(Value::as_str)
+                {
+                    messages.push(TranscriptMessage {
+                        id: fallback_id,
+                        role: "thought",
+                        content: text.to_string(),
+                        timestamp,
+                        tool_name: None,
+                        tool_status: None,
+                        tool_call_id: None,
+                        tool_raw_input: None,
+                        tool_raw_output: None,
+                        raw_data: None,
+                    });
+                }
+            }
+            "tool_call" | "tool_call_update" => {
+                let tool_name = update
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .or_else(|| update.get("toolName").and_then(Value::as_str))
+                    .unwrap_or("Tool");
+                let status = update
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("running");
+                let raw_input = update.get("rawInput").cloned();
+                let raw_output = update.get("rawOutput").cloned();
+                let content = if let Some(raw_input) = raw_input.as_ref() {
+                    format!("Input:\n{}", serde_json::to_string_pretty(raw_input).unwrap_or_default())
+                } else {
+                    tool_name.to_string()
+                };
+
+                messages.push(TranscriptMessage {
+                    id: update
+                        .get("toolCallId")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .unwrap_or(fallback_id),
+                    role: "tool",
+                    content,
+                    timestamp,
+                    tool_name: Some(tool_name.to_string()),
+                    tool_status: Some(status.to_string()),
+                    tool_call_id: update
+                        .get("toolCallId")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    tool_raw_input: raw_input,
+                    tool_raw_output: raw_output,
+                    raw_data: Some(Value::Object(update.clone())),
+                });
+            }
+            "plan" => {
+                let content = update
+                    .get("plan")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| {
+                        update
+                            .get("entries")
+                            .and_then(Value::as_array)
+                            .map(|entries| {
+                                entries
+                                    .iter()
+                                    .filter_map(Value::as_object)
+                                    .map(|entry| {
+                                        let status = entry
+                                            .get("status")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or("pending");
+                                        let body = entry
+                                            .get("content")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or_default();
+                                        format!("[{}] {}", status, body)
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            })
+                    })
+                    .unwrap_or_default();
+
+                if !content.is_empty() {
+                    messages.push(TranscriptMessage {
+                        id: fallback_id,
+                        role: "plan",
+                        content,
+                        timestamp,
+                        tool_name: None,
+                        tool_status: None,
+                        tool_call_id: None,
+                        tool_raw_input: None,
+                        tool_raw_output: None,
+                        raw_data: Some(Value::Object(update.clone())),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    messages
+}
+
+fn traces_to_transcript_messages(
+    traces: &[routa_core::trace::TraceRecord],
+) -> Vec<TranscriptMessage> {
+    let mut messages = Vec::new();
+    let mut traces = traces.to_vec();
+    traces.sort_by_key(|trace| trace.timestamp);
+
+    for trace in traces {
+        match trace.event_type {
+            TraceEventType::UserMessage => {
+                if let Some(content) = trace_conversation_text(&trace) {
+                    messages.push(TranscriptMessage {
+                        id: trace.id,
+                        role: "user",
+                        content,
+                        timestamp: trace.timestamp.to_rfc3339(),
+                        tool_name: None,
+                        tool_status: None,
+                        tool_call_id: None,
+                        tool_raw_input: None,
+                        tool_raw_output: None,
+                        raw_data: None,
+                    });
+                }
+            }
+            TraceEventType::AgentMessage => {
+                if let Some(content) = trace_conversation_text(&trace) {
+                    messages.push(TranscriptMessage {
+                        id: trace.id,
+                        role: "assistant",
+                        content,
+                        timestamp: trace.timestamp.to_rfc3339(),
+                        tool_name: None,
+                        tool_status: None,
+                        tool_call_id: None,
+                        tool_raw_input: None,
+                        tool_raw_output: None,
+                        raw_data: None,
+                    });
+                }
+            }
+            TraceEventType::AgentThought => {
+                if let Some(content) = trace_conversation_text(&trace) {
+                    messages.push(TranscriptMessage {
+                        id: trace.id,
+                        role: "thought",
+                        content,
+                        timestamp: trace.timestamp.to_rfc3339(),
+                        tool_name: None,
+                        tool_status: None,
+                        tool_call_id: None,
+                        tool_raw_input: None,
+                        tool_raw_output: None,
+                        raw_data: None,
+                    });
+                }
+            }
+            TraceEventType::ToolCall | TraceEventType::ToolResult => {
+                if let Some(tool) = trace.tool.as_ref() {
+                    messages.push(TranscriptMessage {
+                        id: tool
+                            .tool_call_id
+                            .clone()
+                            .unwrap_or_else(|| trace.id.clone()),
+                        role: "tool",
+                        content: tool
+                            .output
+                            .as_ref()
+                            .map(format_json_value)
+                            .or_else(|| tool.input.as_ref().map(format_json_value))
+                            .unwrap_or_else(|| tool.name.clone()),
+                        timestamp: trace.timestamp.to_rfc3339(),
+                        tool_name: Some(tool.name.clone()),
+                        tool_status: tool.status.clone(),
+                        tool_call_id: tool.tool_call_id.clone(),
+                        tool_raw_input: tool.input.clone(),
+                        tool_raw_output: tool.output.clone(),
+                        raw_data: None,
+                    });
+                }
+            }
+            TraceEventType::SessionStart | TraceEventType::SessionEnd => {}
+        }
+    }
+
+    messages
+}
+
+fn trace_conversation_text(trace: &routa_core::trace::TraceRecord) -> Option<String> {
+    trace.conversation
+        .as_ref()
+        .and_then(|conversation| conversation.full_content.clone())
+        .or_else(|| {
+            trace.conversation
+                .as_ref()
+                .and_then(|conversation| conversation.content_preview.clone())
+        })
+}
+
+fn format_json_value(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        _ => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
+    }
+}
+
+fn now_iso() -> String {
+    DateTime::<Utc>::from(std::time::SystemTime::now()).to_rfc3339()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::application::sessions::consolidate_message_history;
+    use routa_core::trace::{Contributor, TraceEventType, TraceRecord};
     use serde_json::json;
+
+    use super::build_transcript_payload;
 
     #[test]
     fn consolidate_message_history_merges_chunks_for_same_session() {
@@ -248,5 +639,32 @@ mod tests {
         assert_eq!(merged[0]["update"]["content"]["text"].as_str(), Some("A"));
         assert_eq!(merged[1]["update"]["content"]["text"].as_str(), Some("B"));
         assert_eq!(merged[2]["update"]["content"]["text"].as_str(), Some("C"));
+    }
+
+    #[test]
+    fn transcript_payload_prefers_history_messages_when_richer() {
+        let history = vec![
+            json!({"sessionId":"s1","update":{"sessionUpdate":"user_message","content":{"text":"Build it"}}}),
+            json!({"sessionId":"s1","update":{"sessionUpdate":"agent_message","content":{"text":"Working on it"}}}),
+            json!({"sessionId":"s1","update":{"sessionUpdate":"tool_call_update","title":"Read File","status":"completed","toolCallId":"tool-1","rawInput":{"path":"src/lib.rs"}}}),
+        ];
+        let traces = vec![TraceRecord::new(
+            "s1",
+            TraceEventType::AgentMessage,
+            Contributor::new("opencode", None),
+        )];
+
+        let payload = build_transcript_payload("s1", history.clone(), traces);
+
+        assert_eq!(payload.session_id, "s1");
+        assert_eq!(payload.source, "history");
+        assert_eq!(payload.history, history);
+        assert_eq!(payload.history_message_count, 3);
+        assert_eq!(payload.trace_message_count, 0);
+        assert_eq!(payload.messages.len(), 3);
+        assert_eq!(payload.messages[0].role, "user");
+        assert_eq!(payload.messages[1].role, "assistant");
+        assert_eq!(payload.messages[2].role, "tool");
+        assert_eq!(payload.latest_event_kind.as_deref(), Some("tool_call_update"));
     }
 }
