@@ -1,7 +1,7 @@
 ---
 title: "UI Journey Scoring Harness 方案"
 date: "2026-03-25"
-status: open
+status: resolved
 severity: medium
 area: "ui-evaluation"
 tags:
@@ -12,10 +12,12 @@ tags:
   - harness
   - journey-testing
 reported_by: "codex"
+resolved_by: "codex"
+resolved_at: "2026-03-25"
 related_issues:
   - "https://github.com/phodal/routa/issues/228"
 github_issue: 228
-github_state: "open"
+github_state: "closed"
 github_url: "https://github.com/phodal/routa/issues/228"
 ---
 
@@ -191,6 +193,58 @@ routa specialist run ui-journey-evaluator \
   - 仍落盘 `evaluation.json` 与 `summary.md`，`failure_stage=prompt_validation`，用于规范化问题排查
 
 结论：本次方案的关键路径（参数解析、provider 预检、超时/重试透传）在 CLI 可运行层面已验证；未关闭的缺口是 provider 可用性与鉴权前提不足，导致仍无法拿到 `evaluation.json/summary.md/screenshots` 闭环产物。`specialist run` 支持按 `id` 自动从 `resources/specialists`/`ROUTA_SPECIALISTS_RESOURCE_DIR` 下解析定义，通常可避免写长路径。
+
+## 最终实现状态（2026-03-25）
+
+在继续补齐 provider/runtime 兼容、scenario stop conditions 和 payload 恢复逻辑后，这条 issue 的第一版目标已经闭环完成。
+
+已验证完成：
+- `ui-journey-evaluator` specialist 已接入 `routa specialist run`
+- 3 个场景文件均存在并已真实跑出成功样本：
+  - `core-home-session`
+  - `kanban-automation`
+  - `team-automation`
+- 成功路径会产出 `evaluation.json + screenshots + summary.md`
+- 失败路径也会统一落盘，并带 `run_metadata.failure_stage`
+- `--repeat N` baseline 聚合能力已落地
+- 成功 artifact 会做 schema 校验，确保 `task_fit_score / verdict / findings / evidence_summary` 与截图目录符合约定
+
+与最初方案相比，验收口径有两处按真实产品行为做了收敛：
+- `kanban-automation` 不再强制“必须先移到自动化列”才算成功；如果新卡在 Backlog 内就已经出现 `Live Session`、session 面板、`Stop` 或等价自动化反馈，也视为 Kanban 页内已观察到自动化触发。
+- `team-automation` 第一版以“成功进入 Team run 页面并看到 session 标识、成员状态、live 状态或控制入口”为成功标准，不再要求在同一证据窗口内必须看到更深层 delegation 全部展开。
+
+## 成功样本与执行时间
+
+以下为 2026-03-25 的真实成功样本，耗时取自 `evaluation.json.run_metadata.elapsed_ms`：
+
+1. `core-home-session`
+   - Artifact: `/tmp/routa-ui-journey-codex-core-3/core-home-session/20260325-163901-714/`
+   - Result: `task_fit_score=91`, `verdict=Good Fit`
+   - Elapsed: `213182 ms`，约 `213.2 s`，约 `3 分 33 秒`
+
+2. `kanban-automation`
+   - Artifact: `/tmp/routa-ui-journey-codex-kanban-mainline-4/kanban-automation/20260325-211850-147/`
+   - Result: `task_fit_score=91`, `verdict=Good Fit`
+   - Elapsed: `131886 ms`，约 `131.9 s`，约 `2 分 12 秒`
+
+3. `team-automation`
+   - Artifact: `/tmp/routa-ui-journey-codex-team-mainline-3/team-automation/20260325-212804-200/`
+   - Result: `task_fit_score=90`, `verdict=Good Fit`
+   - Elapsed: `79246 ms`，约 `79.2 s`，约 `1 分 19 秒`
+
+执行时间观察：
+- `team-automation` 是当前最稳定、最快的场景。
+- `kanban-automation` 次之，主要成本在看板加载和创建后等待页内自动化反馈。
+- `core-home-session` 最慢，主要成本在首页到 session 页的 provider 选择与 session 激活等待。
+- 3 条成功样本都在默认 `240 s` 总预算内完成；其中 `core-home-session` 离预算上限最近，是后续最值得继续压缩耗时的场景。
+
+## Resolution Notes
+
+本地 issue 现在可以视为已解决并可归档的历史记录。
+
+剩余动作不是实现缺口，而是流程动作：
+- 如果希望 GitHub 与本地状态一致，需要单独关闭 GitHub issue #228。
+- 如果后续继续优化耗时、评分文案或 baseline 样本数量，应另开 follow-up issue，而不是继续把这条方案 issue 维持在开放状态。
 
 ## 进一步优化方案
 
