@@ -12,6 +12,8 @@ pub async fn run(
     prompt: Option<&str>,
     workspace_id: &str,
     provider: Option<&str>,
+    provider_timeout_ms: Option<u64>,
+    provider_retries: u8,
 ) -> Result<(), String> {
     if looks_like_existing_specialist_file(specialist_target) {
         return agent::run(
@@ -22,6 +24,8 @@ pub async fn run(
             workspace_id,
             provider,
             None,
+            provider_timeout_ms,
+            provider_retries,
         )
         .await;
     }
@@ -34,6 +38,8 @@ pub async fn run(
         workspace_id,
         provider,
         None,
+        provider_timeout_ms,
+        provider_retries,
     )
     .await
 }
@@ -62,7 +68,9 @@ mod tests {
 
         let yml_path = PathBuf::from(temp_dir.path()).join("qa-checklist.yml");
         fs::write(&yml_path, "id: qa-checklist\n").unwrap();
-        assert!(looks_like_existing_specialist_file(&yml_path.to_string_lossy()));
+        assert!(looks_like_existing_specialist_file(
+            &yml_path.to_string_lossy()
+        ));
     }
 
     #[test]

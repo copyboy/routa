@@ -1,8 +1,13 @@
 //! `routa agent` — Agent management commands.
 
+use std::fs::OpenOptions;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use dialoguer::{theme::ColorfulTheme, Input, Select};
+use routa_core::acp::{get_preset_by_id_with_registry, AcpPreset, SessionLaunchOptions};
 use routa_core::orchestration::{OrchestratorConfig, RoutaOrchestrator, SpecialistConfig};
 use routa_core::rpc::RpcRouter;
 use routa_core::state::AppState;
@@ -90,6 +95,8 @@ pub async fn run(
     workspace_id: &str,
     provider: Option<&str>,
     specialist_dir: Option<&str>,
+    provider_timeout_ms: Option<u64>,
+    provider_retries: u8,
 ) -> Result<(), String> {
     let router = RpcRouter::new(state.clone());
 
@@ -124,6 +131,8 @@ pub async fn run(
             user_prompt,
             workspace_id,
             provider,
+            provider_timeout_ms,
+            provider_retries,
         )
         .await;
     };
@@ -140,6 +149,8 @@ pub async fn run(
         user_prompt,
         workspace_id,
         provider,
+        provider_timeout_ms,
+        provider_retries,
     )
     .await
 }
@@ -151,11 +162,14 @@ async fn run_selected_specialist(
     user_prompt: String,
     workspace_id: &str,
     provider: Option<&str>,
+    provider_timeout_ms: Option<u64>,
+    provider_retries: u8,
 ) -> Result<(), String> {
     let effective_provider = provider
         .map(str::to_string)
         .or_else(|| selected_specialist.default_provider.clone())
         .unwrap_or_else(|| "opencode".to_string());
+    verify_provider_readiness(&effective_provider).await?;
 
     let workspace_id = ensure_workspace(router, workspace_id).await?;
     let agent_role = selected_specialist.role.as_str();
@@ -187,7 +201,7 @@ async fn run_selected_specialist(
         })?
         .to_string();
 
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let _session_id = uuid::Uuid::new_v4().to_string();
     let cwd = std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| ".".to_string());
@@ -208,21 +222,58 @@ async fn run_selected_specialist(
     println!("📋 Prompt: {}", user_prompt);
     println!();
 
-    state
-        .acp_manager
-        .create_session(
-            session_id.clone(),
-            cwd.clone(),
-            workspace_id.clone(),
-            Some(effective_provider.clone()),
-            Some(agent_role.to_string()),
-            selected_specialist.default_model.clone(),
-            None,
-            None, // tool_mode
-            None, // mcp_profile
+    let mut launch_options = SessionLaunchOptions::default();
+    launch_options.initialize_timeout_ms = provider_timeout_ms;
+    launch_options.specialist_id = Some(selected_specialist.id.clone());
+
+    let max_attempts = 1usize + usize::from(provider_retries);
+    let mut final_session_id: Option<String> = None;
+    let mut last_session_error = String::new();
+
+    for attempt in 1..=max_attempts {
+        let attempt_session_id = uuid::Uuid::new_v4().to_string();
+        let create_result = state
+            .acp_manager
+            .create_session_with_options(
+                attempt_session_id.clone(),
+                cwd.clone(),
+                workspace_id.clone(),
+                Some(effective_provider.clone()),
+                Some(agent_role.to_string()),
+                selected_specialist.default_model.clone(),
+                None,
+                None, // tool_mode
+                None, // mcp_profile
+                launch_options.clone(),
+            )
+            .await;
+
+        match create_result {
+            Ok((_, _)) => {
+                final_session_id = Some(attempt_session_id);
+                break;
+            }
+            Err(err) => {
+                let reason = format!("Attempt {} failed: {}", attempt, err);
+                last_session_error = reason.clone();
+
+                if attempt < max_attempts {
+                    println!("⚠️  {}. Retrying in 1 second...", reason);
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+
+                return Err(format!("Failed to create ACP session: {}", err));
+            }
+        }
+    }
+
+    let session_id = final_session_id.ok_or_else(|| {
+        format!(
+            "Failed to create ACP session after {} attempts: {}",
+            max_attempts, last_session_error
         )
-        .await
-        .map_err(|e| format!("Failed to create ACP session: {}", e))?;
+    })?;
 
     let acp = Arc::new(state.acp_manager.clone());
     let orchestrator = RoutaOrchestrator::new(
@@ -299,6 +350,91 @@ fn load_specialist_from_file(path: &str) -> Result<SpecialistConfig, String> {
     let specialist = SpecialistDef::from_path(path)?;
     SpecialistConfig::from_specialist_def(specialist)
         .ok_or_else(|| format!("Failed to resolve specialist from file: {}", path))
+}
+
+async fn verify_provider_readiness(provider: &str) -> Result<(), String> {
+    let normalized_provider = provider.trim().to_lowercase();
+    if normalized_provider.is_empty() {
+        return Err("Provider is empty".to_string());
+    }
+
+    let preset = get_preset_by_id_with_registry(&normalized_provider)
+        .await
+        .map_err(|err| format!("Unsupported provider '{}': {}", normalized_provider, err))?;
+    let command = resolve_preset_command(&preset);
+
+    if !command_exists(&command) {
+        return Err(format!(
+            "Provider '{}' requires '{}' but command not found. Is it installed and in PATH?",
+            normalized_provider, command
+        ));
+    }
+
+    if normalized_provider == "opencode" {
+        verify_opencode_config_directory()?;
+    }
+
+    if normalized_provider == "claude" {
+        if std::env::var("ANTHROPIC_AUTH_TOKEN").is_err()
+            && std::env::var("ANTHROPIC_API_KEY").is_err()
+        {
+            println!(
+                "⚠️  Claude may require authentication (no ANTHROPIC_AUTH_TOKEN/ANTHROPIC_API_KEY)."
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn resolve_preset_command(preset: &AcpPreset) -> String {
+    if let Some(env_var) = &preset.env_bin_override {
+        if let Ok(custom_command) = std::env::var(env_var) {
+            let trimmed = custom_command.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+
+    preset.command.clone()
+}
+
+fn command_exists(command: &str) -> bool {
+    if command.trim().is_empty() {
+        return false;
+    }
+
+    if Path::new(command).is_file() || command.contains(std::path::MAIN_SEPARATOR) {
+        Path::new(command).is_file()
+    } else {
+        routa_core::shell_env::which(command).is_some()
+    }
+}
+
+fn verify_opencode_config_directory() -> Result<(), String> {
+    let config_base = std::env::var("XDG_CONFIG_HOME")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".config")))
+        .ok_or_else(|| "Failed to resolve config directory".to_string())?;
+    let config_dir: PathBuf = config_base.join("opencode");
+    std::fs::create_dir_all(&config_dir)
+        .map_err(|err| format!("Failed to ensure {}: {}", config_dir.display(), err))?;
+
+    let check_file = config_dir.join(format!(".routa-acp-{}-check", uuid::Uuid::new_v4()));
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&check_file)
+        .map_err(|err| format!("Failed to write {}: {}", check_file.display(), err))?;
+    file.write_all(b"routa cli provider health check")
+        .map_err(|err| format!("Failed to write {}: {}", check_file.display(), err))?;
+    std::fs::remove_file(check_file)
+        .map_err(|err| format!("Failed to clean {}: {}", config_dir.display(), err))?;
+    Ok(())
 }
 
 fn load_specialists(specialist_dir: Option<&str>) -> Vec<SpecialistConfig> {

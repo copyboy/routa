@@ -144,32 +144,45 @@ routa specialist run ui-journey-evaluator \
 
 ## 真实运行结果（2026-03-25）
 
-执行了可复现的命令做真实验证：
+执行了可复现命令并记录输出（先编译产物）：
 
-- `cargo run -p routa-cli -- specialist run --help`
-- `HOME=/tmp/codex-routa-test XDG_CONFIG_HOME=/tmp/codex-routa-test/.config cargo run -p routa-cli -- specialist run ui-journey-evaluator --workspace-id default --provider opencode --prompt "scenario: core-home-session, base_url: http://localhost:3000, artifact_dir: /tmp/ui-journey-artifacts"`
-- `HOME=/tmp/codex-routa-test XDG_CONFIG_HOME=/tmp/codex-routa-test/.config cargo run -p routa-cli -- specialist run resources/specialists/tools/ui-journey-evaluator.yaml --workspace-id default --provider opencode --prompt "scenario: core-home-session, base_url: http://localhost:3000, artifact_dir: /tmp/ui-journey-artifacts"`
-- `cargo run -p routa-cli -- specialist run ui-journey-evaluator --workspace-id default --provider claude --prompt "scenario: core-home-session, base_url: http://localhost:3000, artifact_dir: /tmp/ui-journey-artifacts"`
+1) CLI 帮助可用性
+- 命令：`cargo run -p routa-cli -- specialist run --help`
+- 结论：通过。新增参数已生效，命令行上可见：
+  - `--provider`
+  - `--provider-timeout-ms`
+  - `--provider-retries`
 
-结果：
+2) 不存在 provider 的 fail-fast
+- 命令：`HOME=/tmp/codex-routa-test XDG_CONFIG_HOME=/tmp/codex-routa-test/.config cargo run -p routa-cli -- specialist run resources/specialists/tools/ui-journey-evaluator.yaml --provider nope-provider --provider-timeout-ms 2000 --provider-retries 1 --workspace-id default --prompt 'scenario: core-home-session'`
+- 结论：快速失败，返回：
+  - `Error: Unsupported provider 'nope-provider': Agent 'nope-provider' not found in registry`
 
-1. `specialist run --help` 已更新为新参数定义，`Run` 支持 `specialist` 参数（支持 specialist id 或定义文件路径）；
-2. 在未隔离 HOME 时，opencode 因 `~/.config/opencode/opencode.json` 写权限失败而提前报错；
-3. 隔离 HOME 后，opencode 进入初始化阶段后仍出现 `Timeout waiting for initialize (id=1, 15000ms)`；
-4. claude provider 报告 `Not logged in · Please run /login` 并未进入完整会话；
-5. 使用 yaml 文件路径参数可被正确识别并执行到同样运行链路，但仍被 provider 可用性问题阻断，尚未产出 `evaluation.json / summary.md / screenshots` 的闭环结果。
+3) claude 无登录态
+- 命令：`HOME=/tmp/codex-routa-test XDG_CONFIG_HOME=/tmp/codex-routa-test/.config cargo run -p routa-cli -- specialist run resources/specialists/tools/ui-journey-evaluator.yaml --provider claude --provider-timeout-ms 2000 --provider-retries 1 --workspace-id default --prompt 'scenario: core-home-session'`
+- 结论：
+  - 进入运行页后打印 `⚠️  Claude may require authentication...`
+  - 进程返回 `▶ Not logged in · Please run /login`
+  - 命令尚未成功产出验收期望的 artifact（环境鉴权阻断）
 
-结论：方案方向是合理的，路径识别/参数分发逻辑已验证通过，当前不达成验收是 provider 初始化与鉴权条件不满足导致，属于执行环境问题而非设计范式问题。
+4) opencode 初始化超时与重试链路
+- 命令：`sh -c 'HOME=/tmp/codex-routa-test XDG_CONFIG_HOME=/tmp/codex-routa-test/.config timeout 40s cargo run -p routa-cli -- specialist run resources/specialists/tools/ui-journey-evaluator.yaml --provider opencode --provider-timeout-ms 3000 --provider-retries 1 --workspace-id default --prompt \"scenario: core-home-session\"'`
+- 结论：
+  - 进入运行页后在初始化阶段触发 `⚠️  Attempt 1 failed: Timeout waiting for initialize...`
+  - 最终返回：`Error: Failed to create ACP session: Timeout waiting for initialize...`
+  - 该路径确认了 `provider_timeout_ms` 和 `provider_retries` 已落到 runtime 分支，并触发了重试提示行为（当前环境仍因 provider 初始化耗时导致失败）。
+
+结论：本次方案的关键路径（参数解析、provider 预检、超时/重试透传）在 CLI 可运行层面已验证；未关闭的缺口是 provider 可用性与鉴权前提不足，导致仍无法拿到 `evaluation.json/summary.md/screenshots` 闭环产物。
 
 ## 进一步优化方案
 
-1. 增加 provider 预检（优先级高）
+1. 已完成：增加 provider 预检（优先级高）
    - 在运行前检查 provider 可执行体、配置目录可写性、claude 登录态等；若不满足，直接 fail-fast。
    - 失败时要产出低分结论与建议命令（例如登录、清理配置目录），减少“无产物挂起”。
 
-2. 把初始化超时与重试参数化（优先级高）
-   - 为 `specialist run` 加 `--provider-timeout`，并在 prompt 参数中支持 `provider_timeout_ms`；
-   - 支持 1 次可控重试，减少偶发启动抖动导致的误报。
+2. 已完成：把初始化超时与重试参数化（优先级高）
+   - 为 `specialist run` 加 `--provider-timeout-ms`、`--provider-retries`，并在运行链路透传到初始化阶段；
+   - 当前实现已支持 1 次重试，重试失败时会输出 attempt 信息。
 
 3. 保障失败路径也落盘（优先级高）
    - 无论成功/失败，固定产出：

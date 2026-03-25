@@ -470,6 +470,7 @@ fn build_team_launch_options(
         specialist_id: Some(specialist.id.clone()),
         specialist_system_prompt: Some(build_team_system_prompt(specialist, team_roster)),
         allowed_native_tools,
+        ..SessionLaunchOptions::default()
     }
 }
 
