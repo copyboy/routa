@@ -15,13 +15,12 @@ skipped=0
 
 echo "Checking markdown links..."
 
+# Only scan repository-managed markdown files so vendored docs, caches, and
+# local workspace mirrors do not make pre-push checks unpredictably slow.
 md_files=$(
-  find . -name "*.md" \
-    -not -path "./node_modules/*" \
-    -not -path "./.next/*" \
-    -not -path "./.git/*" \
-    -not -path "./out/*" \
-    2>/dev/null | awk 'NR <= 100 { print }'
+  git ls-files "*.md" 2>/dev/null |
+    grep -vE '(^|/)(node_modules|\.next|\.git|out|\.routa|\.pytest_cache)/' |
+    awk 'NR <= 100 { print }'
 )
 
 if [[ -z "$md_files" ]]; then
