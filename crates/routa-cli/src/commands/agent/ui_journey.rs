@@ -600,30 +600,79 @@ fn expected_verdict_for_score(task_fit_score: i64) -> &'static str {
 }
 
 fn extract_artifact_payload(output: &str) -> Result<Option<UiJourneyArtifactPayload>, String> {
-    let Some(start) = output.find(RESULT_PAYLOAD_START) else {
-        return Ok(None);
-    };
-    let content_start = start + RESULT_PAYLOAD_START.len();
-    let remaining = &output[content_start..];
-    let Some(relative_end) = remaining.find(RESULT_PAYLOAD_END) else {
-        return Err(
-            "Specialist output included a ui-journey artifact start marker without an end marker"
-                .to_string(),
-        );
-    };
-    let payload_text = remaining[..relative_end].trim();
-    if payload_text.is_empty() {
-        return Err("UI journey artifact payload marker was present but empty".to_string());
+    let mut cursor = 0usize;
+    let mut saw_marker = false;
+    let mut last_error: Option<String> = None;
+    let mut last_valid_payload: Option<UiJourneyArtifactPayload> = None;
+
+    while let Some(relative_start) = output[cursor..].find(RESULT_PAYLOAD_START) {
+        saw_marker = true;
+        let marker_start = cursor + relative_start;
+        let content_start = marker_start + RESULT_PAYLOAD_START.len();
+        let remaining = &output[content_start..];
+        let Some(relative_end) = remaining.find(RESULT_PAYLOAD_END) else {
+            last_error = Some(
+                "Specialist output included a ui-journey artifact start marker without an end marker"
+                    .to_string(),
+            );
+            break;
+        };
+
+        let payload_text = remaining[..relative_end].trim();
+        if payload_text.is_empty() {
+            last_error = Some("UI journey artifact payload marker was present but empty".to_string());
+        } else {
+            match parse_artifact_payload_candidate(payload_text) {
+                Ok(payload) => last_valid_payload = Some(payload),
+                Err(err) => {
+                    last_error = Some(err);
+                }
+            }
+        }
+
+        cursor = content_start + relative_end + RESULT_PAYLOAD_END.len();
     }
 
-    serde_json::from_str::<UiJourneyArtifactPayload>(payload_text)
-        .map(Some)
-        .map_err(|err| {
-            format!(
-                "Failed to parse ui-journey artifact payload from specialist output: {}",
-                err
-            )
+    if let Some(payload) = last_valid_payload {
+        return Ok(Some(payload));
+    }
+
+    if saw_marker {
+        Err(last_error.unwrap_or_else(|| {
+            "UI journey artifact markers were present, but no valid payload could be parsed"
+                .to_string()
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+fn parse_artifact_payload_candidate(payload_text: &str) -> Result<UiJourneyArtifactPayload, String> {
+    let normalized_lines = payload_text
+        .lines()
+        .map(|line| {
+            line.trim_start_matches(|char: char| char.is_whitespace() || char == '▶')
         })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let stripped_controls = normalized_lines
+        .chars()
+        .filter(|char| matches!(char, '\n' | '\r' | '\t') || !char.is_control())
+        .collect::<String>();
+    let candidate = extract_json_object_slice(&stripped_controls).unwrap_or(stripped_controls.as_str());
+
+    serde_json::from_str::<UiJourneyArtifactPayload>(candidate).map_err(|err| {
+        format!(
+            "Failed to parse ui-journey artifact payload from specialist output: {}",
+            err
+        )
+    })
+}
+
+fn extract_json_object_slice(value: &str) -> Option<&str> {
+    let first = value.find('{')?;
+    let last = value.rfind('}')?;
+    (first <= last).then_some(&value[first..=last])
 }
 
 pub(crate) fn load_aggregate_run(
@@ -1362,6 +1411,127 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("Failed to parse ui-journey artifact payload"));
+    }
+
+    #[test]
+    fn recovers_last_valid_payload_when_output_contains_malformed_duplicate() {
+        let base_dir = tempdir().unwrap();
+        let artifact_dir = base_dir
+            .path()
+            .join("artifacts")
+            .to_string_lossy()
+            .to_string();
+        let context = UiJourneyRunContext {
+            specialist_id: "ui-journey-evaluator".to_string(),
+            provider: "codex".to_string(),
+            run_id: "2026-03-25-009".to_string(),
+            prompt: UiJourneyPromptParams {
+                scenario_id: Some("team-automation".to_string()),
+                base_url: DEFAULT_BASE_URL.to_string(),
+                artifact_dir: artifact_dir.clone(),
+                run_id: Some("2026-03-25-009".to_string()),
+            },
+        };
+
+        let specialist_output = concat!(
+            "<ui-journey-artifact>\n",
+            "{\"evaluation\":{\"scenario_id\":\"team-automation\",\n",
+            "</ui-journey-artifact>\n",
+            "<ui-journey-artifact>\n",
+            "{\n",
+            "  \"evaluation\": {\n",
+            "    \"scenario_id\": \"team-automation\",\n",
+            "    \"run_id\": \"2026-03-25-009\",\n",
+            "    \"task_fit_score\": 87,\n",
+            "    \"verdict\": \"Good Fit\",\n",
+            "    \"findings\": [\n",
+            "      {\n",
+            "        \"type\": \"observation\",\n",
+            "        \"description\": \"Team run page showed visible member status.\",\n",
+            "        \"severity\": \"low\"\n",
+            "      }\n",
+            "    ],\n",
+            "    \"evidence_summary\": \"Team run launched successfully.\"\n",
+            "  },\n",
+            "  \"summary_markdown\": \"# UI Journey Evaluation\\n\\n- Result: Good Fit\\n\"\n",
+            "}\n",
+            "</ui-journey-artifact>\n",
+        );
+
+        let recovered = recover_success_artifacts_from_output(&context, specialist_output).unwrap();
+        assert!(recovered);
+
+        let evaluation_path = std::path::Path::new(&artifact_dir)
+            .join("team-automation")
+            .join("2026-03-25-009")
+            .join("evaluation.json");
+        let evaluation: Value =
+            serde_json::from_str(&fs::read_to_string(evaluation_path).unwrap()).unwrap();
+        assert_eq!(
+            evaluation.get("run_id").and_then(Value::as_str),
+            Some("2026-03-25-009")
+        );
+        assert_eq!(
+            evaluation.get("task_fit_score").and_then(Value::as_i64),
+            Some(87)
+        );
+    }
+
+    #[test]
+    fn recovers_payload_with_terminal_prefixes() {
+        let base_dir = tempdir().unwrap();
+        let artifact_dir = base_dir
+            .path()
+            .join("artifacts")
+            .to_string_lossy()
+            .to_string();
+        let context = UiJourneyRunContext {
+            specialist_id: "ui-journey-evaluator".to_string(),
+            provider: "codex".to_string(),
+            run_id: "2026-03-25-010".to_string(),
+            prompt: UiJourneyPromptParams {
+                scenario_id: Some("team-automation".to_string()),
+                base_url: DEFAULT_BASE_URL.to_string(),
+                artifact_dir: artifact_dir.clone(),
+                run_id: Some("2026-03-25-010".to_string()),
+            },
+        };
+
+        let specialist_output = concat!(
+            "▶ <ui-journey-artifact>\n",
+            "▶ {\n",
+            "▶   \"evaluation\": {\n",
+            "▶     \"scenario_id\": \"team-automation\",\n",
+            "▶     \"run_id\": \"2026-03-25-010\",\n",
+            "▶     \"task_fit_score\": 90,\n",
+            "▶     \"verdict\": \"Good Fit\",\n",
+            "▶     \"findings\": [\n",
+            "▶       {\n",
+            "▶         \"type\": \"observation\",\n",
+            "▶         \"description\": \"Team run showed visible member status.\",\n",
+            "▶         \"severity\": \"low\"\n",
+            "▶       }\n",
+            "▶     ],\n",
+            "▶     \"evidence_summary\": \"Team page advanced to a run page.\"\n",
+            "▶   },\n",
+            "▶   \"summary_markdown\": \"# UI Journey Evaluation\\n\\n- Result: Good Fit\\n\"\n",
+            "▶ }\n",
+            "▶ </ui-journey-artifact>\n",
+        );
+
+        let recovered = recover_success_artifacts_from_output(&context, specialist_output).unwrap();
+        assert!(recovered);
+
+        let evaluation_path = std::path::Path::new(&artifact_dir)
+            .join("team-automation")
+            .join("2026-03-25-010")
+            .join("evaluation.json");
+        let evaluation: Value =
+            serde_json::from_str(&fs::read_to_string(evaluation_path).unwrap()).unwrap();
+        assert_eq!(
+            evaluation.get("run_id").and_then(Value::as_str),
+            Some("2026-03-25-010")
+        );
     }
 
     #[test]

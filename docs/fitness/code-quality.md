@@ -25,6 +25,39 @@ metrics:
     tier: fast
     description: "本次变更的代码文件必须满足行数预算；默认 ≤1000 行，Rust(.rs) ≤800 行，历史超标文件按 HEAD 基线冻结"
 
+  - name: scripts_root_file_count_guard
+    command: |
+      base_ref="${ROUTA_FITNESS_CHANGED_BASE:-HEAD}"
+      target_limit=20
+      baseline_count=$(git ls-tree -r --name-only "$base_ref" -- scripts 2>/dev/null | awk -F/ 'NF==2' | wc -l | tr -d ' ')
+      current_count=$(find scripts -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+      baseline_count="${baseline_count:-0}"
+      current_count="${current_count:-0}"
+      effective_limit="$baseline_count"
+      if [ "$effective_limit" -lt "$target_limit" ]; then
+        effective_limit="$target_limit"
+      fi
+      echo "scripts_root_file_count: $current_count"
+      echo "scripts_root_file_limit: $effective_limit"
+      if [ "$current_count" -le "$effective_limit" ]; then
+        echo "scripts_root_file_count_ok"
+      else
+        echo "scripts_root_file_count_blocked"
+        exit 1
+      fi
+    pattern: "scripts_root_file_count_ok"
+    hard_gate: false
+    tier: fast
+    execution_scope: ci
+    gate: advisory
+    kind: atomic
+    analysis: static
+    evidence_type: command
+    scope: [tools]
+    run_when_changed:
+      - scripts/**
+    description: "scripts/ 根目录文件数采用冻结预算；当前超标目录不得继续膨胀，推动按职责归类而不是继续平铺"
+
   - name: graph_blast_radius_probe
     command: graph:impact
     tier: normal
@@ -254,6 +287,7 @@ metrics:
 |--------|------|-----------|------|
 | 文件行数 | 新文件 ≤1000 行，历史超标文件按 HEAD 基线冻结 | ❌ | `python -m entrix.file_budgets` |
 | 历史热点守护 | 已登记热点只允许缩小不允许继续膨胀 | ✅ | `python -m entrix.file_budgets --overrides-only` |
+| scripts 根目录文件数 | 超标目录按基线冻结；当前目标上限 20，已超标时不得继续长大 | ❌ | `git ls-tree` + `find` |
 | 函数行数 | ≤100 行 | ❌ | grep + 人工 |
 | 重复代码 | 变更文件不新增大块 clone | ❌ | jscpd |
 | 结构坏味道 | 变更文件中结构型包装重复 = 0 | ❌ | ast-grep |
@@ -272,7 +306,7 @@ metrics:
 ### 1. 代码膨胀
 AI 倾向于生成冗长代码，缺乏抽象能力。
 
-**约束**: 新文件 ≤1000 行；历史超标热点必须进入预算冻结，只能缩小不能继续长大；函数 ≤100 行
+**约束**: 新文件 ≤1000 行；历史超标热点必须进入预算冻结，只能缩小不能继续长大；`scripts/` 根目录文件数采用冻结预算，目标收敛到 ≤20；函数 ≤100 行
 
 ### 2. 重复代码
 AI 经常"复制粘贴"式生成，忽略已有实现。

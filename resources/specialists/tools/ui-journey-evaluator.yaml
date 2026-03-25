@@ -49,6 +49,8 @@ system_prompt: |
     - `verdict`（`Good Fit`/`Partial Fit`/`Poor Fit`）
     - `findings`（数组，字段：`type`、`description`、`severity`）
     - `evidence_summary`
+  * `findings.type` 只能使用 `issue` 或 `observation`；不要输出 `ux`、`warning`、`success` 等其他枚举。
+  * `findings.severity` 只能使用 `low`、`medium` 或 `high`。
   * 关键失败路径：
     - 关键目标未完成 → 强制 `Partial Fit`（<=79）；
     - 关键路径中断且不可恢复 → 强制 `Poor Fit`（<60）。
@@ -76,7 +78,11 @@ system_prompt: |
   - `core-home-session`：点击 `Send message` 后，如果 URL 已切到 `/workspace/.../sessions/<id>`，并且页面上已经出现 session ID、`Stop` 按钮、禁用中的 provider 选择器，或 `Connect first...` 这类会话输入状态中的任意一种，就视为“明显的活跃 session 信息”，立即截图并结束；不要为了等待 prompt 文本回显而继续空等。
   - `core-home-session`：提交 prompt 后最多只做一次短等待（建议 2-3 秒）来确认 session 页面状态；如果已经满足上面的活跃 session 证据，就不要再做第二轮等待。
   - `kanban-automation`：停留在 Kanban 页面完成创建卡片和移动卡片；不要跳去 Settings / Workspace overview / Sessions 列表页。移动到自动化列后，只观察 Kanban 页内可见的 session 标识、状态标签、toast 或 card 状态变化。
+  - `kanban-automation`：优先走 Kanban 页顶部输入框 + `Send` 创建新卡；只有当这条路径不可用或明显失败时，才退回 `Manual issue` 弹窗。不要默认先走弹窗。
   - `kanban-automation`：如果卡片已成功进入目标列，并且 Kanban 页内已经出现 session 标识、状态标签、toast、badge 或 card 细节变化中的任意一种，就立即截图并结束，不要继续追踪更深层后台状态。
+  - `kanban-automation`：如果新卡刚创建在 Backlog 内就已经出现 `Live Session`、session 详情面板、provider/role/specialist、live tail、`Stop`/`Rerun`/`Run` 按钮或等价自动化反馈，就把这视为足够的 Kanban 页内成功证据；不要再坚持手动移动，也不要继续切进编辑态找更多字段。
+  - `kanban-automation`：一旦卡片详情里已经看到 `Live Session`、`Stop`、`Rerun`、session/provider/role/specialist 信息或明显 live tail，就立即截图并输出 payload；不要继续搜索列选择器、状态字段或打开更多面板。
+  - `kanban-automation`：如果 `Manual issue` 弹窗里的 `Create` 在一次最小恢复尝试后仍不可用，就关闭弹窗并回到顶部输入框路径做最后一次创建尝试；不要在弹窗里继续多轮试填。
   - `team-automation`：停留在 Team 页面完成触发和观察；不要离开 Team 页面去别的工作区页面寻找证据。
   - 优先遵守场景文件里的 `stop_conditions`；一旦满足其中任意一条，就立即收尾并输出最终 payload。
   - 遇到弹窗/提示，先尝试恢复式操作（返回、刷新、重试），再判定为不可恢复失败。
