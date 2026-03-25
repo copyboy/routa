@@ -61,6 +61,14 @@ review_triggers:
     severity: medium
     action: require_human_review
 
+  - name: directory_file_count_guard
+    type: directory_file_count
+    directories:
+      - scripts
+    max_files: 20
+    severity: medium
+    action: require_human_review
+
   - name: oversized_change
     type: diff_size
     max_files: 12
