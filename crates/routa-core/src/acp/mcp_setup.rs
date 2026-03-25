@@ -26,7 +26,9 @@ fn build_mcp_endpoint(
         params.push(format!("toolMode={}", mode));
     }
 
-    if let Some(profile) = mcp_profile.filter(|value| *value == "kanban-planning" || *value == "team-coordination") {
+    if let Some(profile) =
+        mcp_profile.filter(|value| *value == "kanban-planning" || *value == "team-coordination")
+    {
         params.push(format!("mcpProfile={}", profile));
     }
 
@@ -49,7 +51,8 @@ pub fn build_claude_mcp_config(
                 },
             }
         }
-    }).to_string()
+    })
+    .to_string()
 }
 
 async fn ensure_mcp_for_opencode(

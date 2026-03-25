@@ -525,7 +525,9 @@ impl RoutaOrchestrator {
         // Kick off the child prompt in the background. Waiting for the entire
         // child turn here blocks the parent MCP tool call long enough for
         // OpenCode to abort delegation before the child can report progress.
-        self.acp_manager.mark_first_prompt_sent(&child_session_id).await;
+        self.acp_manager
+            .mark_first_prompt_sent(&child_session_id)
+            .await;
         let child_prompt_manager = Arc::clone(&self.acp_manager);
         let child_prompt_session_id = child_session_id.clone();
         let child_prompt_agent_id = agent_id.clone();

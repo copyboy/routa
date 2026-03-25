@@ -143,10 +143,7 @@ fn resolve_static_target(path: &str) -> (String, &'static str) {
                 &[][..]
             };
             (
-                placeholder_with_suffix(
-                    "workspace/__placeholder__/team/__placeholder__",
-                    suffix,
-                ),
+                placeholder_with_suffix("workspace/__placeholder__/team/__placeholder__", suffix),
                 content,
             )
         } else if segments.len() >= 2 && segments[1] == "kanban" {
@@ -414,7 +411,10 @@ mod tests {
     #[test]
     fn resolves_workspace_team_run_placeholder() {
         let (target, content_type) = resolve_static_target("/workspace/default/team/session-123");
-        assert_eq!(target, "workspace/__placeholder__/team/__placeholder__.html");
+        assert_eq!(
+            target,
+            "workspace/__placeholder__/team/__placeholder__.html"
+        );
         assert_eq!(content_type, "text/html; charset=utf-8");
     }
 
@@ -431,7 +431,8 @@ mod tests {
 
     #[test]
     fn resolves_workspace_team_rsc_placeholder() {
-        let (target, content_type) = resolve_static_target("/workspace/default/team/session-123.txt");
+        let (target, content_type) =
+            resolve_static_target("/workspace/default/team/session-123.txt");
         assert_eq!(target, "workspace/__placeholder__/team/__placeholder__.txt");
         assert_eq!(content_type, "text/x-component; charset=utf-8");
     }

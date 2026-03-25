@@ -40,7 +40,11 @@ impl TerminalManager {
         let terminal_id = {
             let mut counter = self.counter.lock().await;
             *counter += 1;
-            format!("term-{}-{}", *counter, chrono::Utc::now().timestamp_millis())
+            format!(
+                "term-{}-{}",
+                *counter,
+                chrono::Utc::now().timestamp_millis()
+            )
         };
 
         let command = params
@@ -337,10 +341,7 @@ mod tests {
         let mut saw_output = false;
         for _ in 0..20 {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            let output = manager
-                .get_output(&terminal_id)
-                .await
-                .expect("get output");
+            let output = manager.get_output(&terminal_id).await.expect("get output");
             if output["output"]
                 .as_str()
                 .expect("output string")

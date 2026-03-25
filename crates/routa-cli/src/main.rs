@@ -294,6 +294,12 @@ enum SpecialistAction {
         /// ACP provider override. If omitted, uses specialist execution.provider.
         #[arg(long)]
         provider: Option<String>,
+        /// Timeout in milliseconds for provider initialize call.
+        #[arg(long)]
+        provider_timeout_ms: Option<u64>,
+        /// Extra retries for provider create/session init failure.
+        #[arg(long, default_value_t = 0)]
+        provider_retries: u8,
     },
 }
 
@@ -833,6 +839,8 @@ async fn main() {
                             &workspace_id,
                             provider.as_deref(),
                             specialist_dir.as_deref(),
+                            None,
+                            0,
                         )
                         .await
                     }
@@ -849,6 +857,8 @@ async fn main() {
                         prompt,
                         workspace_id,
                         provider,
+                        provider_timeout_ms,
+                        provider_retries,
                     } => {
                         commands::specialist::run(
                             &state,
@@ -856,6 +866,8 @@ async fn main() {
                             prompt.as_deref(),
                             &workspace_id,
                             provider.as_deref(),
+                            provider_timeout_ms,
+                            provider_retries,
                         )
                         .await
                     }

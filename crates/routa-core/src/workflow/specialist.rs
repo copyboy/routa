@@ -338,7 +338,9 @@ impl SpecialistLoader {
         }
 
         if let Ok(resource_dir) = std::env::var("ROUTA_SPECIALISTS_RESOURCE_DIR") {
-            search_paths.extend(Self::collect_resource_search_paths(&PathBuf::from(resource_dir)));
+            search_paths.extend(Self::collect_resource_search_paths(&PathBuf::from(
+                resource_dir,
+            )));
         }
 
         search_paths.push(PathBuf::from("specialists"));

@@ -15,8 +15,8 @@ use tokio_stream::StreamExt as _;
 use crate::acp;
 use crate::error::ServerError;
 use crate::state::AppState;
-use routa_core::acp::SessionLaunchOptions;
 use routa_core::acp::terminal_manager::TerminalManager;
+use routa_core::acp::SessionLaunchOptions;
 use routa_core::models::agent::{Agent, AgentRole};
 use routa_core::orchestration::{OrchestratorConfig, RoutaOrchestrator, SpecialistConfig};
 use routa_core::storage::{LocalSessionProvider, SessionRecord};
@@ -403,6 +403,7 @@ async fn acp_rpc(
                     .as_ref()
                     .and_then(build_specialist_system_prompt),
                 allowed_native_tools: derive_allowed_native_tools(specialist_id.as_deref()),
+                ..SessionLaunchOptions::default()
             };
 
             // Spawn agent process, initialize protocol, create agent session
@@ -631,6 +632,7 @@ async fn acp_rpc(
                         .as_ref()
                         .and_then(build_specialist_system_prompt),
                     allowed_native_tools: derive_allowed_native_tools(specialist_id.as_deref()),
+                    ..SessionLaunchOptions::default()
                 };
 
                 // Create the session
@@ -663,7 +665,9 @@ async fn acp_rpc(
                             .create(
                                 &session_id,
                                 &cwd,
-                                persisted_session.as_ref().and_then(|session| session.branch.as_deref()),
+                                persisted_session
+                                    .as_ref()
+                                    .and_then(|session| session.branch.as_deref()),
                                 &workspace_id,
                                 provider.as_deref(),
                                 role.as_deref(),
@@ -681,7 +685,9 @@ async fn acp_rpc(
                         persist_session_to_jsonl(
                             &session_id,
                             &cwd,
-                            persisted_session.as_ref().and_then(|session| session.branch.as_deref()),
+                            persisted_session
+                                .as_ref()
+                                .and_then(|session| session.branch.as_deref()),
                             &workspace_id,
                             provider.as_deref(),
                             role.as_deref(),
@@ -1035,7 +1041,13 @@ async fn acp_rpc(
 
             let session_id = session_id.unwrap_or_default();
             let session_exists = state.acp_manager.get_session(session_id).await.is_some()
-                || state.acp_session_store.get(session_id).await.ok().flatten().is_some();
+                || state
+                    .acp_session_store
+                    .get(session_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some();
             if !session_exists {
                 return Ok(AcpResponse::Json(Json(serde_json::json!({
                     "jsonrpc": "2.0",
@@ -1088,7 +1100,9 @@ async fn acp_rpc(
                     }
                 }))));
             }
-            if let Err(error) = TerminalManager::global().write(terminal_id, data.unwrap_or("")).await
+            if let Err(error) = TerminalManager::global()
+                .write(terminal_id, data.unwrap_or(""))
+                .await
             {
                 return Ok(AcpResponse::Json(Json(serde_json::json!({
                     "jsonrpc": "2.0",
@@ -1137,9 +1151,18 @@ async fn acp_rpc(
                     }
                 }))));
             }
-            let cols = params.get("cols").and_then(|v| v.as_u64()).map(|v| v as u16);
-            let rows = params.get("rows").and_then(|v| v.as_u64()).map(|v| v as u16);
-            if let Err(error) = TerminalManager::global().resize(terminal_id, cols, rows).await {
+            let cols = params
+                .get("cols")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u16);
+            let rows = params
+                .get("rows")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u16);
+            if let Err(error) = TerminalManager::global()
+                .resize(terminal_id, cols, rows)
+                .await
+            {
                 return Ok(AcpResponse::Json(Json(serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,

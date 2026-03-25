@@ -83,6 +83,7 @@ pub struct SessionLaunchOptions {
     pub specialist_id: Option<String>,
     pub specialist_system_prompt: Option<String>,
     pub allowed_native_tools: Option<Vec<String>>,
+    pub initialize_timeout_ms: Option<u64>,
 }
 
 // ─── Managed Process ────────────────────────────────────────────────────
@@ -265,7 +266,13 @@ impl AcpManager {
             }
         });
 
-        if let Some(channel) = self.notification_channels.read().await.get(session_id).cloned() {
+        if let Some(channel) = self
+            .notification_channels
+            .read()
+            .await
+            .get(session_id)
+            .cloned()
+        {
             let _ = channel.send(message.clone());
         } else {
             let params = message
@@ -412,7 +419,9 @@ impl AcpManager {
             .await?;
 
             // Initialize the protocol
-            process.initialize().await?;
+            process
+                .initialize_with_timeout(options.initialize_timeout_ms)
+                .await?;
 
             // Create the agent session
             let agent_session_id = process.new_session(&cwd).await?;
@@ -961,7 +970,10 @@ mod tests {
             )
             .await;
 
-        let history = manager.get_session_history("parent").await.unwrap_or_default();
+        let history = manager
+            .get_session_history("parent")
+            .await
+            .unwrap_or_default();
         assert!(history.is_empty());
     }
 
@@ -1041,10 +1053,7 @@ mod tests {
             }),
         );
 
-        assert_eq!(
-            rewritten["sessionId"].as_str(),
-            Some("child-session")
-        );
+        assert_eq!(rewritten["sessionId"].as_str(), Some("child-session"));
     }
 
     #[test]

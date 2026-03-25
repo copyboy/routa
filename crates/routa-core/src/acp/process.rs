@@ -217,13 +217,8 @@ impl AcpProcess {
                         method,
                         id_val
                     );
-                    let response = handle_agent_request(
-                        method,
-                        &msg["params"],
-                        &our_sid,
-                        &ntx,
-                    )
-                    .await;
+                    let response =
+                        handle_agent_request(method, &msg["params"], &our_sid, &ntx).await;
                     let reply = serde_json::json!({
                         "jsonrpc": "2.0",
                         "id": id_val,
@@ -610,6 +605,14 @@ impl AcpProcess {
 
     /// Initialize the ACP protocol.
     pub async fn initialize(&self) -> Result<serde_json::Value, String> {
+        self.initialize_with_timeout(None).await
+    }
+
+    /// Initialize the ACP protocol with an optional timeout override.
+    pub async fn initialize_with_timeout(
+        &self,
+        timeout_ms: Option<u64>,
+    ) -> Result<serde_json::Value, String> {
         let result = self
             .send_request(
                 "initialize",
@@ -620,7 +623,7 @@ impl AcpProcess {
                         "version": "0.1.0"
                     }
                 }),
-                None,
+                timeout_ms,
             )
             .await?;
         tracing::info!(

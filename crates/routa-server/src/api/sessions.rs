@@ -481,7 +481,10 @@ fn history_to_transcript_messages(history: &[Value]) -> Vec<TranscriptMessage> {
                 let raw_input = update.get("rawInput").cloned();
                 let raw_output = update.get("rawOutput").cloned();
                 let content = if let Some(raw_input) = raw_input.as_ref() {
-                    format!("Input:\n{}", serde_json::to_string_pretty(raw_input).unwrap_or_default())
+                    format!(
+                        "Input:\n{}",
+                        serde_json::to_string_pretty(raw_input).unwrap_or_default()
+                    )
                 } else {
                     tool_name.to_string()
                 };
@@ -658,11 +661,13 @@ fn traces_to_transcript_messages(
 }
 
 fn trace_conversation_text(trace: &routa_core::trace::TraceRecord) -> Option<String> {
-    trace.conversation
+    trace
+        .conversation
         .as_ref()
         .and_then(|conversation| conversation.full_content.clone())
         .or_else(|| {
-            trace.conversation
+            trace
+                .conversation
                 .as_ref()
                 .and_then(|conversation| conversation.content_preview.clone())
         })
@@ -749,7 +754,10 @@ mod tests {
         assert_eq!(payload.messages[0].role, "user");
         assert_eq!(payload.messages[1].role, "assistant");
         assert_eq!(payload.messages[2].role, "tool");
-        assert_eq!(payload.latest_event_kind.as_deref(), Some("tool_call_update"));
+        assert_eq!(
+            payload.latest_event_kind.as_deref(),
+            Some("tool_call_update")
+        );
     }
 
     #[test]

@@ -5,10 +5,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use routa_core::models::task::{Task, TaskLaneSessionStatus, TaskStatus};
 use routa_core::events::{AgentEvent, AgentEventType, EventBus};
 use routa_core::models::kanban::KanbanColumn;
 use routa_core::models::kanban_config::{KanbanBoardConfig, KanbanColumnConfig, KanbanConfig};
+use routa_core::models::task::{Task, TaskLaneSessionStatus, TaskStatus};
 use routa_core::models::workspace::Workspace;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -195,9 +195,7 @@ fn normalize_dev_session_supervision(
 ) -> KanbanDevSessionSupervision {
     let defaults = default_dev_session_supervision();
     let mode = match value.mode.as_deref() {
-        Some("disabled" | "watchdog_retry" | "ralph_loop") => {
-            value.mode.unwrap_or(defaults.mode)
-        }
+        Some("disabled" | "watchdog_retry" | "ralph_loop") => value.mode.unwrap_or(defaults.mode),
         _ => defaults.mode,
     };
     let inactivity_timeout_minutes = value
@@ -296,7 +294,10 @@ fn task_has_running_lane_session(task: &Task) -> bool {
     }
 
     task.trigger_session_id.is_some()
-        && matches!(task.status, TaskStatus::InProgress | TaskStatus::ReviewRequired)
+        && matches!(
+            task.status,
+            TaskStatus::InProgress | TaskStatus::ReviewRequired
+        )
 }
 
 async fn list_boards(
