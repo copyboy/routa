@@ -166,7 +166,7 @@ impl TuiRenderer {
             "process_output" => {
                 let data = inner.get("data").and_then(|v| v.as_str()).unwrap_or("");
                 if !data.is_empty() {
-                    eprint!("{}", style(data).color256(240));
+                    self.render_process_output(data);
                 }
             }
             "turn_complete" => {
@@ -246,6 +246,26 @@ impl TuiRenderer {
             }
             self.at_line_start = true;
         }
+    }
+
+    fn render_process_output(&mut self, data: &str) {
+        let show_all = std::env::var_os("ROUTA_CLI_SHOW_PROCESS_OUTPUT").is_some();
+        let lines: Vec<&str> = data
+            .lines()
+            .map(str::trim_end)
+            .filter(|line| !line.trim().is_empty() && (show_all || !looks_like_provider_log(line)))
+            .collect();
+
+        if lines.is_empty() {
+            return;
+        }
+
+        self.finish_active_tool();
+        self.ensure_newline();
+        for line in lines {
+            eprintln!("{}", style(line).color256(240));
+        }
+        self.at_line_start = true;
     }
 }
 
@@ -356,4 +376,34 @@ fn extract_tool_content_text(inner: &serde_json::Value) -> Option<String> {
                 Some(lines.join("\n"))
             }
         })
+}
+
+fn looks_like_provider_log(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    if trimmed.starts_with("[AcpProcess:")
+        || trimmed.starts_with("[ClaudeCode:")
+        || trimmed.starts_with("[TerminalManager]")
+    {
+        return true;
+    }
+
+    if trimmed.starts_with("202")
+        && (trimmed.contains(" INFO ")
+            || trimmed.contains(" DEBUG ")
+            || trimmed.contains(" WARN ")
+            || trimmed.contains(" ERROR ")
+            || trimmed.contains("TRACE "))
+    {
+        return true;
+    }
+
+    trimmed.contains("codex_acp::")
+        || trimmed.contains("codex_otel::")
+        || trimmed.contains("codex_rmcp_client::")
+        || trimmed.contains("session_loop{")
+        || trimmed.contains("MCP server stderr")
 }
