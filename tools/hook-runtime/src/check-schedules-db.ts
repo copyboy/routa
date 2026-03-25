@@ -94,9 +94,10 @@ function resolveEnvPath(envFile?: string): string {
 export function createDefaultQueries(databaseUrl: string): ScheduleDbQueryRunner {
   const sql = neon(databaseUrl);
   return {
-    getSchedules: () =>
-      sql`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name='schedules'`,
-    getIndexes: () => sql`SELECT indexname FROM pg_indexes WHERE tablename='schedules'`,
+    getSchedules: async () =>
+      (await sql`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name='schedules'`) as TableRow[],
+    getIndexes: async () =>
+      (await sql`SELECT indexname FROM pg_indexes WHERE tablename='schedules'`) as IndexRow[],
     createWorkspaceIndex: () =>
       sql`CREATE INDEX IF NOT EXISTS "schedules_workspace_idx" ON "schedules" ("workspace_id")`,
     createEnabledNextRunIndex: () =>
