@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import PptxGenJS from "pptxgenjs";
 
@@ -11,7 +12,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const toolRoot = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(toolRoot, "..", "..");
 const releaseNotePath = path.join(repoRoot, "docs", "releases", "v0.2.7-release-notes.md");
+const architectureSvgPath = path.join(repoRoot, "docs", "architecture.svg");
 const outputDir = path.join(toolRoot, "output");
+const architecturePngPath = path.join(outputDir, "architecture.png");
 const outputFile = path.join(outputDir, "routa-v0.2.7-release-notes.pptx");
 const screenshotManifestPath = path.join(outputDir, "screenshots", "manifest.json");
 
@@ -169,6 +172,20 @@ function readScreenshotManifest() {
   }
 }
 
+function ensureArchitecturePng() {
+  const result = spawnSync("rsvg-convert", ["-w", "2200", "-h", "1497", "-o", architecturePngPath, architectureSvgPath], {
+    encoding: "utf8",
+    cwd: toolRoot,
+  });
+
+  if (result.status !== 0) {
+    const detail = result.stderr?.trim() || result.stdout?.trim() || `exit ${result.status}`;
+    throw new Error(`Failed to convert architecture.svg to PNG: ${detail}`);
+  }
+
+  return architecturePngPath;
+}
+
 function makePpt() {
   const pptx = new PptxGenJS();
   pptx.layout = "LAYOUT_WIDE";
@@ -231,6 +248,29 @@ function addSectionTitle(slide, eyebrow, title, body, theme) {
       margin: 0,
     });
   }
+}
+
+function addFooter(slide, pageLabel) {
+  const light = tokens.desktop.light;
+  slide.addText("Routa", {
+    x: 0.72,
+    y: 7.05,
+    w: 0.9,
+    h: 0.12,
+    fontSize: 8.5,
+    color: light["--dt-text-muted"],
+    margin: 0,
+  });
+  slide.addText(pageLabel, {
+    x: 11.3,
+    y: 7.05,
+    w: 1.2,
+    h: 0.12,
+    fontSize: 8.5,
+    color: light["--dt-text-muted"],
+    align: "right",
+    margin: 0,
+  });
 }
 
 function addBulletList(slide, items, options) {
@@ -319,7 +359,7 @@ function addCover(slide, doc) {
     margin: 0,
   });
   slide.addText(
-    "Generated from docs/releases/v0.2.7-release-notes.md using the Routa presentation color system.",
+    "Routa is a workspace-first multi-agent coordination platform across web and desktop surfaces. This deck introduces the product context before walking through the v0.2.7 release.",
     {
       x: 0.8,
       y: 2.6,
@@ -367,6 +407,52 @@ function addCover(slide, doc) {
       margin: 0,
     });
   });
+
+  addFooter(slide, "Intro");
+}
+
+function addArchitecture(slide) {
+  const light = tokens.desktop.light;
+  const architectureImagePath = ensureArchitecturePng();
+  const imageAspectRatio = 1440 / 980;
+  const frame = { x: 0.95, y: 2.18, w: 11.65, h: 4.38 };
+  const frameAspectRatio = frame.w / frame.h;
+  const fitted = imageAspectRatio > frameAspectRatio
+    ? { w: frame.w, h: frame.w / imageAspectRatio }
+    : { w: frame.h * imageAspectRatio, h: frame.h };
+  const imageX = frame.x + (frame.w - fitted.w) / 2;
+  const imageY = frame.y + (frame.h - fitted.h) / 2;
+  addBackground(slide, light["--dt-bg-primary"]);
+  addSectionTitle(
+    slide,
+    "Architecture",
+    "System overview before feature details",
+    "The SVG below is embedded directly from docs/architecture.svg so the release deck carries the current high-level system picture.",
+    {
+      kicker: light["--dt-brand-green"],
+      title: light["--dt-text-primary"],
+      body: light["--dt-text-secondary"],
+    },
+  );
+
+  slide.addShape(shapeType.roundRect, {
+    x: 0.78,
+    y: 2.02,
+    w: 12,
+    h: 4.72,
+    rectRadius: 0.08,
+    line: { color: light["--dt-border"] },
+    fill: { color: "FFFFFF" },
+  });
+  slide.addImage({
+    path: architectureImagePath,
+    x: imageX,
+    y: imageY,
+    w: fitted.w,
+    h: fitted.h,
+  });
+
+  addFooter(slide, "Architecture");
 }
 
 function addOverview(slide, doc) {
@@ -449,6 +535,8 @@ function addOverview(slide, doc) {
       margin: 0,
     });
   });
+
+  addFooter(slide, "Overview");
 }
 
 function addHighlights(slide, doc, startIndex) {
@@ -548,6 +636,8 @@ function addHighlights(slide, doc, startIndex) {
       maxItems: 4,
     });
   });
+
+  addFooter(slide, `Highlights ${startIndex + 1}`);
 }
 
 function addTechnical(slide, doc) {
@@ -613,6 +703,8 @@ function addTechnical(slide, doc) {
     lineGap: 0.34,
     maxItems: 10,
   });
+
+  addFooter(slide, "Technical");
 }
 
 function addUpgrade(slide, doc) {
@@ -687,6 +779,8 @@ function addUpgrade(slide, doc) {
     fontSize: 9.5,
     lineGap: 0.5,
   });
+
+  addFooter(slide, "Upgrade");
 }
 
 function addScreenshots(slide, screenshots) {
@@ -770,6 +864,8 @@ function addScreenshots(slide, screenshots) {
       margin: 0,
     });
   });
+
+  addFooter(slide, "Screens");
 }
 
 async function main() {
@@ -779,6 +875,7 @@ async function main() {
   const pptx = makePpt();
 
   addCover(pptx.addSlide(), doc);
+  addArchitecture(pptx.addSlide());
   addOverview(pptx.addSlide(), doc);
   addHighlights(pptx.addSlide(), doc, 0);
   addHighlights(pptx.addSlide(), doc, 2);
