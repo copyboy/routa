@@ -68,18 +68,44 @@ function isTeamLeadRun(session: SessionInfo): boolean {
   );
 }
 
-function getRoleTone(role?: string): string {
+function getRolePanelTone(role?: string, specialistId?: string): {
+  shell: string;
+  icon: string;
+  label: string;
+  glow: string;
+} {
+  if (specialistId === TEAM_LEAD_SPECIALIST_ID || role?.toUpperCase() === "ROUTA") {
+    return {
+      shell: "border-sky-200/80 bg-[linear-gradient(145deg,rgba(240,249,255,0.98),rgba(255,255,255,0.96))] text-sky-950 shadow-[0_16px_30px_-28px_rgba(14,116,144,0.65)] dark:border-sky-500/25 dark:bg-[linear-gradient(145deg,rgba(8,47,73,0.3),rgba(2,6,23,0.92))] dark:text-sky-50",
+      icon: "bg-sky-500/12 text-sky-700 ring-1 ring-sky-200/80 dark:bg-sky-400/16 dark:text-sky-200 dark:ring-sky-400/20",
+      label: "text-sky-700/80 dark:text-sky-300/80",
+      glow: "from-sky-400/55 via-cyan-300/50 to-transparent dark:from-sky-400/50 dark:via-cyan-300/35",
+    };
+  }
+
   switch (role?.toUpperCase()) {
-    case "ROUTA":
-      return "border-blue-200/80 role-chip-routa dark:border-blue-500/20";
     case "CRAFTER":
-      return "border-amber-200/80 role-chip-crafter dark:border-amber-500/20";
+      return {
+        shell: "border-amber-200/80 bg-[linear-gradient(145deg,rgba(255,251,235,0.98),rgba(255,255,255,0.96))] text-amber-950 shadow-[0_16px_30px_-28px_rgba(217,119,6,0.58)] dark:border-amber-500/25 dark:bg-[linear-gradient(145deg,rgba(120,53,15,0.28),rgba(2,6,23,0.92))] dark:text-amber-50",
+        icon: "bg-amber-500/12 text-amber-700 ring-1 ring-amber-200/80 dark:bg-amber-400/16 dark:text-amber-200 dark:ring-amber-400/20",
+        label: "text-amber-700/80 dark:text-amber-300/80",
+        glow: "from-amber-400/55 via-orange-300/45 to-transparent dark:from-amber-400/45 dark:via-orange-300/30",
+      };
     case "GATE":
-      return "border-emerald-200/80 role-chip-gate dark:border-emerald-500/20";
+      return {
+        shell: "border-emerald-200/80 bg-[linear-gradient(145deg,rgba(236,253,245,0.98),rgba(255,255,255,0.96))] text-emerald-950 shadow-[0_16px_30px_-28px_rgba(5,150,105,0.58)] dark:border-emerald-500/25 dark:bg-[linear-gradient(145deg,rgba(6,78,59,0.28),rgba(2,6,23,0.92))] dark:text-emerald-50",
+        icon: "bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-200/80 dark:bg-emerald-400/16 dark:text-emerald-200 dark:ring-emerald-400/20",
+        label: "text-emerald-700/80 dark:text-emerald-300/80",
+        glow: "from-emerald-400/55 via-teal-300/45 to-transparent dark:from-emerald-400/45 dark:via-teal-300/30",
+      };
     case "DEVELOPER":
-      return "border-slate-200/80 role-chip-developer dark:border-slate-500/20";
     default:
-      return "border-slate-200/80 role-chip-developer dark:border-slate-700";
+      return {
+        shell: "border-slate-200/80 bg-[linear-gradient(145deg,rgba(248,250,252,0.98),rgba(255,255,255,0.96))] text-slate-900 shadow-[0_16px_30px_-28px_rgba(15,23,42,0.22)] dark:border-slate-700/80 dark:bg-[linear-gradient(145deg,rgba(30,41,59,0.42),rgba(2,6,23,0.94))] dark:text-slate-100",
+        icon: "bg-slate-500/12 text-slate-700 ring-1 ring-slate-200/80 dark:bg-slate-400/12 dark:text-slate-200 dark:ring-slate-400/20",
+        label: "text-slate-600/80 dark:text-slate-300/75",
+        glow: "from-slate-400/35 via-slate-300/25 to-transparent dark:from-slate-500/30 dark:via-slate-400/15",
+      };
   }
 }
 
@@ -296,6 +322,7 @@ export function TeamPageClient() {
                   <HomeInput
                     workspaceId={workspaceId}
                     variant="hero"
+                    footerMetaMode="repo-only"
                     lockedSpecialistId={TEAM_LEAD_SPECIALIST_ID}
                     requireRepoSelection
                     buildSessionUrl={(nextWorkspaceId, sessionId) =>
@@ -305,16 +332,50 @@ export function TeamPageClient() {
                   />
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                  {teamSpecialists.map((specialist) => (
-                    <span
-                      key={specialist.id}
-                      className={`rounded-full border px-2.5 py-1 font-semibold uppercase tracking-[0.14em] ${getRoleTone(specialist.role)}`}
-                      title={specialist.description ?? specialist.id}
-                    >
-                      {specialist.name}
+                <div className="mt-3 rounded-[18px] border border-slate-200/80 bg-white/75 p-3 dark:border-slate-800/80 dark:bg-slate-950/20">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-desktop-text-muted">
+                        Team Bench
+                      </div>
+                      <p className="mt-1 text-xs text-desktop-text-secondary">
+                        Compact roster. Hover any member to inspect their specialty.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-slate-200/80 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300">
+                      {teamSpecialists.length} specialists
                     </span>
-                  ))}
+                  </div>
+
+                  <div className="mt-3 overflow-x-auto pb-1 scrollbar-none" style={{ scrollbarWidth: "none" }}>
+                    <div className="flex min-w-max gap-2">
+                      {teamSpecialists.map((specialist, index) => {
+                        const tone = getRolePanelTone(specialist.role, specialist.id);
+                        const serial = String(index + 1).padStart(2, "0");
+                        const roleLabel = specialist.id === TEAM_LEAD_SPECIALIST_ID ? "Lead Orchestrator" : (specialist.role ?? "Specialist");
+                        return (
+                          <div
+                            key={specialist.id}
+                            className={`group relative flex w-[188px] shrink-0 items-center gap-2.5 overflow-hidden rounded-[16px] border px-3 py-2.5 transition-transform duration-200 hover:-translate-y-0.5 ${tone.shell}`}
+                            title={specialist.description ?? specialist.id}
+                          >
+                            <div className={`pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r ${tone.glow}`} />
+                            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[12px] text-[11px] font-semibold tracking-[0.18em] ${tone.icon}`}>
+                              {serial}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-[13px] font-semibold tracking-[0.01em]">
+                                {specialist.name}
+                              </div>
+                              <div className={`mt-0.5 truncate text-[9px] font-semibold uppercase tracking-[0.22em] ${tone.label}`}>
+                                {roleLabel}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>
