@@ -5,6 +5,8 @@ description = "Routa.js HTTP Server — axum adapter on top of routa-core"
 authors = ["phodal"]
 edition = "2021"
 license = "MIT"
+repository = "https://github.com/phodal/routa-js"
+homepage = "https://github.com/phodal/routa-js"
 
 [lib]
 name = "routa_server"
@@ -12,7 +14,7 @@ path = "src/lib.rs"
 
 [dependencies]
 # Core domain (with axum IntoResponse support)
-routa-core = { path = "../routa-core", features = ["axum"] }
+routa-core = { version = "0.2.4", path = "../routa-core", features = ["axum"] }
 
 # Web framework
 axum = { version = "0.8", features = ["macros"] }

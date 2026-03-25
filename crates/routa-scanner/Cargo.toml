@@ -4,6 +4,8 @@ version = "0.2.4"
 edition = "2021"
 license = "MIT"
 description = "Reusable multi-tool security and quality scanning module for Routa"
+repository = "https://github.com/phodal/routa-js"
+homepage = "https://github.com/phodal/routa-js"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
