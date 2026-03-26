@@ -364,6 +364,302 @@ criteria:
     );
   });
 
+  it("matches file and glob regex detectors against repo content", async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), "harness-fluency-regex-"));
+    mkdirSync(path.join(repoRoot, "docs", "fitness"), { recursive: true });
+    mkdirSync(path.join(repoRoot, "src", "runtime"), { recursive: true });
+
+    const modelPath = path.join(repoRoot, "docs", "fitness", "model.yaml");
+    const snapshotPath = path.join(repoRoot, "docs", "fitness", "latest.json");
+
+    writeFileSync(path.join(repoRoot, "README.md"), "# AI coding assistant\nUse this agent workflow.\n", "utf8");
+    writeJson(path.join(repoRoot, "package.json"), {
+      scripts: {
+        lint: "eslint .",
+        "test:run": "vitest run",
+      },
+    });
+    writeFileSync(
+      path.join(repoRoot, "src", "runtime", "manager.ts"),
+      "export class RuntimeManager {}\n",
+      "utf8",
+    );
+    writeFileSync(
+      modelPath,
+      `version: 1
+levels:
+  - id: awareness
+    name: Awareness
+  - id: assisted
+    name: Assisted
+dimensions:
+  - id: collaboration
+    name: Collaboration
+criteria:
+  - id: collaboration.awareness.contract
+    level: awareness
+    dimension: collaboration
+    weight: 1
+    critical: true
+    why_it_matters: contract
+    recommended_action: contract
+    evidence_hint: README.md
+    detector:
+      type: file_exists
+      path: README.md
+  - id: collaboration.awareness.ai_text
+    level: awareness
+    dimension: collaboration
+    weight: 1
+    critical: false
+    why_it_matters: ai text
+    recommended_action: ai text
+    evidence_hint: README.md
+    detector:
+      type: file_contains_regex
+      path: README.md
+      pattern: '\\b(ai|agent)\\b'
+      flags: i
+  - id: collaboration.assisted.commands
+    level: assisted
+    dimension: collaboration
+    weight: 1
+    critical: true
+    why_it_matters: commands
+    recommended_action: commands
+    evidence_hint: package.json scripts
+    detector:
+      type: glob_contains_regex
+      patterns:
+        - package.json
+      pattern: '"scripts"\\s*:\\s*\\{'
+      flags: i
+      minMatches: 1
+  - id: harness.assisted.runtime
+    level: assisted
+    dimension: collaboration
+    weight: 1
+    critical: false
+    why_it_matters: runtime
+    recommended_action: runtime
+    evidence_hint: src/runtime/*.ts
+    detector:
+      type: glob_contains_regex
+      patterns:
+        - src/**/*.ts
+      pattern: 'RuntimeManager'
+      flags: i
+      minMatches: 1
+`,
+      "utf8",
+    );
+
+    const report = await evaluateHarnessFluency({
+      repoRoot,
+      modelPath,
+      snapshotPath,
+      compareLast: false,
+      save: false,
+    });
+
+    expect(report.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "collaboration.awareness.ai_text", status: "pass" }),
+        expect.objectContaining({ id: "collaboration.assisted.commands", status: "pass" }),
+        expect.objectContaining({ id: "harness.assisted.runtime", status: "pass" }),
+      ]),
+    );
+  });
+
+  it("supports any_of composite detectors for contract-like fallbacks", async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), "harness-fluency-any-of-"));
+    mkdirSync(path.join(repoRoot, "docs", "fitness"), { recursive: true });
+
+    const modelPath = path.join(repoRoot, "docs", "fitness", "model.yaml");
+    const snapshotPath = path.join(repoRoot, "docs", "fitness", "latest.json");
+
+    writeFileSync(path.join(repoRoot, "README.md"), "# repo\n", "utf8");
+    writeFileSync(
+      path.join(repoRoot, "CONTRIBUTING.md"),
+      "Contributor workflow guide for Gemini agents and review rules.\n",
+      "utf8",
+    );
+    writeFileSync(
+      modelPath,
+      `version: 1
+levels:
+  - id: awareness
+    name: Awareness
+dimensions:
+  - id: collaboration
+    name: Collaboration
+criteria:
+  - id: collaboration.awareness.readme
+    level: awareness
+    dimension: collaboration
+    weight: 1
+    critical: true
+    why_it_matters: readme
+    recommended_action: readme
+    evidence_hint: README.md
+    detector:
+      type: file_exists
+      path: README.md
+  - id: collaboration.awareness.contract
+    level: awareness
+    dimension: collaboration
+    weight: 1
+    critical: false
+    why_it_matters: contract
+    recommended_action: contract
+    evidence_hint: GEMINI.md or docs
+    detector:
+      type: any_of
+      detectors:
+        - type: any_file_exists
+          paths:
+            - GEMINI.md
+            - AGENTS.md
+        - type: glob_contains_regex
+          patterns:
+            - CONTRIBUTING.md
+          pattern: 'gemini[^\\n]{0,40}(workflow|rules)'
+          flags: i
+          minMatches: 1
+`,
+      "utf8",
+    );
+
+    const report = await evaluateHarnessFluency({
+      repoRoot,
+      modelPath,
+      snapshotPath,
+      compareLast: false,
+      save: false,
+    });
+
+    expect(report.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "collaboration.awareness.contract",
+          status: "pass",
+          detail: expect.stringContaining("matched glob_contains_regex"),
+          evidence: ["CONTRIBUTING.md"],
+        }),
+      ]),
+    );
+  });
+
+  it("ignores vendored and generated directories when matching glob detectors", async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), "harness-fluency-ignore-"));
+    mkdirSync(path.join(repoRoot, "docs", "fitness"), { recursive: true });
+    mkdirSync(path.join(repoRoot, "node_modules", "pkg", "__tests__"), { recursive: true });
+    mkdirSync(path.join(repoRoot, "vendor", "pkg", "__tests__"), { recursive: true });
+    mkdirSync(path.join(repoRoot, "tests"), { recursive: true });
+
+    const modelPath = path.join(repoRoot, "docs", "fitness", "model.yaml");
+    const snapshotPath = path.join(repoRoot, "docs", "fitness", "latest.json");
+
+    writeFileSync(path.join(repoRoot, "README.md"), "# repo\n", "utf8");
+    writeFileSync(path.join(repoRoot, "node_modules", "pkg", "__tests__", "dep.spec.ts"), "dep\n", "utf8");
+    writeFileSync(path.join(repoRoot, "vendor", "pkg", "__tests__", "vendor.spec.ts"), "vendor\n", "utf8");
+    writeFileSync(path.join(repoRoot, "tests", "app.spec.ts"), "real\n", "utf8");
+    writeFileSync(
+      modelPath,
+      `version: 1
+levels:
+  - id: awareness
+    name: Awareness
+  - id: assisted
+    name: Assisted
+dimensions:
+  - id: collaboration
+    name: Collaboration
+criteria:
+  - id: collaboration.awareness.readme
+    level: awareness
+    dimension: collaboration
+    weight: 1
+    critical: true
+    why_it_matters: readme
+    recommended_action: readme
+    evidence_hint: README.md
+    detector:
+      type: file_exists
+      path: README.md
+  - id: collaboration.awareness.readme_text
+    level: awareness
+    dimension: collaboration
+    weight: 1
+    critical: false
+    why_it_matters: readme text
+    recommended_action: readme text
+    evidence_hint: README.md
+    detector:
+      type: file_contains_regex
+      path: README.md
+      pattern: repo
+      flags: i
+  - id: collaboration.assisted.real_tests
+    level: assisted
+    dimension: collaboration
+    weight: 1
+    critical: true
+    why_it_matters: real tests
+    recommended_action: real tests
+    evidence_hint: tests/**/*.spec.ts
+    detector:
+      type: glob_count
+      patterns:
+        - tests/**/*.spec.ts
+        - node_modules/**/*.spec.ts
+        - vendor/**/*.spec.ts
+      min: 2
+  - id: collaboration.assisted.real_test_text
+    level: assisted
+    dimension: collaboration
+    weight: 1
+    critical: false
+    why_it_matters: real test text
+    recommended_action: real test text
+    evidence_hint: tests/**/*.spec.ts
+    detector:
+      type: glob_contains_regex
+      patterns:
+        - tests/**/*.spec.ts
+        - node_modules/**/*.spec.ts
+        - vendor/**/*.spec.ts
+      pattern: real
+      flags: i
+      minMatches: 1
+`,
+      "utf8",
+    );
+
+    const report = await evaluateHarnessFluency({
+      repoRoot,
+      modelPath,
+      snapshotPath,
+      compareLast: false,
+      save: false,
+    });
+
+    expect(report.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "collaboration.assisted.real_tests",
+          status: "fail",
+          detail: "matched 1 paths (min 2)",
+        }),
+        expect.objectContaining({
+          id: "collaboration.assisted.real_test_text",
+          status: "pass",
+          evidence: ["tests/app.spec.ts"],
+        }),
+      ]),
+    );
+  });
+
   it("skips snapshot comparison when the previous snapshot model version is incompatible", async () => {
     const repoRoot = mkdtempSync(path.join(tmpdir(), "harness-fluency-compare-skip-"));
     mkdirSync(path.join(repoRoot, "docs", "fitness"), { recursive: true });

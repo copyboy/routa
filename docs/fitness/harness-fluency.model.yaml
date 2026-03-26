@@ -31,28 +31,52 @@ criteria:
     critical: true
     why_it_matters: Repositories need an explicit human-agent contract before collaboration can scale.
     recommended_action: Add a checked-in collaboration contract such as AGENTS.md or equivalent contributor guidance.
-    evidence_hint: AGENTS.md or .github/copilot-instructions.md
+    evidence_hint: AGENTS.md, CLAUDE.md, GEMINI.md, Copilot instructions, or equivalent AI collaboration guidance
     detector:
-      type: any_file_exists
-      paths:
-        - AGENTS.md
-        - CLAUDE.md
-        - .github/copilot-instructions.md
+      type: any_of
+      detectors:
+        - type: any_file_exists
+          paths:
+            - AGENTS.md
+            - CLAUDE.md
+            - GEMINI.md
+            - .github/copilot-instructions.md
+            - .cursorrules
+            - .cursor/rules
+            - .gemini
+        - type: glob_contains_regex
+          patterns:
+            - README.md
+            - CONTRIBUTING.md
+            - docs/**/*.md
+            - .github/**/*.md
+          pattern: '\b(claude code|codex|cursor|gemini|copilot)\b.{0,60}\b(instructions|workflow|guide|rules)\b|\b(instructions|workflow|guide|rules)\b.{0,60}\b(claude code|codex|cursor|gemini|copilot)\b'
+          flags: i
+          minMatches: 1
   - id: collaboration.awareness.ai_entrypoints
     level: awareness
     dimension: collaboration
     weight: 1
     critical: false
     why_it_matters: Visible AI entrypoints help contributors discover how the repository expects AI tooling to be used.
-    recommended_action: Add checked-in agent or AI tool entrypoints.
-    evidence_hint: .claude or .agents
+    recommended_action: Add checked-in AI guidance in repo-facing docs, manifests, or workflows.
+    evidence_hint: README.md, AGENTS.md, package.json, or .github/workflows mentioning agent or AI usage
     detector:
-      type: any_file_exists
-      paths:
-        - .claude
-        - .agents
-        - .cursor
-        - .windsurf
+      type: glob_contains_regex
+      patterns:
+        - README.md
+        - AGENTS.md
+        - CLAUDE.md
+        - .github/copilot-instructions.md
+        - docs/**/*.md
+        - package.json
+        - Cargo.toml
+        - pyproject.toml
+        - .github/workflows/*.yml
+        - .github/workflows/*.yaml
+      pattern: '\b(agent|agents|assistant|assistants|copilot|claude|codex|cursor|windsurf|llm|prompt|openai|anthropic|gemini|kimi|ai coding|ai assistant)\b'
+      flags: i
+      minMatches: 1
 
   - id: collaboration.assisted.collaboration_templates
     level: assisted_coding
@@ -75,15 +99,21 @@ criteria:
     weight: 1
     critical: false
     why_it_matters: Durable collaboration needs checked-in command surfaces rather than ad hoc local conventions.
-    recommended_action: Add scripts, tools, or command directories contributors can reuse.
-    evidence_hint: scripts or tools
+    recommended_action: Add reusable checked-in command definitions through scripts, task runners, or workflow entrypoints.
+    evidence_hint: package.json scripts, Makefile targets, Taskfile tasks, or pyproject command tasks
     detector:
-      type: any_file_exists
-      paths:
-        - scripts
-        - tools
-        - bin
-        - cmd
+      type: glob_contains_regex
+      patterns:
+        - package.json
+        - Makefile
+        - justfile
+        - Taskfile.yml
+        - Taskfile.yaml
+        - pyproject.toml
+        - Cargo.toml
+      pattern: '("scripts"\s*:\s*\{)|(^[A-Za-z0-9][A-Za-z0-9._-]*:\s*(?:#.*)?$)|(\[project\.scripts\])|(\[tool\.poe\.tasks\])|(\[\[bin\]\])'
+      flags: im
+      minMatches: 1
 
   - id: collaboration.structured_ai_coding.ai_workflow_defs
     level: structured_ai_coding
@@ -354,15 +384,30 @@ criteria:
     critical: true
     why_it_matters: A harness begins when the repository exposes a checked-in runtime or source surface.
     recommended_action: Keep a primary runtime or source tree checked in.
-    evidence_hint: src, crates, cmd, apps, or packages
+    evidence_hint: src, crates, cmd, apps, packages, lib, csrc, or a top-level language package tree
     detector:
-      type: any_file_exists
-      paths:
-        - src
-        - crates
-        - cmd
-        - apps
-        - packages
+      type: any_of
+      detectors:
+        - type: any_file_exists
+          paths:
+            - src
+            - crates
+            - cmd
+            - apps
+            - packages
+            - lib
+            - internal
+            - csrc
+        - type: glob_count
+          patterns:
+            - "*/**/*.py"
+            - "*/**/*.rs"
+            - "*/**/*.go"
+            - "*/**/*.ts"
+            - "*/**/*.tsx"
+            - "*/**/*.js"
+            - "*/**/*.jsx"
+          min: 5
   - id: harness.awareness.local_entrypoint
     level: awareness
     dimension: harness
@@ -385,18 +430,39 @@ criteria:
     weight: 2
     critical: true
     why_it_matters: Assisted harnessing is stronger when the runtime has reusable abstractions instead of only leaf scripts.
-    recommended_action: Add a reusable core or library layer for execution.
-    evidence_hint: src/core, src/lib, internal, crates, lib, packages, or apps
+    recommended_action: Add reusable runtime abstractions such as services, clients, managers, runtimes, or workflow layers.
+    evidence_hint: source files declaring runtime, service, provider, workflow, manager, or client abstractions
     detector:
-      type: any_file_exists
-      paths:
-        - src/core
-        - src/lib
-        - internal
-        - crates
-        - lib
-        - packages
-        - apps
+      type: glob_contains_regex
+      patterns:
+        - src/**/*.ts
+        - src/**/*.tsx
+        - src/**/*.js
+        - src/**/*.jsx
+        - src/**/*.py
+        - src/**/*.rs
+        - src/**/*.go
+        - crates/**/*.rs
+        - packages/**/*.ts
+        - packages/**/*.tsx
+        - packages/**/*.js
+        - apps/**/*.ts
+        - apps/**/*.tsx
+        - apps/**/*.js
+        - lib/**/*.py
+        - lib/**/*.ts
+        - lib/**/*.js
+        - internal/**/*.go
+        - "*/**/*.py"
+        - "*/**/*.rs"
+        - "*/**/*.go"
+        - "*/**/*.ts"
+        - "*/**/*.tsx"
+        - "*/**/*.js"
+        - "*/**/*.jsx"
+      pattern: '\b(export|pub|class|def|func)\b.{0,120}\b(runtime|runner|service|client|manager|provider|workflow|command|executor|tool|server|adapter|model|engine|router|reporter|policy)\b'
+      flags: im
+      minMatches: 1
   - id: harness.assisted.local_validation_runtime
     level: assisted_coding
     dimension: harness

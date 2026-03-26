@@ -33,8 +33,22 @@ export type FluencyLevel = { id: string; name: string };
 export type FluencyDimension = { id: string; name: string };
 
 type FileExistsDetector = { type: "file_exists"; path: string };
+type FileContainsRegexDetector = {
+  type: "file_contains_regex";
+  path: string;
+  pattern: string;
+  flags: string;
+};
+type AnyOfDetector = { type: "any_of"; detectors: readonly DetectorDefinition[] };
 type AnyFileExistsDetector = { type: "any_file_exists"; paths: readonly string[] };
 type GlobCountDetector = { type: "glob_count"; patterns: readonly string[]; min: number };
+type GlobContainsRegexDetector = {
+  type: "glob_contains_regex";
+  patterns: readonly string[];
+  pattern: string;
+  flags: string;
+  minMatches: number;
+};
 type JsonPathExistsDetector = { type: "json_path_exists"; path: string; jsonPath: PathSpec };
 type YamlPathExistsDetector = { type: "yaml_path_exists"; path: string; yamlPath: PathSpec };
 type CommandExitCodeDetector = {
@@ -55,8 +69,11 @@ type ManualAttestationDetector = { type: "manual_attestation"; prompt: string };
 
 export type DetectorDefinition =
   | FileExistsDetector
+  | FileContainsRegexDetector
+  | AnyOfDetector
   | AnyFileExistsDetector
   | GlobCountDetector
+  | GlobContainsRegexDetector
   | JsonPathExistsDetector
   | YamlPathExistsDetector
   | CommandExitCodeDetector
@@ -190,8 +207,11 @@ export type CliOptions = {
 
 export const DETERMINISTIC_PRIORITY: Record<DetectorDefinition["type"], number> = {
   file_exists: 0,
+  file_contains_regex: 0,
+  any_of: 0,
   any_file_exists: 0,
   glob_count: 0,
+  glob_contains_regex: 0,
   json_path_exists: 0,
   yaml_path_exists: 0,
   command_exit_code: 0,
@@ -313,6 +333,29 @@ function parseStringArray(value: unknown, label: string): readonly string[] {
   return value.map((item, index) => expectString(item, `${label}[${index}]`));
 }
 
+function parseRegexSettings(
+  detector: Record<string, unknown>,
+  label: string,
+  defaultFlags = "i",
+): { pattern: string; flags: string } {
+  const pattern = expectString(detector.pattern, `${label}.pattern`);
+  if (pattern.length > MAX_REGEX_PATTERN_LENGTH) {
+    throw new Error(`${label}.pattern exceeds max length ${MAX_REGEX_PATTERN_LENGTH}`);
+  }
+
+  const flags = typeof detector.flags === "string" ? detector.flags : defaultFlags;
+  try {
+    void new RegExp(pattern, flags);
+  } catch (error) {
+    throw new Error(
+      `${label} has invalid regex settings: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+
+  return { pattern, flags };
+}
+
 function parseDetector(value: unknown, label: string): DetectorDefinition {
   const detector = expectRecord(value, label);
   const type = expectString(detector.type, `${label}.type`);
@@ -320,6 +363,26 @@ function parseDetector(value: unknown, label: string): DetectorDefinition {
   switch (type) {
     case "file_exists":
       return { type, path: expectString(detector.path, `${label}.path`) };
+    case "file_contains_regex": {
+      const { pattern, flags } = parseRegexSettings(detector, label);
+      return {
+        type,
+        path: expectString(detector.path, `${label}.path`),
+        pattern,
+        flags,
+      };
+    }
+    case "any_of": {
+      const nested = detector.detectors;
+      if (!Array.isArray(nested) || nested.length === 0) {
+        throw new Error(`${label}.detectors must be a non-empty array`);
+      }
+
+      return {
+        type,
+        detectors: nested.map((item, index) => parseDetector(item, `${label}.detectors[${index}]`)),
+      };
+    }
     case "any_file_exists":
       return { type, paths: parseStringArray(detector.paths, `${label}.paths`) };
     case "glob_count":
@@ -330,6 +393,18 @@ function parseDetector(value: unknown, label: string): DetectorDefinition {
           : [expectString(detector.pattern, `${label}.pattern`)],
         min: expectNumber(detector.min, `${label}.min`, 1),
       };
+    case "glob_contains_regex": {
+      const { pattern, flags } = parseRegexSettings(detector, label);
+      return {
+        type,
+        patterns: Array.isArray(detector.patterns)
+          ? parseStringArray(detector.patterns, `${label}.patterns`)
+          : [expectString(detector.pattern_glob, `${label}.pattern_glob`)],
+        pattern,
+        flags,
+        minMatches: expectNumber(detector.minMatches, `${label}.minMatches`, 1),
+      };
+    }
     case "json_path_exists":
       return {
         type,
@@ -350,20 +425,7 @@ function parseDetector(value: unknown, label: string): DetectorDefinition {
         timeoutMs: expectNumber(detector.timeoutMs, `${label}.timeoutMs`, 10_000),
       };
     case "command_output_regex": {
-      const pattern = expectString(detector.pattern, `${label}.pattern`);
-      if (pattern.length > MAX_REGEX_PATTERN_LENGTH) {
-        throw new Error(`${label}.pattern exceeds max length ${MAX_REGEX_PATTERN_LENGTH}`);
-      }
-
-      const flags = typeof detector.flags === "string" ? detector.flags : "i";
-      try {
-        void new RegExp(pattern, flags);
-      } catch (error) {
-        throw new Error(
-          `${label} has invalid regex settings: ${error instanceof Error ? error.message : String(error)}`,
-          { cause: error },
-        );
-      }
+      const { pattern, flags } = parseRegexSettings(detector, label);
 
       return {
         type,

@@ -27,6 +27,7 @@ import {
 
 type EvaluationContext = {
   repoRoot: string;
+  textCache: Map<string, Promise<string>>;
   jsonCache: Map<string, Promise<unknown>>;
   yamlCache: Map<string, Promise<unknown>>;
 };
@@ -58,6 +59,24 @@ const ALLOWED_COMMAND_EXECUTABLES = new Set([
   "python3",
   "uv",
 ]);
+const DEFAULT_GLOB_IGNORE: string[] = [
+  "**/.git/**",
+  "**/.next/**",
+  "**/.nuxt/**",
+  "**/.pnpm-store/**",
+  "**/.pytest_cache/**",
+  "**/.ruff_cache/**",
+  "**/.turbo/**",
+  "**/.venv/**",
+  "**/__pycache__/**",
+  "**/build/**",
+  "**/coverage/**",
+  "**/dist/**",
+  "**/node_modules/**",
+  "**/target/**",
+  "**/venv/**",
+  "**/vendor/**",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -151,8 +170,8 @@ function formatPercent(value: number | null): string {
   return `${Math.round(value * 100)}%`;
 }
 
-function testRegexAgainstOutput(pattern: string, flags: string, output: string): boolean {
-  return new RegExp(pattern, flags).test(output.slice(0, MAX_REGEX_INPUT_LENGTH));
+function testRegexAgainstText(pattern: string, flags: string, text: string): boolean {
+  return new RegExp(pattern, flags).test(text.slice(0, MAX_REGEX_INPUT_LENGTH));
 }
 
 function lookupPath(source: unknown, spec: readonly (string | number)[]): unknown {
@@ -188,11 +207,11 @@ async function pathExists(targetPath: string): Promise<boolean> {
   }
 }
 
-async function readStructuredFile(
-  cache: Map<string, Promise<unknown>>,
+async function readStructuredFile<T>(
+  cache: Map<string, Promise<T>>,
   targetPath: string,
-  parser: (content: string) => unknown,
-): Promise<unknown> {
+  parser: (content: string) => T,
+): Promise<T> {
   const cached = cache.get(targetPath);
   if (cached) {
     return cached;
@@ -203,6 +222,11 @@ async function readStructuredFile(
   return promise;
 }
 
+async function readTextFile(context: EvaluationContext, relativePath: string): Promise<string> {
+  const absolutePath = toAbsolutePath(context.repoRoot, relativePath);
+  return readStructuredFile(context.textCache, absolutePath, (content) => content);
+}
+
 async function readJsonFile(context: EvaluationContext, relativePath: string): Promise<unknown> {
   const absolutePath = toAbsolutePath(context.repoRoot, relativePath);
   return readStructuredFile(context.jsonCache, absolutePath, (content) => JSON.parse(content));
@@ -211,6 +235,23 @@ async function readJsonFile(context: EvaluationContext, relativePath: string): P
 async function readYamlFile(context: EvaluationContext, relativePath: string): Promise<unknown> {
   const absolutePath = toAbsolutePath(context.repoRoot, relativePath);
   return readStructuredFile(context.yamlCache, absolutePath, (content) => loadYaml(content));
+}
+
+async function collectGlobMatches(patterns: readonly string[], repoRoot: string, nodir: boolean): Promise<string[]> {
+  const matches = new Set<string>();
+  for (const patternText of patterns) {
+    const found = await glob(patternText, {
+      cwd: repoRoot,
+      dot: true,
+      ignore: DEFAULT_GLOB_IGNORE,
+      nodir,
+    });
+    for (const match of found) {
+      matches.add(match);
+    }
+  }
+
+  return Array.from(matches).sort();
 }
 
 async function runCommand(command: string, repoRoot: string, timeoutMs: number): Promise<CommandExecutionResult> {
@@ -274,6 +315,58 @@ async function evaluateDetector(
         evidence: exists ? [detector.path] : [],
       };
     }
+    case "file_contains_regex": {
+      try {
+        const content = await readTextFile(context, detector.path);
+        const passed = testRegexAgainstText(detector.pattern, detector.flags, content);
+        return {
+          status: passed ? "pass" : "fail",
+          detail: passed
+            ? `content in ${detector.path} matched ${detector.pattern}`
+            : `content in ${detector.path} did not match ${detector.pattern}`,
+          evidence: passed ? [detector.path] : [],
+        };
+      } catch (error) {
+        return {
+          status: "fail",
+          detail: `unable to read ${detector.path}: ${error instanceof Error ? error.message : String(error)}`,
+          evidence: [],
+        };
+      }
+    }
+    case "any_of": {
+      const failures: string[] = [];
+      let skippedCount = 0;
+      for (const nested of detector.detectors) {
+        const result = await evaluateDetector(nested, context);
+        if (result.status === "pass") {
+          return {
+            status: "pass",
+            detail: `matched ${nested.type}: ${result.detail}`,
+            evidence: result.evidence,
+          };
+        }
+
+        if (result.status === "skipped") {
+          skippedCount += 1;
+        }
+        failures.push(`${nested.type}: ${result.detail}`);
+      }
+
+      if (skippedCount === detector.detectors.length) {
+        return {
+          status: "skipped",
+          detail: "all alternatives were skipped",
+          evidence: [],
+        };
+      }
+
+      return {
+        status: "fail",
+        detail: `all alternatives failed: ${failures.join(" | ")}`,
+        evidence: [],
+      };
+    }
     case "any_file_exists": {
       const matched: string[] = [];
       for (const candidate of detector.paths) {
@@ -292,27 +385,44 @@ async function evaluateDetector(
     }
     case "glob_count": {
       try {
-        const matches = new Set<string>();
-        for (const patternText of detector.patterns) {
-          const found = await glob(patternText, {
-            cwd: context.repoRoot,
-            dot: true,
-            nodir: false,
-          });
-          for (const match of found) {
-            matches.add(match);
-          }
-        }
+        const matches = await collectGlobMatches(detector.patterns, context.repoRoot, false);
 
         return {
-          status: matches.size >= detector.min ? "pass" : "fail",
-          detail: `matched ${matches.size} paths (min ${detector.min})`,
-          evidence: Array.from(matches).sort().slice(0, 10),
+          status: matches.length >= detector.min ? "pass" : "fail",
+          detail: `matched ${matches.length} paths (min ${detector.min})`,
+          evidence: matches.slice(0, 10),
         };
       } catch (error) {
         return {
           status: "fail",
           detail: `glob failed: ${error instanceof Error ? error.message : String(error)}`,
+          evidence: [],
+        };
+      }
+    }
+    case "glob_contains_regex": {
+      try {
+        const candidates = await collectGlobMatches(detector.patterns, context.repoRoot, true);
+        const matched: string[] = [];
+        for (const candidate of candidates) {
+          const content = await readTextFile(context, candidate);
+          if (testRegexAgainstText(detector.pattern, detector.flags, content)) {
+            matched.push(candidate);
+          }
+          if (matched.length >= detector.minMatches) {
+            break;
+          }
+        }
+
+        return {
+          status: matched.length >= detector.minMatches ? "pass" : "fail",
+          detail: `regex matched ${matched.length} files (min ${detector.minMatches}) across ${candidates.length} candidates`,
+          evidence: matched.slice(0, 10),
+        };
+      } catch (error) {
+        return {
+          status: "fail",
+          detail: `glob regex failed: ${error instanceof Error ? error.message : String(error)}`,
           evidence: [],
         };
       }
@@ -384,7 +494,7 @@ async function evaluateDetector(
       const passed =
         !result.timedOut &&
         result.exitCode === detector.expectedExitCode &&
-        testRegexAgainstOutput(detector.pattern, detector.flags, result.output);
+        testRegexAgainstText(detector.pattern, detector.flags, result.output);
       return {
         status: passed ? "pass" : "fail",
         detail: result.timedOut
@@ -541,7 +651,7 @@ export async function evaluateHarnessFluency(options: EvaluateOptions): Promise<
   const dimensionById = new Map(model.dimensions.map((dimension) => [dimension.id, dimension]));
 
   const previousSnapshot = options.compareLast ? await loadPreviousSnapshot(path.resolve(options.snapshotPath)) : null;
-  const context: EvaluationContext = { repoRoot, jsonCache: new Map(), yamlCache: new Map() };
+  const context: EvaluationContext = { repoRoot, textCache: new Map(), jsonCache: new Map(), yamlCache: new Map() };
   const criteriaResults = await Promise.all(model.criteria.map((criterion) => evaluateCriterion(criterion, context)));
 
   const cellAccumulators = new Map<string, MutableCellAccumulator>();
