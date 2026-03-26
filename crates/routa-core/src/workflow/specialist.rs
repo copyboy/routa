@@ -247,6 +247,54 @@ impl SpecialistLoader {
         Ok(())
     }
 
+    fn locale_overlay_dirs(root: &Path, locale: &str) -> Vec<PathBuf> {
+        if locale.is_empty() || locale == "en" {
+            return Vec::new();
+        }
+
+        let candidates = vec![root.join("locales").join(locale), root.join(locale)];
+        candidates
+            .into_iter()
+            .filter(|path| path.is_dir())
+            .collect()
+    }
+
+    fn load_entries_from_directory(
+        dir: &Path,
+        context: &str,
+    ) -> Result<Vec<(PathBuf, SpecialistDef)>, String> {
+        let mut paths = Vec::new();
+        Self::collect_specialist_paths(dir, false, &mut paths)?;
+        paths.sort();
+
+        let mut source_paths: HashMap<String, PathBuf> = HashMap::new();
+        let mut entries = Vec::new();
+
+        for path in paths {
+            let specialist = SpecialistDef::from_file(path.to_str().unwrap_or(""))?;
+            tracing::info!(
+                "[SpecialistLoader] Loaded specialist: {} ({})",
+                specialist.id,
+                specialist.name
+            );
+
+            if let Some(previous_path) = source_paths.get(&specialist.id) {
+                return Err(format!(
+                    "[SpecialistLoader] Duplicate specialist id '{}' in '{}'; conflicts: '{}' and '{}'",
+                    specialist.id,
+                    context,
+                    previous_path.display(),
+                    path.display()
+                ));
+            }
+
+            source_paths.insert(specialist.id.clone(), path.clone());
+            entries.push((path, specialist));
+        }
+
+        Ok(entries)
+    }
+
     /// Load all specialists from a directory.
     /// Runtime definitions and locale overlays are authored in YAML.
     pub fn load_dir(&mut self, dir: &str) -> Result<usize, String> {
@@ -255,35 +303,55 @@ impl SpecialistLoader {
             return Err(format!("Specialist directory '{}' does not exist", dir));
         }
 
-        let mut paths = Vec::new();
-        Self::collect_specialist_paths(dir_path, false, &mut paths)?;
-        paths.sort();
-
-        let mut count = 0;
-        let mut source_paths: HashMap<String, PathBuf> = HashMap::new();
-        for path in paths {
-            let specialist = SpecialistDef::from_file(path.to_str().unwrap_or(""))?;
-
-            tracing::info!(
-                "[SpecialistLoader] Loaded specialist: {} ({})",
-                specialist.id,
-                specialist.name
-            );
-            if let Some(previous_path) = source_paths.get(&specialist.id) {
-                return Err(format!(
-                    "[SpecialistLoader] Duplicate specialist id '{}' in '{}'; conflicts: '{}' and '{}'",
-                    specialist.id,
-                    dir,
-                    previous_path.display(),
-                    path.display()
-                ));
-            }
-            source_paths.insert(specialist.id.clone(), path.clone());
-            self.specialists.insert(specialist.id.clone(), specialist);
-            count += 1;
+        let entries = Self::load_entries_from_directory(dir_path, dir)?;
+        for (_, specialist) in &entries {
+            self.specialists
+                .insert(specialist.id.clone(), specialist.clone());
         }
 
-        Ok(count)
+        Ok(entries.len())
+    }
+
+    /// Load specialists from a directory and overlay locale-specific YAML definitions.
+    /// Locale overlays only override specialists that already exist in the base runtime set.
+    pub fn load_dir_with_locale(&mut self, dir: &str, locale: &str) -> Result<usize, String> {
+        let dir_path = Path::new(dir);
+        if !dir_path.is_dir() {
+            return Err(format!("Specialist directory '{}' does not exist", dir));
+        }
+
+        let base_entries = Self::load_entries_from_directory(dir_path, dir)?;
+        let mut loaded_count = base_entries.len();
+        let base_ids = base_entries
+            .iter()
+            .map(|(_, specialist)| specialist.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+
+        for (_, specialist) in base_entries {
+            self.specialists.insert(specialist.id.clone(), specialist);
+        }
+
+        for overlay_dir in Self::locale_overlay_dirs(dir_path, locale) {
+            let overlay_entries = Self::load_entries_from_directory(
+                &overlay_dir,
+                &format!("{} (locale {})", overlay_dir.display(), locale),
+            )?;
+            for (_, specialist) in overlay_entries {
+                if !base_ids.contains(&specialist.id) {
+                    tracing::warn!(
+                        "[SpecialistLoader] Skipping locale overlay '{}' in '{}': no base specialist with matching id",
+                        specialist.id,
+                        overlay_dir.display()
+                    );
+                    continue;
+                }
+
+                self.specialists.insert(specialist.id.clone(), specialist);
+                loaded_count += 1;
+            }
+        }
+
+        Ok(loaded_count)
     }
 
     /// Get a specialist by ID.
@@ -319,6 +387,38 @@ impl SpecialistLoader {
                         tracing::warn!(
                             "[SpecialistLoader] Failed to load from '{}': {}",
                             dir_str,
+                            e
+                        );
+                    }
+                }
+            }
+        }
+
+        total
+    }
+
+    /// Search default directories and overlay locale-specific YAML definitions.
+    pub fn load_default_dirs_with_locale(&mut self, locale: &str) -> usize {
+        let mut total = 0;
+
+        for dir in Self::default_search_paths() {
+            if dir.is_dir() {
+                let dir_str = dir.to_string_lossy().to_string();
+                match self.load_dir_with_locale(&dir_str, locale) {
+                    Ok(n) => {
+                        tracing::info!(
+                            "[SpecialistLoader] Loaded {} specialists from '{}' with locale '{}'",
+                            n,
+                            dir_str,
+                            locale
+                        );
+                        total += n;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "[SpecialistLoader] Failed to load from '{}' with locale '{}': {}",
+                            dir_str,
+                            locale,
                             e
                         );
                     }
@@ -745,6 +845,93 @@ system_prompt: "second prompt"
 
         assert!(err.contains("Duplicate specialist id 'developer'"));
         assert!(err.contains("conflicts"));
+    }
+
+    #[test]
+    fn test_load_dir_with_locale_overlays_base_definitions() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+
+        std::fs::create_dir_all(root.join("core")).unwrap();
+        std::fs::create_dir_all(root.join("review")).unwrap();
+        std::fs::create_dir_all(root.join("locales").join("zh-CN").join("core")).unwrap();
+
+        std::fs::write(
+            root.join("core").join("developer.yaml"),
+            r#"id: "developer"
+name: "Developer"
+system_prompt: "English developer prompt"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("review").join("gate.yaml"),
+            r#"id: "gate"
+name: "Gate"
+system_prompt: "English gate prompt"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("locales")
+                .join("zh-CN")
+                .join("core")
+                .join("developer.yaml"),
+            r#"id: "developer"
+name: "开发者"
+system_prompt: "中文 developer prompt"
+"#,
+        )
+        .unwrap();
+
+        let mut loader = SpecialistLoader::new();
+        loader
+            .load_dir_with_locale(root.to_str().unwrap(), "zh-CN")
+            .unwrap();
+
+        let developer = loader.get("developer").unwrap();
+        let gate = loader.get("gate").unwrap();
+
+        assert_eq!(developer.name, "开发者");
+        assert_eq!(developer.system_prompt, "中文 developer prompt");
+        assert_eq!(gate.name, "Gate");
+        assert_eq!(gate.system_prompt, "English gate prompt");
+    }
+
+    #[test]
+    fn test_load_default_dirs_with_locale_reads_bundled_overlays() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let bundled_root = temp_dir.path().join("resources").join("specialists");
+        std::fs::create_dir_all(bundled_root.join("core")).unwrap();
+        std::fs::create_dir_all(bundled_root.join("locales").join("zh-CN").join("core")).unwrap();
+        std::fs::write(
+            bundled_root.join("core").join("developer.yaml"),
+            r#"id: "developer"
+name: "Developer"
+system_prompt: "English prompt"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            bundled_root
+                .join("locales")
+                .join("zh-CN")
+                .join("core")
+                .join("developer.yaml"),
+            r#"id: "developer"
+name: "开发者"
+system_prompt: "中文 prompt"
+"#,
+        )
+        .unwrap();
+
+        let _scope = with_specialists_resource_dir(temp_dir.path());
+
+        let mut loader = SpecialistLoader::new();
+        let count = loader.load_default_dirs_with_locale("zh-CN");
+
+        assert_eq!(count, 2);
+        assert_eq!(loader.get("developer").unwrap().name, "开发者");
     }
 
     #[test]
