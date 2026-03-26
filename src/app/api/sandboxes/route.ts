@@ -3,13 +3,21 @@
  * POST /api/sandboxes  — Create a new sandbox
  */
 import { NextRequest, NextResponse } from "next/server";
-import { SandboxManager } from "@/core/sandbox";
+import { proxyRustSandboxRequest, SandboxManager } from "@/core/sandbox";
 import type { CreateSandboxRequest } from "@/core/sandbox";
 
 export const dynamic = "force-dynamic";
 
 /** GET /api/sandboxes */
 export async function GET() {
+  const rustResponse = await proxyRustSandboxRequest("/api/sandboxes", {
+    method: "GET",
+  });
+  if (rustResponse) {
+    const payload = await rustResponse.json().catch(() => ({ error: "Invalid sandbox response" }));
+    return NextResponse.json(payload, { status: rustResponse.status });
+  }
+
   const mgr = SandboxManager.getInstance();
   return NextResponse.json({ sandboxes: mgr.listSandboxes() });
 }
@@ -28,6 +36,16 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const rustResponse = await proxyRustSandboxRequest("/api/sandboxes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (rustResponse) {
+      const payload = await rustResponse.json().catch(() => ({ error: "Invalid sandbox response" }));
+      return NextResponse.json(payload, { status: rustResponse.status });
+    }
+
     const mgr = SandboxManager.getInstance();
     const info = await mgr.createSandbox(body);
     return NextResponse.json(info, { status: 201 });

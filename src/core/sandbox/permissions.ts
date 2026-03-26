@@ -28,6 +28,33 @@ export function getRustSandboxApiBaseUrl(): string | null {
   return configuredUrl ? stripTrailingSlash(configuredUrl) : null;
 }
 
+function buildRustSandboxApiUrl(path: string): string | null {
+  const baseUrl = getRustSandboxApiBaseUrl();
+  if (!baseUrl) {
+    return null;
+  }
+
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${baseUrl}${normalizedPath}`;
+}
+
+export async function proxyRustSandboxRequest(
+  path: string,
+  init?: RequestInit,
+): Promise<Response | null> {
+  const url = buildRustSandboxApiUrl(path);
+  if (!url) {
+    return null;
+  }
+
+  const requestInit: RequestInit = { ...init };
+  if (!requestInit.cache) {
+    requestInit.cache = "no-store";
+  }
+
+  return fetch(url, requestInit);
+}
+
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => null) as
     | T
@@ -63,17 +90,15 @@ export async function applySandboxPermissionConstraints(
 export async function createRustSandbox(
   request: CreateSandboxRequest,
 ): Promise<SandboxInfo> {
-  const baseUrl = getRustSandboxApiBaseUrl();
-  if (!baseUrl) {
-    throw new Error("Rust sandbox API is not configured. Set ROUTA_SERVER_URL to create sandboxes.");
-  }
-
-  const response = await fetch(`${baseUrl}/api/sandboxes`, {
+  const response = await proxyRustSandboxRequest("/api/sandboxes", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
-    cache: "no-store",
   });
+
+  if (!response) {
+    throw new Error("Rust sandbox API is not configured. Set ROUTA_SERVER_URL to create sandboxes.");
+  }
 
   return parseJsonResponse<SandboxInfo>(response);
 }
@@ -81,17 +106,15 @@ export async function createRustSandbox(
 export async function explainRustSandboxPolicy(
   request: CreateSandboxRequest,
 ): Promise<{ policy: unknown }> {
-  const baseUrl = getRustSandboxApiBaseUrl();
-  if (!baseUrl) {
-    throw new Error("Rust sandbox API is not configured. Set ROUTA_SERVER_URL to explain sandbox policies.");
-  }
-
-  const response = await fetch(`${baseUrl}/api/sandboxes/explain`, {
+  const response = await proxyRustSandboxRequest("/api/sandboxes/explain", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
-    cache: "no-store",
   });
+
+  if (!response) {
+    throw new Error("Rust sandbox API is not configured. Set ROUTA_SERVER_URL to explain sandbox policies.");
+  }
 
   return parseJsonResponse<{ policy: unknown }>(response);
 }
@@ -145,21 +168,21 @@ export async function proxyRustSandboxPermissionMutation(
   action: "apply" | "explain",
   constraints: SandboxPermissionConstraints,
 ): Promise<Response> {
-  const baseUrl = getRustSandboxApiBaseUrl();
-  if (!baseUrl) {
+  const response = await proxyRustSandboxRequest(
+    `/api/sandboxes/${encodeURIComponent(sandboxId)}/permissions/${action}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ constraints }),
+    },
+  );
+
+  if (!response) {
     return Response.json(
       { error: "Rust sandbox API is not configured. Set ROUTA_SERVER_URL to enable permission mutation." },
       { status: 503 },
     );
   }
 
-  return fetch(
-    `${baseUrl}/api/sandboxes/${encodeURIComponent(sandboxId)}/permissions/${action}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ constraints }),
-      cache: "no-store",
-    },
-  );
+  return response;
 }

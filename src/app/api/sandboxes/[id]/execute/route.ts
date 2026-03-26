@@ -8,7 +8,7 @@
  *   {"error": "<traceback>"}
  */
 import { NextRequest, NextResponse } from "next/server";
-import { SandboxManager } from "@/core/sandbox";
+import { proxyRustSandboxRequest, SandboxManager } from "@/core/sandbox";
 import type { ExecuteRequest } from "@/core/sandbox";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +31,31 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   try {
+    const rustResponse = await proxyRustSandboxRequest(
+      `/api/sandboxes/${encodeURIComponent(id)}/execute`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    if (rustResponse) {
+      if (!rustResponse.ok) {
+        const payload = await rustResponse.json().catch(() => ({ error: "Invalid sandbox response" }));
+        return NextResponse.json(payload, { status: rustResponse.status });
+      }
+
+      return new NextResponse(rustResponse.body, {
+        status: rustResponse.status,
+        headers: {
+          "Content-Type": rustResponse.headers.get("Content-Type") ?? "application/x-ndjson",
+          "Transfer-Encoding": rustResponse.headers.get("Transfer-Encoding") ?? "chunked",
+          "Cache-Control": rustResponse.headers.get("Cache-Control") ?? "no-cache",
+          "X-Accel-Buffering": rustResponse.headers.get("X-Accel-Buffering") ?? "no",
+        },
+      });
+    }
+
     const mgr = SandboxManager.getInstance();
     const upstream = await mgr.executeInSandbox(id, body);
 
