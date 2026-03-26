@@ -133,6 +133,10 @@ function parseCommand(command: string): { executable: string; args: string[] } {
 }
 
 function validateExecutable(executable: string): void {
+  if (executable.includes("/") || executable.includes("\\")) {
+    throw new Error(`command executable "${executable}" must be a bare allowlisted name`);
+  }
+
   const commandName = path.basename(executable);
   if (!ALLOWED_COMMAND_EXECUTABLES.has(commandName)) {
     throw new Error(`command executable "${commandName}" is not allowed`);

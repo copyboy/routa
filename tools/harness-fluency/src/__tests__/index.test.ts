@@ -384,4 +384,68 @@ criteria:
       ]),
     );
   });
+
+  it("rejects path-based command executables before allowlist checks", async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), "harness-fluency-path-guard-"));
+    mkdirSync(path.join(repoRoot, "docs", "fitness"), { recursive: true });
+
+    const modelPath = path.join(repoRoot, "docs", "fitness", "model.yaml");
+    const snapshotPath = path.join(repoRoot, "docs", "fitness", "latest.json");
+
+    writeFileSync(path.join(repoRoot, "AGENTS.md"), "# contract\n", "utf8");
+    writeFileSync(
+      modelPath,
+      `version: 1
+levels:
+  - id: awareness
+    name: Awareness
+dimensions:
+  - id: collaboration
+    name: Collaboration
+criteria:
+  - id: collaboration.awareness.file
+    level: awareness
+    dimension: collaboration
+    weight: 1
+    critical: true
+    why_it_matters: file
+    recommended_action: file
+    evidence_hint: AGENTS.md
+    detector:
+      type: file_exists
+      path: AGENTS.md
+  - id: collaboration.awareness.command
+    level: awareness
+    dimension: collaboration
+    weight: 1
+    critical: false
+    why_it_matters: command
+    recommended_action: command
+    evidence_hint: ./node -p 1
+    detector:
+      type: command_exit_code
+      command: ./node -p 1
+      expectedExitCode: 0
+`,
+      "utf8",
+    );
+
+    const report = await evaluateHarnessFluency({
+      repoRoot,
+      modelPath,
+      snapshotPath,
+      compareLast: false,
+      save: false,
+    });
+
+    expect(report.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "collaboration.awareness.command",
+          status: "fail",
+          detail: expect.stringContaining('command executable "./node" must be a bare allowlisted name'),
+        }),
+      ]),
+    );
+  });
 });
