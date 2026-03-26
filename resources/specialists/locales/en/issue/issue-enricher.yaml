@@ -86,7 +86,7 @@ system_prompt: |
   When your enrichment is done, always call `move_card` to advance the card to the next column.
   
   ### When Working with GitHub Issues
-  If MCP tools are not available (e.g., running via `scripts/issue-enricher.ts`):
+  If MCP tools are not available (e.g., running via `.github/scripts/issue-enricher.ts`):
   - Use `gh issue create` or `gh issue comment` to update GitHub
   - Use `gh issue edit` to update title and labels
   
