@@ -73,3 +73,20 @@ entry points later), and prevents policy logic from being hardcoded in hook scri
 - phase 显示：补齐 `phase 3/3`（review checks），`dry-run` 下也会显示 skipped 语义。
 - 失败日志：在失败摘要里加入 metric 命令、持续时间，并优先抽取 error/fail/fatal 等失败线索，去除长尾噪音。
 - 难以定位问题：失败时直接给出 `- <metric>` 的命令与关键上下文，便于一眼知道挂在哪个检查点。
+
+### Follow-up fix on same day
+
+补充记录一个被你抓到的阻塞根因：Rust 测试模块 `crates/routa-core/src/workflow/specialist.rs` 中
+`ROUTA_SPECIALISTS_RESOURCE_DIR` 是进程级环境变量，原先测试并行时会互相覆盖，导致
+`test_load_default_dirs_reads_tauri_resource_specialists` 在某些执行顺序下偶发失效，进而影响 pre-push 的
+`rust_test` 结果稳定性。
+
+已修复方式：
+
+- 在测试内新增 `with_specialists_resource_dir(...)` 作用域辅助，串行化该 env 变量相关测试；
+- 使用 `EnvVarGuard` 在作用域结束自动恢复 env 原值；
+- 替代手工 `set_var/remove_var`，避免并发路径下污染全局环境。
+
+后续观察点：
+
+- 重点关注 `pre-push` 上 `rust_test_pass` 的波动性。

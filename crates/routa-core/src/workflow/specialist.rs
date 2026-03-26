@@ -428,6 +428,55 @@ impl SpecialistLoader {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+    use std::ffi::OsString;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    static ROUTA_SPECIALISTS_RESOURCE_DIR_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn specialists_resource_dir_lock() -> &'static Mutex<()> {
+        ROUTA_SPECIALISTS_RESOURCE_DIR_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set_var_and_restore(value: &Path) -> Self {
+            let key = "ROUTA_SPECIALISTS_RESOURCE_DIR";
+            let previous = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self {
+                key,
+                previous,
+            }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(prev) = self.previous.clone() {
+                std::env::set_var(self.key, prev);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    struct SpecialistsResourceDirScope {
+        _lock: MutexGuard<'static, ()>,
+        _restore: EnvVarGuard,
+    }
+
+    fn with_specialists_resource_dir(path: &Path) -> SpecialistsResourceDirScope {
+        let lock = specialists_resource_dir_lock().lock().unwrap();
+        let restore = EnvVarGuard::set_var_and_restore(path);
+        SpecialistsResourceDirScope {
+            _lock: lock,
+            _restore: restore,
+        }
+    }
 
     fn find_repo_root() -> PathBuf {
         let mut current = std::env::current_dir().unwrap();
@@ -507,10 +556,7 @@ system_prompt: |
                 .join("specialists"),
         )
         .unwrap();
-        std::env::set_var(
-            "ROUTA_SPECIALISTS_RESOURCE_DIR",
-            temp_dir.path().to_string_lossy().to_string(),
-        );
+        let _scope = with_specialists_resource_dir(temp_dir.path());
         let search_paths = SpecialistLoader::default_search_paths();
         assert!(search_paths
             .iter()
@@ -533,7 +579,6 @@ system_prompt: |
                 .join("resources")
                 .join("specialists")
         }));
-        std::env::remove_var("ROUTA_SPECIALISTS_RESOURCE_DIR");
     }
 
     #[test]
@@ -551,10 +596,7 @@ system_prompt: "Coordinate the team."
         )
         .unwrap();
 
-        std::env::set_var(
-            "ROUTA_SPECIALISTS_RESOURCE_DIR",
-            temp_dir.path().to_string_lossy().to_string(),
-        );
+        let _scope = with_specialists_resource_dir(temp_dir.path());
 
         let mut loader = SpecialistLoader::new();
         let count = loader.load_default_dirs();
@@ -562,7 +604,6 @@ system_prompt: "Coordinate the team."
         assert_eq!(count, 1);
         assert!(loader.get("team-agent-lead").is_some());
 
-        std::env::remove_var("ROUTA_SPECIALISTS_RESOURCE_DIR");
     }
 
     #[test]
@@ -586,10 +627,7 @@ system_prompt: "Verify the work."
         )
         .unwrap();
 
-        std::env::set_var(
-            "ROUTA_SPECIALISTS_RESOURCE_DIR",
-            temp_dir.path().to_string_lossy().to_string(),
-        );
+        let _scope = with_specialists_resource_dir(temp_dir.path());
 
         let mut loader = SpecialistLoader::new();
         let count = loader.load_default_dirs();
@@ -597,7 +635,6 @@ system_prompt: "Verify the work."
         assert_eq!(count, 1);
         assert!(loader.get("team-qa").is_some());
 
-        std::env::remove_var("ROUTA_SPECIALISTS_RESOURCE_DIR");
     }
 
     #[test]
