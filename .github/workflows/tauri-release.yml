@@ -41,6 +41,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Sync release version
+        env:
+          RELEASE_VERSION: ${{ inputs.version || github.event.inputs.version }}
+        run: node scripts/sync-release-version.mjs --version "${RELEASE_VERSION}"
+
+      - name: Verify synced release files
+        shell: bash
+        run: |
+          mapfile -t changed_files < <(git diff --name-only)
+          if [[ ${#changed_files[@]} -eq 0 ]]; then
+            echo "Release version already aligned"
+            exit 0
+          fi
+
+          allowed_files=(
+            "package.json"
+            "apps/desktop/package.json"
+            "apps/desktop/src-tauri/Cargo.toml"
+            "apps/desktop/src-tauri/tauri.conf.json"
+            "packages/routa-cli/package.json"
+          )
+
+          for file in "${changed_files[@]}"; do
+            case " ${allowed_files[*]} " in
+              *" ${file} "*) ;;
+              *)
+                echo "Unexpected file changed during release version sync: ${file}" >&2
+                exit 1
+                ;;
+            esac
+          done
+
       - name: Install dependencies (Ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
