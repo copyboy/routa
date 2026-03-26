@@ -179,7 +179,7 @@ routa chat                        # Interactive chat
 Routa is a practical case study of [Harness Engineering](https://www.phodal.com/blog/harness-engineering/) — building systems that are readable for AI, constrained by guardrails, and improved through fast automated feedback.
 
 - **Readability** — [AGENTS.md](AGENTS.md) defines standards. Specialist definitions in [`resources/specialists/`](resources/specialists/) reveal role boundaries. Machine-friendly interfaces (MCP, ACP, A2A, REST, CLI) mean agent workflows don't depend on manual UI steps.
-- **Defense** — Pre-commit lint, pre-push smart checks, and fitness functions ([docs/fitness/](docs/fitness/)) define hard gates: tests, API contract checks, and lint.
+- **Defense** — Pre-commit lint and pre-push `tools/hook-runtime` checks plus fitness functions ([docs/fitness/](docs/fitness/)) define hard gates: tests, API contract checks, and lint.
 - **Feedback Loops** — Issue enrichment, review handoff automation, and backlog hygiene workflows close the loop between agent output and the next iteration.
 
 ## License
