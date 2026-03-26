@@ -163,7 +163,7 @@ try {
     );
   }
 
-  const rootDir = path.join(stagingRoot, "routa");
+  const rootDir = path.join(stagingRoot, sourceTemplate.name);
   await fsp.cp(sourcePackage, rootDir, { recursive: true });
 
   const rootPackageJson = {

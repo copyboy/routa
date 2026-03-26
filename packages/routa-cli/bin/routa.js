@@ -46,7 +46,7 @@ const binaryPath =
 
 if (!binaryPath) {
   throw new Error(
-    `No routa CLI binary found for ${PLATFORM_KEY}. Reinstall with: npm install -g routa`,
+    `No routa CLI binary found for ${PLATFORM_KEY}. Reinstall with: npm install -g routa-cli`,
   );
 }
 

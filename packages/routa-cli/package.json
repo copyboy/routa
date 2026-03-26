@@ -1,5 +1,5 @@
 {
-  "name": "routa",
+  "name": "routa-cli",
   "version": "0.0.0",
   "description": "Routa.js CLI for terminal-first workflows.",
   "type": "module",

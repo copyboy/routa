@@ -6,13 +6,13 @@ platform-specific binary dependency.
 ## Install
 
 ```bash
-npm install -g routa
+npm install -g routa-cli
 ```
 
 or one-off usage:
 
 ```bash
-npx routa --help
+npx -p routa-cli routa --help
 ```
 
 ## Usage
