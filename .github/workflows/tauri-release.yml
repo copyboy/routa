@@ -97,7 +97,12 @@ jobs:
           projectPath: apps/desktop
           tagName: v__VERSION__
           releaseName: 'Routa Desktop v__VERSION__'
-          releaseBody: 'See the assets to download and install Routa Desktop.'
+          releaseBody: |
+            See the assets to download and install Routa Desktop.
+
+            CLI install:
+            - `npm install -g routa-cli`
+            - `npx -p routa-cli routa --help`
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
