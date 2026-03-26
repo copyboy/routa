@@ -84,6 +84,65 @@ describe("KanbanSettingsModal", () => {
     });
   });
 
+  it("saves A2A transport settings for a lane", async () => {
+    const onSave = vi.fn(async () => {});
+    const reviewBoard: KanbanBoardInfo = {
+      ...board,
+      columns: [board.columns[1]],
+    };
+
+    render(
+      <KanbanSettingsModal
+        board={reviewBoard}
+        columnAutomation={{}}
+        availableProviders={[{ id: "claude", name: "Claude Code", description: "Claude Code provider", command: "claude" }]}
+        specialists={[{ id: "kanban-review-guard", name: "Review Guard", role: "GATE" }]}
+        specialistLanguage="en"
+        onClose={vi.fn()}
+        onClearAll={vi.fn(async () => {})}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /toggle automation for review/i }));
+    fireEvent.change(screen.getByLabelText("Transport"), { target: { value: "a2a" } });
+    fireEvent.change(screen.getByLabelText("Agent Card URL"), {
+      target: { value: "https://agents.example.com/reviewer/agent-card.json" },
+    });
+    fireEvent.change(screen.getByLabelText("Skill ID"), { target: { value: "review" } });
+    fireEvent.change(screen.getByLabelText("Auth Config ID"), { target: { value: "agent-auth" } });
+    fireEvent.click(screen.getByRole("button", { name: /save board settings/i }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(
+        [expect.objectContaining({ id: "review", visible: true, position: 1 })],
+        {
+          review: expect.objectContaining({
+            enabled: true,
+            steps: [expect.objectContaining({
+              transport: "a2a",
+              role: "GATE",
+              agentCardUrl: "https://agents.example.com/reviewer/agent-card.json",
+              skillId: "review",
+              authConfigId: "agent-auth",
+            })],
+            providerId: undefined,
+            role: "GATE",
+            transitionType: "exit",
+            requiredArtifacts: ["screenshot", "test_results"],
+          }),
+        },
+        2,
+        {
+          mode: "watchdog_retry",
+          inactivityTimeoutMinutes: 10,
+          maxRecoveryAttempts: 1,
+          completionRequirement: "turn_complete",
+        },
+      );
+    });
+  });
+
   it("keeps runtime settings collapsed until requested", () => {
     render(
       <KanbanSettingsModal

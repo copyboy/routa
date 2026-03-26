@@ -8,6 +8,7 @@ import {
   getKanbanAutomationSteps,
   type KanbanAutomationStep,
   type KanbanColumnAutomation,
+  type KanbanTransport,
 } from "@/core/models/kanban";
 import {
   SPECIALIST_CATEGORY_OPTIONS,
@@ -82,8 +83,70 @@ const ARTIFACT_OPTIONS = [
 function createEmptyAutomationStep(index: number): KanbanAutomationStep {
   return {
     id: `step-${index + 1}`,
+    transport: "acp",
     role: "DEVELOPER",
   };
+}
+
+function getStepTransport(step?: KanbanAutomationStep): KanbanTransport {
+  return step?.transport ?? "acp";
+}
+
+function isA2AStep(step?: KanbanAutomationStep): boolean {
+  return getStepTransport(step) === "a2a";
+}
+
+function setAutomationStepTransport(step: KanbanAutomationStep, transport: KanbanTransport): KanbanAutomationStep {
+  if (transport === "a2a") {
+    return {
+      ...step,
+      transport,
+      providerId: undefined,
+    };
+  }
+
+  return {
+    ...step,
+    transport,
+    agentCardUrl: undefined,
+    skillId: undefined,
+    authConfigId: undefined,
+  };
+}
+
+function getAutomationTransportMode(
+  automation: ColumnAutomationConfig | undefined,
+): "acp" | "a2a" | "mixed" {
+  const steps = getKanbanAutomationSteps(automation);
+  const transports = new Set(steps.map((step) => getStepTransport(step)));
+  if (transports.size > 1) return "mixed";
+  return transports.has("a2a") ? "a2a" : "acp";
+}
+
+function getAutomationTransportLabel(
+  column: KanbanBoardInfo["columns"][0],
+  automation: ColumnAutomationConfig | undefined,
+): string {
+  if (getColumnWorkflowMode(column, automation) === "manual") {
+    return "Manual";
+  }
+
+  const transportMode = getAutomationTransportMode(automation);
+  if (transportMode === "a2a") return "A2A";
+  if (transportMode === "mixed") return "Mixed";
+  return "ACP";
+}
+
+function formatAgentCardTarget(agentCardUrl?: string): string | undefined {
+  const trimmed = agentCardUrl?.trim();
+  if (!trimmed) return undefined;
+
+  try {
+    const parsed = new URL(trimmed);
+    return `${parsed.hostname}${parsed.pathname !== "/" ? parsed.pathname : ""}`;
+  } catch {
+    return trimmed.replace(/^https?:\/\//, "");
+  }
 }
 
 function isManualOnlyColumn(column: KanbanBoardInfo["columns"][0]): boolean {
@@ -283,14 +346,16 @@ function syncAutomationPrimaryStep(automation: ColumnAutomationConfig): ColumnAu
   const steps = (automation.steps ?? []).map((step, index) => ({
     ...step,
     id: step.id?.trim() || `step-${index + 1}`,
+    transport: getStepTransport(step),
     role: step.role ?? "DEVELOPER",
   }));
   const primaryStep = steps[0];
+  const primaryTransport = getStepTransport(primaryStep);
 
   return {
     ...automation,
     steps,
-    providerId: primaryStep?.providerId ?? automation.providerId,
+    providerId: primaryTransport === "acp" ? primaryStep?.providerId ?? automation.providerId : undefined,
     role: primaryStep?.role ?? automation.role,
     specialistId: primaryStep?.specialistId ?? automation.specialistId,
     specialistName: primaryStep?.specialistName ?? automation.specialistName,
@@ -816,7 +881,7 @@ export function KanbanSettingsModal({
                                     : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
                                 }`}
                               >
-                                {workflowMode === "manual" ? "Manual" : "ACP"}
+                                {getAutomationTransportLabel(column, automation)}
                               </div>
                             </div>
                           </button>
@@ -841,7 +906,7 @@ export function KanbanSettingsModal({
                                 />
                               </label>
                               <label className="flex items-center gap-1.5">
-                                <span className={`text-[9px] font-semibold uppercase tracking-[0.16em] ${active ? "text-slate-300" : "text-slate-500 dark:text-slate-400"}`}>ACP</span>
+                                  <span className={`text-[9px] font-semibold uppercase tracking-[0.16em] ${active ? "text-slate-300" : "text-slate-500 dark:text-slate-400"}`}>Automation</span>
                                 <input
                                   type="checkbox"
                                   aria-label={`Toggle automation for ${column.name}`}
@@ -1107,6 +1172,7 @@ function ColumnAutomationWorkspace({
     return [...baseSpecialists, ...fallbackSpecialists];
   }, [automationSteps, specialistCategory, specialists]);
   const firstStep = automationSteps[0];
+  const firstStepTransport = getStepTransport(firstStep);
   const applyDefaultAutomation = () => {
     onUpdate(getDefaultAutomationForStage(column.stage));
   };
@@ -1118,7 +1184,7 @@ function ColumnAutomationWorkspace({
           Blocked is a manual-only lane.
         </p>
         <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
-          Cards can stop here without creating ACP sessions or looking misconfigured.
+          Cards can stop here without creating automation sessions or looking misconfigured.
         </p>
         <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
           Automation is intentionally unavailable for this stage.
@@ -1140,20 +1206,81 @@ function ColumnAutomationWorkspace({
                 Defaults
               </button>
             </div>
-            <div className="grid grid-cols-1 gap-2.5 xl:grid-cols-4">
-              <ConfigField label="Provider">
-                <ProviderField
-                  providers={availableProviders}
-                  value={firstStep?.providerId}
-                  ariaLabel="Provider"
-                  dataTestId="kanban-settings-provider"
-                  onChange={(providerId) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
+            <div className="grid grid-cols-1 gap-2.5 xl:grid-cols-6">
+              <ConfigField label="Transport">
+                <SelectControl
+                  aria-label="Transport"
+                  value={firstStepTransport}
+                  onChange={(event) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
                     stepIndex === 0
-                      ? { ...currentStep, providerId }
+                      ? setAutomationStepTransport(currentStep, event.target.value as KanbanTransport)
                       : currentStep
                   ))))}
-                />
+                >
+                  <option value="acp">ACP</option>
+                  <option value="a2a">A2A</option>
+                </SelectControl>
               </ConfigField>
+              {firstStepTransport === "acp" ? (
+                <ConfigField label="Provider">
+                  <ProviderField
+                    providers={availableProviders}
+                    value={firstStep?.providerId}
+                    ariaLabel="Provider"
+                    dataTestId="kanban-settings-provider"
+                    onChange={(providerId) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
+                      stepIndex === 0
+                        ? { ...currentStep, providerId }
+                        : currentStep
+                    ))))}
+                  />
+                </ConfigField>
+              ) : (
+                <ConfigField label="Agent Card URL">
+                  <input
+                    aria-label="Agent Card URL"
+                    type="url"
+                    value={firstStep?.agentCardUrl ?? ""}
+                    onChange={(event) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
+                      stepIndex === 0
+                        ? { ...currentStep, agentCardUrl: event.target.value || undefined }
+                        : currentStep
+                    ))))}
+                    placeholder="https://agents.example.com/agent-card.json"
+                    className={INPUT_CLASS}
+                  />
+                </ConfigField>
+              )}
+              {firstStepTransport === "a2a" && (
+                <ConfigField label="Skill ID">
+                  <input
+                    aria-label="Skill ID"
+                    value={firstStep?.skillId ?? ""}
+                    onChange={(event) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
+                      stepIndex === 0
+                        ? { ...currentStep, skillId: event.target.value || undefined }
+                        : currentStep
+                    ))))}
+                    placeholder="review"
+                    className={INPUT_CLASS}
+                  />
+                </ConfigField>
+              )}
+              {firstStepTransport === "a2a" && (
+                <ConfigField label="Auth Config ID">
+                  <input
+                    aria-label="Auth Config ID"
+                    value={firstStep?.authConfigId ?? ""}
+                    onChange={(event) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
+                      stepIndex === 0
+                        ? { ...currentStep, authConfigId: event.target.value || undefined }
+                        : currentStep
+                    ))))}
+                    placeholder="agent-auth"
+                    className={INPUT_CLASS}
+                  />
+                </ConfigField>
+              )}
               <ConfigField label="Role">
                 <SelectControl
                   aria-label="Role"
@@ -1224,6 +1351,7 @@ function ColumnAutomationWorkspace({
             <div className="space-y-2">
                     {automationSteps.map((step, index) => {
                       const stepSpecialist = findSpecialistById(specialists, step.specialistId) ?? null;
+                      const stepTransport = getStepTransport(step);
                       return (
                         <div key={step.id} className="rounded-md border border-slate-200 bg-slate-50/60 px-2 py-2 dark:border-slate-800 dark:bg-[#111722]">
                           <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,132px)_minmax(0,1fr)_auto] md:items-start">
@@ -1232,26 +1360,89 @@ function ColumnAutomationWorkspace({
                                 Step {index + 1}
                               </div>
                               <div className="mt-0.5 truncate text-[13px] font-semibold text-slate-900 dark:text-slate-100">
-                                {getSpecialistDisplayName(stepSpecialist) ?? step.specialistName ?? step.role ?? "DEVELOPER"}
+                                {stepTransport === "a2a"
+                                  ? formatAgentCardTarget(step.agentCardUrl) ?? getSpecialistDisplayName(stepSpecialist) ?? step.specialistName ?? step.role ?? "A2A"
+                                  : getSpecialistDisplayName(stepSpecialist) ?? step.specialistName ?? step.role ?? "DEVELOPER"}
                               </div>
                             </div>
-                            <div className="grid grid-cols-1 gap-2 xl:grid-cols-3">
-                              <ConfigField label={`Provider ${index + 1}`}>
-                                <ProviderField
-                                  providers={availableProviders}
-                                  value={step.providerId}
-                                  ariaLabel={index === 0 ? "Provider" : `Provider ${index + 1}`}
-                                  dataTestId={`kanban-settings-provider-${index + 1}`}
-                                  onChange={(providerId) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
+                            <div className="grid grid-cols-1 gap-2 xl:grid-cols-6">
+                              <ConfigField label={`Transport ${index + 1}`}>
+                                <SelectControl
+                                  aria-label={`Transport ${index + 1}`}
+                                  value={stepTransport}
+                                  onChange={(event) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
                                     stepIndex === index
-                                      ? { ...currentStep, providerId }
+                                      ? setAutomationStepTransport(currentStep, event.target.value as KanbanTransport)
                                       : currentStep
                                   ))))}
-                                />
+                                >
+                                  <option value="acp">ACP</option>
+                                  <option value="a2a">A2A</option>
+                                </SelectControl>
                               </ConfigField>
+                              {stepTransport === "acp" ? (
+                                <ConfigField label={`Provider ${index + 1}`}>
+                                  <ProviderField
+                                    providers={availableProviders}
+                                    value={step.providerId}
+                                    ariaLabel={`Provider ${index + 1}`}
+                                    dataTestId={`kanban-settings-provider-${index + 1}`}
+                                    onChange={(providerId) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
+                                      stepIndex === index
+                                        ? { ...currentStep, providerId }
+                                        : currentStep
+                                    ))))}
+                                  />
+                                </ConfigField>
+                              ) : (
+                                <ConfigField label={`Agent Card URL ${index + 1}`}>
+                                  <input
+                                    aria-label={`Agent Card URL ${index + 1}`}
+                                    type="url"
+                                    value={step.agentCardUrl ?? ""}
+                                    onChange={(event) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
+                                      stepIndex === index
+                                        ? { ...currentStep, agentCardUrl: event.target.value || undefined }
+                                        : currentStep
+                                    ))))}
+                                    placeholder="https://agents.example.com/agent-card.json"
+                                    className={INPUT_CLASS}
+                                  />
+                                </ConfigField>
+                              )}
+                              {stepTransport === "a2a" && (
+                                <ConfigField label={`Skill ID ${index + 1}`}>
+                                  <input
+                                    aria-label={`Skill ID ${index + 1}`}
+                                    value={step.skillId ?? ""}
+                                    onChange={(event) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
+                                      stepIndex === index
+                                        ? { ...currentStep, skillId: event.target.value || undefined }
+                                        : currentStep
+                                    ))))}
+                                    placeholder="review"
+                                    className={INPUT_CLASS}
+                                  />
+                                </ConfigField>
+                              )}
+                              {stepTransport === "a2a" && (
+                                <ConfigField label={`Auth Config ID ${index + 1}`}>
+                                  <input
+                                    aria-label={`Auth Config ID ${index + 1}`}
+                                    value={step.authConfigId ?? ""}
+                                    onChange={(event) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
+                                      stepIndex === index
+                                        ? { ...currentStep, authConfigId: event.target.value || undefined }
+                                        : currentStep
+                                    ))))}
+                                    placeholder="agent-auth"
+                                    className={INPUT_CLASS}
+                                  />
+                                </ConfigField>
+                              )}
                               <ConfigField label={`Role ${index + 1}`}>
                                 <SelectControl
-                                  aria-label={index === 0 ? "Role" : `Role ${index + 1}`}
+                                  aria-label={`Role ${index + 1}`}
                                   value={step.role ?? "DEVELOPER"}
                                   onChange={(event) => onUpdate(updateAutomationSteps(automation, (steps) => steps.map((currentStep, stepIndex) => (
                                     stepIndex === index
@@ -1269,7 +1460,7 @@ function ColumnAutomationWorkspace({
 
                               <ConfigField label={`Specialist ${index + 1}`}>
                                 <SelectControl
-                                  aria-label={index === 0 ? "Specialist" : `Specialist ${index + 1}`}
+                                  aria-label={`Specialist ${index + 1}`}
                                   value={getLanguageSpecificSpecialistId(step.specialistId, specialistLanguage) ?? ""}
                                   onChange={(event) => {
                                     const specialist = findSpecialistById(specialists, event.target.value);
@@ -1477,6 +1668,16 @@ function formatAutomationStepSummary(
   providers: AcpProviderInfo[],
   specialists: SpecialistOption[],
 ): string {
+  if (isA2AStep(step)) {
+    const specialist = getSpecialistDisplayName(findSpecialistById(specialists, step.specialistId)) ?? step.specialistName;
+    return [
+      "A2A",
+      specialist ?? step.role ?? `Step ${index + 1}`,
+      formatAgentCardTarget(step.agentCardUrl),
+      step.skillId ? `skill:${step.skillId}` : undefined,
+    ].filter(Boolean).join(" • ");
+  }
+
   const provider = resolveProviderName(step.providerId, providers) ?? "Default";
   const specialist = getSpecialistDisplayName(findSpecialistById(specialists, step.specialistId)) ?? step.specialistName;
   return [provider, specialist ?? step.role ?? `Step ${index + 1}`].filter(Boolean).join(" • ");
@@ -1495,3 +1696,4 @@ function getAutomationSummary(
 }
 
 const SELECT_CLASS = "h-10 w-full min-w-0 appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-10 text-sm text-slate-900 outline-none transition hover:bg-slate-50 focus:border-amber-400 dark:border-slate-700 dark:bg-[#0b1119] dark:text-slate-100 dark:hover:bg-[#111722]";
+const INPUT_CLASS = "h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition hover:bg-slate-50 focus:border-amber-400 dark:border-slate-700 dark:bg-[#0b1119] dark:text-slate-100 dark:hover:bg-[#111722]";

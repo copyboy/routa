@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpProviderInfo } from "@/client/acp-client";
 import type { CodebaseData } from "@/client/hooks/use-workspaces";
 import {
+  type EffectiveTaskAutomation,
   resolveEffectiveTaskAutomation,
   resolveKanbanAutomationStep,
 } from "@/core/kanban/effective-task-automation";
@@ -59,6 +60,45 @@ function getProviderName(providerId: string | undefined, availableProviders: Acp
   return availableProviders.find((provider) => provider.id === providerId)?.name ?? providerId;
 }
 
+function formatAgentCardTarget(agentCardUrl?: string): string | undefined {
+  const trimmed = agentCardUrl?.trim();
+  if (!trimmed) return undefined;
+
+  try {
+    const parsed = new URL(trimmed);
+    return `${parsed.hostname}${parsed.pathname !== "/" ? parsed.pathname : ""}`;
+  } catch {
+    return trimmed.replace(/^https?:\/\//, "");
+  }
+}
+
+function formatEffectiveAutomationTarget(
+  automation: EffectiveTaskAutomation,
+  availableProviders: AcpProviderInfo[],
+  specialists: SpecialistOption[],
+): string {
+  if (automation.transport === "a2a") {
+    const specialist = getSpecialistName(
+      automation.specialistId,
+      automation.specialistName,
+      specialists,
+    );
+    return [
+      "A2A",
+      automation.role ?? "DEVELOPER",
+      specialist,
+      formatAgentCardTarget(automation.agentCardUrl),
+      automation.skillId ? `skill:${automation.skillId}` : undefined,
+    ].filter(Boolean).join(" · ");
+  }
+
+  return [
+    getProviderName(automation.providerId, availableProviders),
+    automation.role ?? "DEVELOPER",
+    getSpecialistName(automation.specialistId, automation.specialistName, specialists),
+  ].join(" · ");
+}
+
 function getPromptFailureMessage(task: TaskInfo, sessionInfo: SessionInfo | null | undefined): string | null {
   if (sessionInfo?.acpStatus === "error" && sessionInfo.acpError) {
     return sessionInfo.acpError;
@@ -72,6 +112,16 @@ function formatAutomationStepSummary(
   specialists: SpecialistOption[],
 ): string {
   const resolvedStep = resolveKanbanAutomationStep(step, createKanbanSpecialistResolver(specialists)) ?? step;
+  if ((resolvedStep.transport ?? "acp") === "a2a") {
+    return [
+      "A2A",
+      resolvedStep.role ?? "DEVELOPER",
+      getSpecialistName(resolvedStep.specialistId, resolvedStep.specialistName, specialists),
+      formatAgentCardTarget(resolvedStep.agentCardUrl),
+      resolvedStep.skillId ? `skill:${resolvedStep.skillId}` : undefined,
+    ].filter(Boolean).join(" · ");
+  }
+
   return [
     getProviderName(resolvedStep.providerId, availableProviders),
     resolvedStep.role ?? "DEVELOPER",
@@ -467,17 +517,17 @@ function ExecutionSection({
   const laneName = lane?.name ?? task.columnId ?? "backlog";
   const laneSteps = lane?.automation ? getKanbanAutomationSteps(lane.automation) : [];
   const cardSpecialist = getSpecialistName(task.assignedSpecialistId, task.assignedSpecialistName, specialists);
-  const effectiveProvider = getProviderName(effectiveAutomation.providerId, availableProviders);
-  const effectiveSpecialist = getSpecialistName(
-    effectiveAutomation.specialistId,
-    effectiveAutomation.specialistName,
-    specialists,
-  );
+  const effectiveRunTarget = formatEffectiveAutomationTarget(effectiveAutomation, availableProviders, specialists);
   const failureMessage = getPromptFailureMessage(task, sessionInfo);
-  const failedProviderName = getProviderName(
-    sessionInfo?.provider ?? task.assignedProvider ?? effectiveAutomation.providerId,
-    availableProviders,
-  );
+  const activeLaneSession = task.triggerSessionId
+    ? task.laneSessions?.find((entry) => entry.sessionId === task.triggerSessionId)
+    : undefined;
+  const failedRunLabel = activeLaneSession?.transport === "a2a" || effectiveAutomation.transport === "a2a"
+    ? "current A2A run"
+    : getProviderName(
+      sessionInfo?.provider ?? task.assignedProvider ?? effectiveAutomation.providerId,
+      availableProviders,
+    );
   const lanePipeline = laneSteps.length > 0
     ? laneSteps.map((step) => formatAutomationStepSummary(step, availableProviders, specialists)).join(" -> ")
     : "No lane automation configured";
@@ -510,7 +560,7 @@ function ExecutionSection({
         />
         <InlineSummary
           label="Current run"
-          value={`${effectiveProvider} · ${effectiveAutomation.role ?? "DEVELOPER"} · ${effectiveSpecialist}`}
+          value={effectiveRunTarget}
           compact={compact}
         />
       </div>
@@ -520,7 +570,7 @@ function ExecutionSection({
           {" "}
           {sessionCopy.emptyPaneHint}
           {" "}
-          {sessionCopy.expectedTarget(`${effectiveProvider} · ${effectiveAutomation.role ?? "DEVELOPER"} · ${effectiveSpecialist}`)}
+          {sessionCopy.expectedTarget(effectiveRunTarget)}
         </div>
       )}
       {transitionArtifacts.currentRequiredArtifacts.length > 0 && (
@@ -626,13 +676,16 @@ function ExecutionSection({
         <div className={`mt-2 rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-900/40 dark:bg-sky-900/10 dark:text-sky-200 ${compact ? "leading-[1.125rem]" : "leading-[1.2rem]"}`}>
           Manual {task.triggerSessionId ? "reruns" : "runs"} use {effectiveAutomation.source === "card" ? "this card override" : "the current lane default"}:
           {" "}
-          {effectiveProvider} · {effectiveAutomation.role ?? "DEVELOPER"} · {effectiveSpecialist}
+          {effectiveRunTarget}
         </div>
       )}
       {failureMessage && (
         <div className={`mt-2 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-900/40 dark:bg-rose-900/10 dark:text-rose-200 ${compact ? "leading-[1.125rem]" : "leading-[1.2rem]"}`}>
-          Current run failed on {failedProviderName}: {failureMessage}
-          {" "}Reset the override or switch providers before rerunning if this looks like a provider authorization or runtime issue.
+          Current run failed on {failedRunLabel}: {failureMessage}
+          {" "}
+          {effectiveAutomation.transport === "a2a"
+            ? "Check the remote agent card URL, auth config, or A2A task status before rerunning."
+            : "Reset the override or switch providers before rerunning if this looks like a provider authorization or runtime issue."}
         </div>
       )}
       {transitionArtifacts.nextRequiredArtifacts.length > 0 && (

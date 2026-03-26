@@ -118,6 +118,20 @@ export function formatLaneAutomationSummary(
   const steps = getKanbanAutomationSteps(automation);
   const core = steps.map((step) => {
     const resolvedStep = resolveKanbanAutomationStep(step, resolveSpecialist) ?? step;
+    const transport = resolvedStep.transport ?? "acp";
+    if (transport === "a2a") {
+      const specialist = resolvedStep.specialistId || resolvedStep.specialistName
+        ? (getSpecialistDisplayName(findSpecialistById(specialists, resolvedStep.specialistId)) ?? resolvedStep.specialistName)
+        : null;
+      const target = formatAgentCardTarget(resolvedStep.agentCardUrl);
+      return [
+        "A2A",
+        specialist ?? resolvedStep.role ?? "DEVELOPER",
+        target,
+        resolvedStep.skillId ? `skill:${resolvedStep.skillId}` : null,
+      ].filter(Boolean).join(" · ");
+    }
+
     const provider = resolvedStep.providerId
       ? (providers.find((item) => item.id === resolvedStep.providerId)?.name ?? resolvedStep.providerId)
       : "Default";
@@ -129,6 +143,18 @@ export function formatLaneAutomationSummary(
   if (automation?.transitionType === "exit") return `${core} ->`;
   if (automation?.transitionType === "both") return `-> ${core} ->`;
   return `-> ${core}`;
+}
+
+function formatAgentCardTarget(agentCardUrl?: string): string | null {
+  const trimmed = agentCardUrl?.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    return `${parsed.hostname}${parsed.pathname !== "/" ? parsed.pathname : ""}`;
+  } catch {
+    return trimmed.replace(/^https?:\/\//, "");
+  }
 }
 
 function applySpecialistLanguageToAutomation(

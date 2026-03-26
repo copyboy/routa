@@ -19,6 +19,63 @@ import { getKanbanSessionCopy } from "./i18n/kanban-session-copy";
 
 type ActivityTabId = "runs" | "handoffs" | "github";
 
+function formatAgentCardTarget(agentCardUrl?: string): string | undefined {
+  const trimmed = agentCardUrl?.trim();
+  if (!trimmed) return undefined;
+
+  try {
+    const parsed = new URL(trimmed);
+    return `${parsed.hostname}${parsed.pathname !== "/" ? parsed.pathname : ""}`;
+  } catch {
+    return trimmed.replace(/^https?:\/\//, "");
+  }
+}
+
+function formatExpectedRunTarget(
+  task: TaskInfo,
+  boardColumns: KanbanColumnInfo[],
+  availableProviders: AcpProviderInfo[],
+  specialists: KanbanSpecialistOption[],
+): string {
+  const resolveSpecialist = createKanbanSpecialistResolver(specialists);
+  const effectiveAutomation = resolveEffectiveTaskAutomation(task, boardColumns, resolveSpecialist);
+  const specialistName = getSpecialistName(
+    effectiveAutomation.specialistId,
+    effectiveAutomation.specialistName,
+    specialists,
+  );
+
+  if (effectiveAutomation.transport === "a2a") {
+    return [
+      "A2A",
+      effectiveAutomation.role ?? "DEVELOPER",
+      specialistName,
+      formatAgentCardTarget(effectiveAutomation.agentCardUrl),
+      effectiveAutomation.skillId ? `skill:${effectiveAutomation.skillId}` : undefined,
+    ].filter(Boolean).join(" · ");
+  }
+
+  const providerName = effectiveAutomation.providerId
+    ? availableProviders.find((provider) => provider.id === effectiveAutomation.providerId)?.name ?? effectiveAutomation.providerId
+    : "Workspace default";
+  return [providerName, effectiveAutomation.role ?? "DEVELOPER", specialistName].join(" · ");
+}
+
+function formatLaneSessionHeading(
+  laneSession: NonNullable<TaskInfo["laneSessions"]>[number] | undefined,
+  session: SessionInfo | undefined,
+): string {
+  if (laneSession?.transport === "a2a") {
+    return laneSession.externalTaskId
+      ? `A2A Task · ${laneSession.externalTaskId}`
+      : laneSession.contextId
+        ? `A2A Context · ${laneSession.contextId}`
+        : "A2A Task";
+  }
+
+  return session?.name ?? session?.provider ?? "ACP Session";
+}
+
 function ActivitySection({
   title,
   description,
@@ -226,6 +283,11 @@ export function KanbanCardActivityBar({
               {selectedLaneSession.columnName}
             </span>
           )}
+          {selectedLaneSession?.transport && (
+            <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+              {selectedLaneSession.transport}
+            </span>
+          )}
           {selectedStepLabel && (
             <span className="rounded-full bg-blue-100 px-2 py-0.5 font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
               {selectedStepLabel}
@@ -299,6 +361,7 @@ function SessionHistoryPanel({
             specialists,
           );
           const stepLabel = getLaneSessionStepLabel(laneSession);
+          const isA2ARun = laneSession?.transport === "a2a";
 
           return (
             <button
@@ -317,6 +380,11 @@ function SessionHistoryPanel({
                 {laneSession?.columnName && (
                   <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
                     {laneSession.columnName}
+                  </span>
+                )}
+                {laneSession?.transport && (
+                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                    {laneSession.transport}
                   </span>
                 )}
                 {stepLabel && (
@@ -338,22 +406,36 @@ function SessionHistoryPanel({
               <div className="mt-2 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className={`truncate font-medium text-slate-900 dark:text-slate-100 ${compact ? "text-[13px]" : "text-sm"}`}>
-                    {session?.name ?? session?.provider ?? "ACP Session"}
+                    {laneSession ? formatLaneSessionHeading(laneSession, session) : (session?.name ?? session?.provider ?? "ACP Session")}
                   </div>
                   <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                    {(laneSession?.provider ?? session?.provider ?? "Unknown provider")} · {(laneSession?.role ?? session?.role ?? "Unknown role")} · {laneSpecialist}
+                    {isA2ARun
+                      ? [
+                        "Remote task",
+                        laneSession?.role ?? "Unknown role",
+                        laneSpecialist,
+                      ].filter(Boolean).join(" · ")
+                      : [
+                        laneSession?.provider ?? session?.provider ?? "Unknown provider",
+                        laneSession?.role ?? session?.role ?? "Unknown role",
+                        laneSpecialist,
+                      ].filter(Boolean).join(" · ")}
                   </div>
                   <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                    {formatSessionTimestamp(session?.createdAt)}
+                    {formatSessionTimestamp(session?.createdAt ?? laneSession?.startedAt)}
                   </div>
                 </div>
                 <span className={`shrink-0 rounded-lg bg-slate-100 font-mono text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300 ${compact ? "px-1.5 py-0.5" : "px-2 py-1"}`}>
-                  {sessionId.slice(0, 8)}
+                  {(laneSession?.externalTaskId ?? sessionId).slice(0, 8)}
                 </span>
               </div>
               <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
-                <span className="truncate">{session?.cwd ?? "Working directory unavailable"}</span>
-                <span className="font-medium text-amber-600 dark:text-amber-300">Open</span>
+                <span className="truncate">
+                  {isA2ARun
+                    ? laneSession?.contextId ? `Context ${laneSession.contextId}` : "Remote task metadata available"
+                    : session?.cwd ?? "Working directory unavailable"}
+                </span>
+                <span className="font-medium text-amber-600 dark:text-amber-300">{isA2ARun ? "Task" : "Open"}</span>
               </div>
             </button>
           );
@@ -379,17 +461,7 @@ export function KanbanEmptySessionPane({
   onCloseSession?: () => void;
 }) {
   const copy = getKanbanSessionCopy(specialistLanguage);
-  const resolveSpecialist = createKanbanSpecialistResolver(specialists);
-  const effectiveAutomation = resolveEffectiveTaskAutomation(task, boardColumns, resolveSpecialist);
-  const providerName = effectiveAutomation.providerId
-    ? availableProviders.find((provider) => provider.id === effectiveAutomation.providerId)?.name ?? effectiveAutomation.providerId
-    : "Workspace default";
-  const specialistName = getSpecialistName(
-    effectiveAutomation.specialistId,
-    effectiveAutomation.specialistName,
-    specialists,
-  );
-  const target = `${providerName} · ${effectiveAutomation.role ?? "DEVELOPER"} · ${specialistName}`;
+  const target = formatExpectedRunTarget(task, boardColumns, availableProviders, specialists);
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
