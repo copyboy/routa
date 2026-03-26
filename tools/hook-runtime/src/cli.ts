@@ -4,46 +4,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  DEFAULT_LOCAL_VALIDATE_METRICS,
   DEFAULT_PARALLEL_JOBS,
-  DEFAULT_PRE_PUSH_METRICS,
   DEFAULT_TAIL_LINES,
-  HOOK_PROFILE_LOCAL_VALIDATE,
-  HOOK_PROFILE_PRE_COMMIT,
-  HOOK_PROFILE_PRE_PUSH,
   isHookProfileName,
   PROFILE_DEFAULT,
   parseMetricNames,
   parsePositiveInt,
-  resolveProfileDefaults,
   type HookProfileName,
 } from "./config.js";
 import {
-  runHookRuntime,
+  resolveRuntimeProfile,
+  runRuntime,
   type HookRuntimeOptions,
-  type HookRuntimeProfile,
   type RuntimePhase,
 } from "./runtime.js";
 
 export { formatReviewPhaseLabel } from "./runtime.js";
-
-const RUNTIME_PROFILES: Record<HookProfileName, HookRuntimeProfile> = {
-  [HOOK_PROFILE_PRE_PUSH]: {
-    name: HOOK_PROFILE_PRE_PUSH,
-    phases: ["submodule", "fitness", "review"],
-    fallbackMetrics: DEFAULT_PRE_PUSH_METRICS,
-  },
-  [HOOK_PROFILE_PRE_COMMIT]: {
-    name: HOOK_PROFILE_PRE_COMMIT,
-    phases: ["fitness-fast"],
-    fallbackMetrics: resolveProfileDefaults(HOOK_PROFILE_PRE_COMMIT),
-  },
-  [HOOK_PROFILE_LOCAL_VALIDATE]: {
-    name: HOOK_PROFILE_LOCAL_VALIDATE,
-    phases: ["fitness", "review"],
-    fallbackMetrics: DEFAULT_LOCAL_VALIDATE_METRICS,
-  },
-};
 
 type CliOptions = HookRuntimeOptions & {
   profilePhases: readonly RuntimePhase[];
@@ -82,7 +58,7 @@ export function parseArgs(argv: string[]): CliOptions {
   const profileFromArg = parseProfileFromArgv(argv);
   const envProfile = normalizeProfile(process.env.ROUTA_HOOK_RUNTIME_PROFILE);
   const requestedProfile = profileFromArg ?? envProfile ?? PROFILE_DEFAULT;
-  const profileDefinition = RUNTIME_PROFILES[requestedProfile];
+  const profileDefinition = resolveRuntimeProfile(requestedProfile);
 
   const options: CliOptions = {
     autoFix: false,
@@ -101,7 +77,7 @@ export function parseArgs(argv: string[]): CliOptions {
     const arg = argv[i];
     if (arg === "--profile" && i + 1 < argv.length) {
       options.profile = normalizeProfile(argv[i + 1]);
-      const selectedProfile = RUNTIME_PROFILES[options.profile];
+      const selectedProfile = resolveRuntimeProfile(options.profile);
       options.profilePhases = selectedProfile.phases;
 
       if (!hasExplicitMetrics && !process.env.ROUTA_HOOK_RUNTIME_METRICS) {
@@ -112,7 +88,7 @@ export function parseArgs(argv: string[]): CliOptions {
     }
     if (arg.startsWith("--profile=")) {
       options.profile = normalizeProfile(arg.slice("--profile=".length));
-      const selectedProfile = RUNTIME_PROFILES[options.profile];
+      const selectedProfile = resolveRuntimeProfile(options.profile);
       options.profilePhases = selectedProfile.phases;
 
       if (!hasExplicitMetrics && !process.env.ROUTA_HOOK_RUNTIME_METRICS) {
@@ -176,7 +152,7 @@ export function parseArgs(argv: string[]): CliOptions {
     }
   }
 
-  const finalProfile = RUNTIME_PROFILES[options.profile];
+  const finalProfile = resolveRuntimeProfile(options.profile);
   options.profilePhases = finalProfile.phases;
 
   if (!options.metricNames.length) {
@@ -211,8 +187,7 @@ export function handleCliError(error: unknown, argv: string[] = process.argv.sli
 
 export async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  const runtimeProfile = RUNTIME_PROFILES[options.profile];
-  await runHookRuntime(options, runtimeProfile);
+  await runRuntime(options, options.profile);
 }
 
 const modulePath = path.resolve(fileURLToPath(import.meta.url));

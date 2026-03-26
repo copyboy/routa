@@ -97,6 +97,13 @@ describe("parseArgs", () => {
 
     expect(options.metricNames).toEqual(["clippy_pass", "rust_test_pass"]);
   });
+
+  it("supports run subcommand style invocation", () => {
+    const options = parseArgs(["run", "--profile", "local-validate"]);
+
+    expect(options.profile).toBe("local-validate");
+    expect(options.profilePhases).toEqual(["fitness", "review"]);
+  });
 });
 
 describe("formatReviewPhaseLabel", () => {

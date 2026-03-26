@@ -7,7 +7,7 @@ export const DEFAULT_PRE_PUSH_METRICS = [
 ] as const;
 
 export const DEFAULT_PRE_COMMIT_METRICS = ["eslint_pass"] as const;
-export const DEFAULT_LOCAL_VALIDATE_METRICS = DEFAULT_PRE_PUSH_METRICS as const;
+export const DEFAULT_LOCAL_VALIDATE_METRICS = [...DEFAULT_PRE_PUSH_METRICS] as const;
 
 export type HookProfileName = "pre-push" | "pre-commit" | "local-validate";
 

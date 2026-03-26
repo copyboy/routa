@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   resolveFailureRoute,
+  runRuntime,
   runHookRuntime,
   type HookRuntimeOptions,
   type HookRuntimeProfile,
@@ -108,6 +109,33 @@ describe("runHookRuntime", () => {
     expect(runFitnessPhase).toHaveBeenCalledWith(options, 1, 2);
     expect(runReviewPhase).toHaveBeenCalledTimes(1);
     expect(runReviewPhase).toHaveBeenCalledWith(false, "human", 2, 2);
+  });
+
+  it("uses resolveRuntimeProfile through runRuntime by profile name", async () => {
+    const options = {
+      autoFix: false,
+      dryRun: false,
+      failFast: true,
+      jobs: 2,
+      metricNames: ["eslint_pass"],
+      outputMode: "human" as const,
+      profile: "pre-commit",
+      tailLines: 10,
+    } satisfies HookRuntimeOptions;
+
+    const runFitnessPhase = vi.fn(async () => []);
+
+    await runRuntime(
+      options,
+      "pre-commit",
+      {
+        phaseAdapters: {
+          runFitnessPhase,
+        },
+      },
+    );
+
+    expect(runFitnessPhase).toHaveBeenCalledTimes(1);
   });
 
   it("resolves the agent failure route when running in an agent context", () => {

@@ -14,7 +14,13 @@ import { runCommand, tailOutput } from "./process.js";
 import { promptYesNo } from "./prompt.js";
 import { createHumanMetricReporter } from "./renderer.js";
 import { runMetrics } from "./scheduler.js";
-import { type HookProfileName } from "./config.js";
+import {
+  HOOK_PROFILE_LOCAL_VALIDATE,
+  HOOK_PROFILE_PRE_COMMIT,
+  HOOK_PROFILE_PRE_PUSH,
+  resolveProfileDefaults,
+  type HookProfileName,
+} from "./config.js";
 
 export type HookRuntimeOutputMode = "human" | "jsonl";
 export type RuntimePhase = "submodule" | "fitness" | "fitness-fast" | "review";
@@ -104,6 +110,36 @@ export type RuntimeExecutionOverrides = {
   phaseAdapters?: Partial<RuntimePhaseAdapters>;
   services?: Partial<RuntimeServices>;
 };
+
+const DEFAULT_RUNTIME_PROFILES = {
+  "pre-push": {
+    name: HOOK_PROFILE_PRE_PUSH,
+    phases: ["submodule", "fitness", "review"],
+    fallbackMetrics: resolveProfileDefaults(HOOK_PROFILE_PRE_PUSH),
+  },
+  "pre-commit": {
+    name: HOOK_PROFILE_PRE_COMMIT,
+    phases: ["fitness-fast"],
+    fallbackMetrics: resolveProfileDefaults(HOOK_PROFILE_PRE_COMMIT),
+  },
+  "local-validate": {
+    name: HOOK_PROFILE_LOCAL_VALIDATE,
+    phases: ["fitness", "review"],
+    fallbackMetrics: resolveProfileDefaults(HOOK_PROFILE_LOCAL_VALIDATE),
+  },
+} satisfies Record<HookProfileName, HookRuntimeProfile>;
+
+export function resolveRuntimeProfile(profileName: HookProfileName): HookRuntimeProfile {
+  return DEFAULT_RUNTIME_PROFILES[profileName];
+}
+
+export async function runRuntime(
+  options: HookRuntimeOptions,
+  profileName: HookProfileName,
+  overrides: RuntimeExecutionOverrides = {},
+): Promise<void> {
+  await runHookRuntime(options, resolveRuntimeProfile(profileName), overrides);
+}
 
 export function formatReviewPhaseLabel(result: ReviewPhaseResult): string {
   if (result.status === "unavailable") {
