@@ -12,12 +12,55 @@
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::models::artifact::{Artifact, ArtifactStatus, ArtifactType};
-use crate::models::task::{Task, TaskStatus};
+use crate::models::kanban::KanbanBoard;
+use crate::models::task::{Task, TaskLaneSessionStatus, TaskStatus};
 use crate::rpc::error::RpcError;
 use crate::state::AppState;
+
+const KANBAN_HAPPY_PATH_COLUMN_ORDER: [&str; 5] = ["backlog", "todo", "dev", "review", "done"];
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskArtifactSummary {
+    pub total: usize,
+    pub by_type: BTreeMap<String, usize>,
+    pub required_satisfied: bool,
+    pub missing_required: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskVerificationSummary {
+    pub has_verdict: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<String>,
+    pub has_report: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskCompletionSummary {
+    pub has_summary: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRunSummary {
+    pub total: usize,
+    pub latest_status: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskEvidenceSummary {
+    pub artifact: TaskArtifactSummary,
+    pub verification: TaskVerificationSummary,
+    pub completion: TaskCompletionSummary,
+    pub runs: TaskRunSummary,
+}
 
 // ---------------------------------------------------------------------------
 // tasks.list
@@ -39,7 +82,7 @@ fn default_workspace_id() -> String {
 
 #[derive(Debug, Serialize)]
 pub struct ListResult {
-    pub tasks: Vec<Task>,
+    pub tasks: Vec<serde_json::Value>,
 }
 
 pub async fn list(state: &AppState, params: ListParams) -> Result<ListResult, RpcError> {
@@ -62,7 +105,9 @@ pub async fn list(state: &AppState, params: ListParams) -> Result<ListResult, Rp
             .await?
     };
 
-    Ok(ListResult { tasks })
+    Ok(ListResult {
+        tasks: serialize_tasks_with_evidence(state, &tasks).await?,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -75,12 +120,13 @@ pub struct GetParams {
     pub id: String,
 }
 
-pub async fn get(state: &AppState, params: GetParams) -> Result<Task, RpcError> {
-    state
+pub async fn get(state: &AppState, params: GetParams) -> Result<serde_json::Value, RpcError> {
+    let task = state
         .task_store
         .get(&params.id)
         .await?
-        .ok_or_else(|| RpcError::NotFound(format!("Task {} not found", params.id)))
+        .ok_or_else(|| RpcError::NotFound(format!("Task {} not found", params.id)))?;
+    serialize_task_with_evidence(state, &task).await
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +151,7 @@ pub struct CreateParams {
 
 #[derive(Debug, Serialize)]
 pub struct CreateResult {
-    pub task: Task,
+    pub task: serde_json::Value,
 }
 
 pub async fn create(state: &AppState, params: CreateParams) -> Result<CreateResult, RpcError> {
@@ -124,7 +170,9 @@ pub async fn create(state: &AppState, params: CreateParams) -> Result<CreateResu
     );
 
     state.task_store.save(&task).await?;
-    Ok(CreateResult { task })
+    Ok(CreateResult {
+        task: serialize_task_with_evidence(state, &task).await?,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +237,9 @@ pub async fn find_ready(state: &AppState, params: FindReadyParams) -> Result<Lis
         .task_store
         .find_ready_tasks(&params.workspace_id)
         .await?;
-    Ok(ListResult { tasks })
+    Ok(ListResult {
+        tasks: serialize_tasks_with_evidence(state, &tasks).await?,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -307,9 +357,153 @@ fn parse_artifact_type(value: &str) -> Result<ArtifactType, RpcError> {
     })
 }
 
+async fn serialize_tasks_with_evidence(
+    state: &AppState,
+    tasks: &[Task],
+) -> Result<Vec<serde_json::Value>, RpcError> {
+    let mut serialized = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        serialized.push(serialize_task_with_evidence(state, task).await?);
+    }
+    Ok(serialized)
+}
+
+async fn serialize_task_with_evidence(
+    state: &AppState,
+    task: &Task,
+) -> Result<serde_json::Value, RpcError> {
+    let evidence_summary = build_task_evidence_summary(state, task).await?;
+    let mut task_value = serde_json::to_value(task)
+        .map_err(|error| RpcError::Internal(format!("Failed to serialize task: {error}")))?;
+    let task_object = task_value.as_object_mut().ok_or_else(|| {
+        RpcError::Internal("Task payload must serialize to a JSON object".to_string())
+    })?;
+    task_object.insert(
+        "artifactSummary".to_string(),
+        serde_json::to_value(&evidence_summary.artifact).map_err(|error| {
+            RpcError::Internal(format!(
+                "Failed to serialize task artifact summary: {error}"
+            ))
+        })?,
+    );
+    task_object.insert(
+        "evidenceSummary".to_string(),
+        serde_json::to_value(&evidence_summary).map_err(|error| {
+            RpcError::Internal(format!(
+                "Failed to serialize task evidence summary: {error}"
+            ))
+        })?,
+    );
+    Ok(task_value)
+}
+
+async fn build_task_evidence_summary(
+    state: &AppState,
+    task: &Task,
+) -> Result<TaskEvidenceSummary, RpcError> {
+    let artifacts = state.artifact_store.list_by_task(&task.id).await?;
+    let mut by_type = BTreeMap::new();
+    for artifact in &artifacts {
+        let key = artifact.artifact_type.as_str().to_string();
+        *by_type.entry(key).or_insert(0) += 1;
+    }
+
+    let board = match task.board_id.as_deref() {
+        Some(board_id) => state.kanban_store.get(board_id).await?,
+        None => None,
+    };
+    let required_artifacts =
+        resolve_next_required_artifacts(board.as_ref(), task.column_id.as_deref());
+    let present_artifacts = by_type.keys().cloned().collect::<BTreeSet<_>>();
+    let missing_required = required_artifacts
+        .into_iter()
+        .filter(|artifact| !present_artifacts.contains(artifact))
+        .collect::<Vec<_>>();
+
+    let latest_status = task
+        .lane_sessions
+        .last()
+        .map(|session| task_lane_session_status_as_str(&session.status).to_string())
+        .unwrap_or_else(|| {
+            if task.session_ids.is_empty() {
+                "idle".to_string()
+            } else {
+                "unknown".to_string()
+            }
+        });
+
+    Ok(TaskEvidenceSummary {
+        artifact: TaskArtifactSummary {
+            total: artifacts.len(),
+            by_type,
+            required_satisfied: missing_required.is_empty(),
+            missing_required,
+        },
+        verification: TaskVerificationSummary {
+            has_verdict: task.verification_verdict.is_some(),
+            verdict: task
+                .verification_verdict
+                .as_ref()
+                .map(|verdict| verdict.as_str().to_string()),
+            has_report: task
+                .verification_report
+                .as_ref()
+                .is_some_and(|report| !report.trim().is_empty()),
+        },
+        completion: TaskCompletionSummary {
+            has_summary: task
+                .completion_summary
+                .as_ref()
+                .is_some_and(|summary| !summary.trim().is_empty()),
+        },
+        runs: TaskRunSummary {
+            total: task.session_ids.len(),
+            latest_status,
+        },
+    })
+}
+
+fn resolve_next_required_artifacts(
+    board: Option<&KanbanBoard>,
+    current_column_id: Option<&str>,
+) -> Vec<String> {
+    let current_column_id = current_column_id.unwrap_or("backlog").to_ascii_lowercase();
+    let next_column_id = KANBAN_HAPPY_PATH_COLUMN_ORDER
+        .iter()
+        .position(|column_id| *column_id == current_column_id)
+        .and_then(|index| KANBAN_HAPPY_PATH_COLUMN_ORDER.get(index + 1))
+        .copied();
+    let Some(next_column_id) = next_column_id else {
+        return Vec::new();
+    };
+
+    board
+        .and_then(|board| {
+            board
+                .columns
+                .iter()
+                .find(|column| column.id == next_column_id)
+        })
+        .and_then(|column| column.automation.as_ref())
+        .and_then(|automation| automation.required_artifacts.clone())
+        .unwrap_or_default()
+}
+
+fn task_lane_session_status_as_str(status: &TaskLaneSessionStatus) -> &'static str {
+    match status {
+        TaskLaneSessionStatus::Running => "running",
+        TaskLaneSessionStatus::Completed => "completed",
+        TaskLaneSessionStatus::Failed => "failed",
+        TaskLaneSessionStatus::TimedOut => "timed_out",
+        TaskLaneSessionStatus::Transitioned => "transitioned",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::kanban::KanbanColumnAutomation;
+    use crate::models::task::{TaskLaneSession, VerificationVerdict};
     use crate::{AppState, AppStateInner, Database};
     use std::sync::Arc;
 
@@ -344,11 +538,15 @@ mod tests {
         )
         .await
         .expect("task should be created");
+        let created_task_id = created.task["id"]
+            .as_str()
+            .expect("created task id")
+            .to_string();
 
         let provided = provide_artifact(
             &state,
             ProvideArtifactParams {
-                task_id: created.task.id.clone(),
+                task_id: created_task_id.clone(),
                 agent_id: "agent-1".to_string(),
                 artifact_type: "screenshot".to_string(),
                 content: "base64-content".to_string(),
@@ -369,7 +567,7 @@ mod tests {
         let listed = list_artifacts(
             &state,
             ListArtifactsParams {
-                task_id: created.task.id,
+                task_id: created_task_id,
                 artifact_type: Some("screenshot".to_string()),
             },
         )
@@ -380,6 +578,183 @@ mod tests {
         assert_eq!(
             listed.artifacts[0].context.as_deref(),
             Some("Verification screenshot")
+        );
+    }
+
+    #[tokio::test]
+    async fn rpc_task_methods_include_evidence_summary() {
+        let state = setup_state().await;
+        let mut board = state
+            .kanban_store
+            .ensure_default_board("default")
+            .await
+            .expect("default board should exist");
+        let dev_column = board
+            .columns
+            .iter_mut()
+            .find(|column| column.id == "dev")
+            .expect("dev column");
+        dev_column.automation = Some(KanbanColumnAutomation {
+            enabled: true,
+            required_artifacts: Some(vec!["screenshot".to_string()]),
+            ..Default::default()
+        });
+        state
+            .kanban_store
+            .update(&board)
+            .await
+            .expect("board should update");
+
+        let mut task = Task::new(
+            "task-rpc-1".to_string(),
+            "RPC evidence".to_string(),
+            "Return parity task payload".to_string(),
+            "default".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        task.board_id = Some(board.id.clone());
+        task.column_id = Some("todo".to_string());
+        task.session_ids = vec!["session-1".to_string()];
+        task.lane_sessions = vec![TaskLaneSession {
+            session_id: "session-1".to_string(),
+            routa_agent_id: None,
+            column_id: Some("todo".to_string()),
+            column_name: Some("Todo".to_string()),
+            step_id: None,
+            step_index: None,
+            step_name: None,
+            provider: None,
+            role: None,
+            specialist_id: None,
+            specialist_name: None,
+            transport: None,
+            external_task_id: None,
+            context_id: None,
+            attempt: None,
+            loop_mode: None,
+            completion_requirement: None,
+            objective: None,
+            last_activity_at: None,
+            recovered_from_session_id: None,
+            recovery_reason: None,
+            status: TaskLaneSessionStatus::Running,
+            started_at: "2026-03-27T00:00:00Z".to_string(),
+            completed_at: None,
+        }];
+        task.completion_summary = Some("Done".to_string());
+        task.verification_verdict = Some(VerificationVerdict::Approved);
+        task.verification_report = Some("Verified".to_string());
+        state
+            .task_store
+            .save(&task)
+            .await
+            .expect("task should save");
+
+        let artifact = Artifact {
+            id: "artifact-rpc-1".to_string(),
+            artifact_type: ArtifactType::Screenshot,
+            task_id: task.id.clone(),
+            workspace_id: task.workspace_id.clone(),
+            provided_by_agent_id: Some("agent-1".to_string()),
+            requested_by_agent_id: None,
+            request_id: None,
+            content: Some("base64".to_string()),
+            context: None,
+            status: ArtifactStatus::Provided,
+            expires_at: None,
+            metadata: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        state
+            .artifact_store
+            .save(&artifact)
+            .await
+            .expect("artifact should save");
+
+        let get_value = get(
+            &state,
+            GetParams {
+                id: task.id.clone(),
+            },
+        )
+        .await
+        .expect("task should load");
+        assert_eq!(get_value["artifactSummary"]["total"], serde_json::json!(1));
+        assert_eq!(
+            get_value["evidenceSummary"]["artifact"]["requiredSatisfied"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            get_value["evidenceSummary"]["verification"]["verdict"],
+            serde_json::json!("APPROVED")
+        );
+        assert_eq!(
+            get_value["evidenceSummary"]["runs"]["latestStatus"],
+            serde_json::json!("running")
+        );
+
+        let listed = list(
+            &state,
+            ListParams {
+                workspace_id: "default".to_string(),
+                session_id: None,
+                status: None,
+                assigned_to: None,
+            },
+        )
+        .await
+        .expect("tasks should list");
+        assert_eq!(listed.tasks.len(), 1);
+        assert_eq!(
+            listed.tasks[0]["evidenceSummary"]["completion"]["hasSummary"],
+            serde_json::json!(true)
+        );
+
+        let ready = find_ready(
+            &state,
+            FindReadyParams {
+                workspace_id: "default".to_string(),
+            },
+        )
+        .await
+        .expect("ready tasks should list");
+        assert_eq!(ready.tasks.len(), 1);
+        assert_eq!(
+            ready.tasks[0]["artifactSummary"]["byType"]["screenshot"],
+            serde_json::json!(1)
+        );
+
+        let created = create(
+            &state,
+            CreateParams {
+                title: "Fresh task".to_string(),
+                objective: "No evidence yet".to_string(),
+                workspace_id: "default".to_string(),
+                session_id: None,
+                scope: None,
+                acceptance_criteria: None,
+                verification_commands: None,
+                test_cases: None,
+                dependencies: None,
+                parallel_group: None,
+            },
+        )
+        .await
+        .expect("task should create");
+        assert_eq!(
+            created.task["artifactSummary"]["total"],
+            serde_json::json!(0)
+        );
+        assert_eq!(
+            created.task["evidenceSummary"]["runs"]["latestStatus"],
+            serde_json::json!("idle")
         );
     }
 }
