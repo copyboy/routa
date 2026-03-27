@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
 import { KanbanBgAgentPanel } from "./kanban-bg-agent-panel";
+import { Select } from "@/client/components/select";
 import {
   KANBAN_SPECIALIST_LANGUAGE_LABELS,
   type KanbanSpecialistLanguage,
@@ -100,7 +101,7 @@ export function KanbanTabHeader({
           )}
 
           {boards.length > 1 && (
-            <select
+            <Select
               value={selectedBoardId ?? ""}
               onChange={(event) => onSelectBoard(event.target.value)}
               className="h-6 min-h-6 rounded-md border border-slate-200 bg-white px-2 text-[12px] text-slate-700 dark:border-slate-700 dark:bg-[#12141c] dark:text-slate-200"
@@ -108,7 +109,7 @@ export function KanbanTabHeader({
               {boards.map((item) => (
                 <option key={item.id} value={item.id}>{item.name}</option>
               ))}
-            </select>
+            </Select>
           )}
           <div ref={bgAgentPanelRef} className="relative">
             <button

@@ -1,6 +1,7 @@
 "use client";
 
 import type { CodebaseData } from "../hooks/use-workspaces";
+import { Select } from "./select";
 
 interface CodebasePickerProps {
   codebases: CodebaseData[];
@@ -31,7 +32,7 @@ export function CodebasePicker({ codebases, selectedRepoPath, onSelect }: Codeba
       <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
       </svg>
-      <select
+      <Select
         value={effective ?? ""}
         onChange={(e) => onSelect(e.target.value)}
         className="appearance-none text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-[#1e2130] text-gray-700 dark:text-gray-300 focus:ring-1 focus:ring-blue-500 max-w-[160px]"
@@ -42,7 +43,7 @@ export function CodebasePicker({ codebases, selectedRepoPath, onSelect }: Codeba
             {cb.label ?? cb.repoPath.split("/").pop()}
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 }

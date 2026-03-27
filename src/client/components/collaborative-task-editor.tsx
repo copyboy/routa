@@ -20,6 +20,7 @@ import { desktopAwareFetch } from "../utils/diagnostics";
 import type { NoteData } from "../hooks/use-notes";
 import { MarkdownViewer } from "./markdown/markdown-viewer";
 import { type CrafterAgent, CraftersView } from "./task-panel";
+import { Select } from "./select";
 
 type CollabPanelView = "tasks" | "crafters";
 
@@ -826,7 +827,7 @@ function TaskNoteCard({
                 </button>
 
                 {/* Status dropdown */}
-                <select
+                <Select
                   value={status}
                   onChange={(e) => {
                     e.stopPropagation();
@@ -839,7 +840,7 @@ function TaskNoteCard({
                   <option value="IN_PROGRESS">In Progress</option>
                   <option value="COMPLETED">Completed</option>
                   <option value="FAILED">Failed</option>
-                </select>
+                </Select>
 
                 {onDelete && (
                   <button

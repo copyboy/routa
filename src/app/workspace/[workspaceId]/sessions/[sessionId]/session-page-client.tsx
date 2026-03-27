@@ -31,6 +31,7 @@ import {DesktopNavRail} from "@/client/components/desktop-nav-rail";
 import { useRealSessionParams } from "./use-real-session-params";
 import { type AgentRole, type SpecialistOption, useSessionPageBootstrap } from "./use-session-page-bootstrap";
 import { useSessionCrafters } from "./use-session-crafters";
+import { Select } from "@/client/components/select";
 
 interface SessionRecord {
   sessionId: string;
@@ -644,7 +645,7 @@ export function SessionPageClient() {
         leftSlot={
           /* Agent selector */
             <div className="relative">
-            <select
+            <Select
               value={selectedSpecialistId ? `specialist:${selectedSpecialistId}` : selectedAgent}
               onChange={(e) => handleAgentChange(e.target.value)}
               className="appearance-none pl-2.5 pr-6 py-0.5 text-xs font-medium rounded-md border border-[var(--dt-border)] bg-[var(--dt-bg-primary)] text-[var(--dt-text-primary)] cursor-pointer focus:ring-1 focus:ring-[var(--dt-accent)]"
@@ -661,7 +662,7 @@ export function SessionPageClient() {
                   ))}
                 </optgroup>
               )}
-            </select>
+            </Select>
             <svg className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--dt-text-secondary)] pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>

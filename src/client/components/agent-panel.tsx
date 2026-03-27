@@ -10,6 +10,7 @@
 
 import { useState, useEffect } from "react";
 import { useAgentsRpc } from "../hooks/use-agents-rpc";
+import { Select } from "./select";
 
 interface AgentPanelProps {
   refreshKey?: number;
@@ -87,7 +88,7 @@ export function AgentPanel({ refreshKey, workspaceId = "" }: AgentPanelProps) {
           className="flex-1 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-slate-400 dark:placeholder:text-slate-500"
           onKeyDown={(e) => e.key === "Enter" && createAgent()}
         />
-        <select
+        <Select
           value={newAgentRole}
           onChange={(e) => setNewAgentRole(e.target.value)}
           className="px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
@@ -95,7 +96,7 @@ export function AgentPanel({ refreshKey, workspaceId = "" }: AgentPanelProps) {
           <option value="ROUTA">ROUTA</option>
           <option value="CRAFTER">CRAFTER</option>
           <option value="GATE">GATE</option>
-        </select>
+        </Select>
         <button
           onClick={createAgent}
           className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"

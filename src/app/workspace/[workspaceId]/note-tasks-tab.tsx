@@ -4,6 +4,7 @@ import { useState } from "react";
 import { formatRelativeTime, TaskStatusIcon } from "./ui-components";
 import type { NoteData } from "@/client/hooks/use-notes";
 import type { SessionInfo } from "./types";
+import { Select } from "@/client/components/select";
 
 export function NoteTasksTab({
   notes,
@@ -207,14 +208,14 @@ export function NoteTasksTab({
                       {status.replace(/_/g, " ")}
                     </span>
                     <span className="text-[10px] text-slate-400 dark:text-slate-600 font-mono shrink-0">{formatRelativeTime(task.updatedAt)}</span>
-                    <select
+                    <Select
                       value={status}
                       disabled={updatingNoteId === task.id}
                       onChange={(e) => handleStatusChange(task.id, e.target.value)}
                       className="text-[10px] border border-slate-200 dark:border-[#252838] bg-slate-50 dark:bg-[#0e1019] text-slate-600 dark:text-slate-400 rounded-md px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 disabled:opacity-50"
                     >
                       {TASK_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
-                    </select>
+                    </Select>
                     <button onClick={() => handleDelete(task.id)} disabled={deletingNoteId === task.id}
                       className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50 shrink-0">
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

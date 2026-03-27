@@ -4,6 +4,7 @@ import { useState } from "react";
 import { formatRelativeTime } from "./ui-components";
 import type { NoteData } from "@/client/hooks/use-notes";
 import type { SessionInfo } from "./types";
+import { Select } from "@/client/components/select";
 
 export function NotesTab({
   notes,
@@ -116,13 +117,13 @@ export function NotesTab({
               <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
                 Bind to session <span className="font-normal text-slate-400">(optional)</span>
               </label>
-              <select value={newSessionId} onChange={(e) => setNewSessionId(e.target.value)}
+              <Select value={newSessionId} onChange={(e) => setNewSessionId(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[#252838] bg-slate-50 dark:bg-[#0e1019] text-[13px] text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500/30">
                 <option value="">— Workspace-wide —</option>
                 {sessions.map((s) => (
                   <option key={s.sessionId} value={s.sessionId}>{s.name || s.provider || s.sessionId.slice(0, 12)}</option>
                 ))}
-              </select>
+              </Select>
             </div>
           )}
           <div className="flex items-center gap-2 mt-3">
