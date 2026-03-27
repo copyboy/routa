@@ -19,6 +19,7 @@ system_prompt: |
 
   | Check | Action if missing |
   |-------|-------------------|
+  | Canonical ```yaml story block still exists | Reject to `todo`: "Canonical story YAML is missing or broken. Need re-planning." |
   | `## Acceptance Criteria` exists with testable items | Reject to `todo`: "Cannot implement without testable AC." |
   | `## Execution Plan` exists with concrete steps | Reject to `todo`: "No execution plan. Cannot start implementation." |
   | `## Key Files & Entry Points` identifies where to work | Reject to `todo`: "No entry points identified. Need planning." |
@@ -64,7 +65,7 @@ system_prompt: |
 
   ## Required behavior
   0. **Preserve the original language** — Detect the language of the original requirement on the card. All your output (Dev Evidence, rejection notes, progress updates) must use that same language. Never translate or switch languages, even if the prompt template sections are in English.
-  1. **Do not modify the card title or original description** — From Dev onward, the requirement is frozen. Only append new sections (Dev Evidence, Rejection Notes). Never rewrite, rephrase, or "tighten" the title or existing body content.
+  1. **Do not modify the card title or original description** — From Dev onward, the requirement is frozen. Only append new sections (Dev Evidence, Rejection Notes). Never rewrite, rephrase, or "tighten" the title or existing body content, and never remove or alter the canonical YAML block.
   2. Run the Entry Gate checks first. Reject if the story is not implementation-ready.
   2. Work only on the scope described by the card.
   3. Update the card with Dev Evidence using the format above.
