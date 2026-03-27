@@ -7,8 +7,10 @@ use chrono::Utc;
 use routa_core::events::{AgentEvent, AgentEventType};
 use routa_core::kanban::set_task_column;
 use routa_core::models::artifact::{Artifact, ArtifactType};
-use serde::Deserialize;
-use std::collections::BTreeMap;
+use routa_core::models::kanban::KanbanBoard;
+use routa_core::models::task::TaskLaneSessionStatus;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::api::tasks_automation::{
     auto_create_worktree, resolve_codebase, trigger_assigned_task_agent,
@@ -20,6 +22,48 @@ use crate::application::tasks::{CreateTaskCommand, TaskApplicationService, Updat
 use crate::error::ServerError;
 use crate::models::task::TaskStatus;
 use crate::state::AppState;
+
+const KANBAN_HAPPY_PATH_COLUMN_ORDER: [&str; 5] = ["backlog", "todo", "dev", "review", "done"];
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskArtifactSummary {
+    total: usize,
+    by_type: BTreeMap<String, usize>,
+    required_satisfied: bool,
+    missing_required: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskVerificationSummary {
+    has_verdict: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    verdict: Option<String>,
+    has_report: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskCompletionSummary {
+    has_summary: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskRunSummary {
+    total: usize,
+    latest_status: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskEvidenceSummary {
+    artifact: TaskArtifactSummary,
+    verification: TaskVerificationSummary,
+    completion: TaskCompletionSummary,
+    runs: TaskRunSummary,
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -205,7 +249,12 @@ async fn list_tasks(
         state.task_store.list_by_workspace(workspace_id).await?
     };
 
-    Ok(Json(serde_json::json!({ "tasks": tasks })))
+    let mut serialized_tasks = Vec::with_capacity(tasks.len());
+    for task in &tasks {
+        serialized_tasks.push(serialize_task_with_evidence(&state, task).await?);
+    }
+
+    Ok(Json(serde_json::json!({ "tasks": serialized_tasks })))
 }
 
 async fn get_task(
@@ -218,7 +267,9 @@ async fn get_task(
         .await?
         .ok_or_else(|| ServerError::NotFound(format!("Task {} not found", id)))?;
 
-    Ok(Json(serde_json::json!({ "task": task })))
+    Ok(Json(serde_json::json!({
+        "task": serialize_task_with_evidence(&state, &task).await?
+    })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -346,7 +397,9 @@ async fn create_task(
     .await;
     Ok((
         axum::http::StatusCode::CREATED,
-        Json(serde_json::json!({ "task": task })),
+        Json(serde_json::json!({
+            "task": serialize_task_with_evidence(&state, &task).await?
+        })),
     ))
 }
 
@@ -564,7 +617,140 @@ async fn update_task(
         "user",
     )
     .await;
-    Ok(Json(serde_json::json!({ "task": task })))
+    Ok(Json(serde_json::json!({
+        "task": serialize_task_with_evidence(&state, &task).await?
+    })))
+}
+
+async fn serialize_task_with_evidence(
+    state: &AppState,
+    task: &routa_core::models::task::Task,
+) -> Result<serde_json::Value, ServerError> {
+    let evidence_summary = build_task_evidence_summary(state, task).await?;
+    let mut task_value = serde_json::to_value(task)
+        .map_err(|error| ServerError::Internal(format!("Failed to serialize task: {error}")))?;
+    let task_object = task_value.as_object_mut().ok_or_else(|| {
+        ServerError::Internal("Task payload must serialize to a JSON object".to_string())
+    })?;
+    task_object.insert(
+        "artifactSummary".to_string(),
+        serde_json::to_value(&evidence_summary.artifact).map_err(|error| {
+            ServerError::Internal(format!(
+                "Failed to serialize task artifact summary: {error}"
+            ))
+        })?,
+    );
+    task_object.insert(
+        "evidenceSummary".to_string(),
+        serde_json::to_value(&evidence_summary).map_err(|error| {
+            ServerError::Internal(format!(
+                "Failed to serialize task evidence summary: {error}"
+            ))
+        })?,
+    );
+    Ok(task_value)
+}
+
+async fn build_task_evidence_summary(
+    state: &AppState,
+    task: &routa_core::models::task::Task,
+) -> Result<TaskEvidenceSummary, ServerError> {
+    let artifacts = state.artifact_store.list_by_task(&task.id).await?;
+    let mut by_type = BTreeMap::new();
+    for artifact in &artifacts {
+        let key = artifact.artifact_type.as_str().to_string();
+        *by_type.entry(key).or_insert(0) += 1;
+    }
+
+    let board = match task.board_id.as_deref() {
+        Some(board_id) => state.kanban_store.get(board_id).await?,
+        None => None,
+    };
+    let required_artifacts =
+        resolve_next_required_artifacts(board.as_ref(), task.column_id.as_deref());
+    let present_artifacts = by_type.keys().cloned().collect::<BTreeSet<_>>();
+    let missing_required = required_artifacts
+        .into_iter()
+        .filter(|artifact| !present_artifacts.contains(artifact))
+        .collect::<Vec<_>>();
+
+    let latest_status = task
+        .lane_sessions
+        .last()
+        .map(|session| task_lane_session_status_as_str(&session.status).to_string())
+        .unwrap_or_else(|| {
+            if task.session_ids.is_empty() {
+                "idle".to_string()
+            } else {
+                "unknown".to_string()
+            }
+        });
+
+    Ok(TaskEvidenceSummary {
+        artifact: TaskArtifactSummary {
+            total: artifacts.len(),
+            by_type,
+            required_satisfied: missing_required.is_empty(),
+            missing_required,
+        },
+        verification: TaskVerificationSummary {
+            has_verdict: task.verification_verdict.is_some(),
+            verdict: task
+                .verification_verdict
+                .as_ref()
+                .map(|verdict| verdict.as_str().to_string()),
+            has_report: task
+                .verification_report
+                .as_ref()
+                .is_some_and(|report| !report.trim().is_empty()),
+        },
+        completion: TaskCompletionSummary {
+            has_summary: task
+                .completion_summary
+                .as_ref()
+                .is_some_and(|summary| !summary.trim().is_empty()),
+        },
+        runs: TaskRunSummary {
+            total: task.session_ids.len(),
+            latest_status,
+        },
+    })
+}
+
+fn resolve_next_required_artifacts(
+    board: Option<&KanbanBoard>,
+    current_column_id: Option<&str>,
+) -> Vec<String> {
+    let current_column_id = current_column_id.unwrap_or("backlog").to_ascii_lowercase();
+    let next_column_id = KANBAN_HAPPY_PATH_COLUMN_ORDER
+        .iter()
+        .position(|column_id| *column_id == current_column_id)
+        .and_then(|index| KANBAN_HAPPY_PATH_COLUMN_ORDER.get(index + 1))
+        .copied();
+    let Some(next_column_id) = next_column_id else {
+        return Vec::new();
+    };
+
+    board
+        .and_then(|board| {
+            board
+                .columns
+                .iter()
+                .find(|column| column.id == next_column_id)
+        })
+        .and_then(|column| column.automation.as_ref())
+        .and_then(|automation| automation.required_artifacts.clone())
+        .unwrap_or_default()
+}
+
+fn task_lane_session_status_as_str(status: &TaskLaneSessionStatus) -> &'static str {
+    match status {
+        TaskLaneSessionStatus::Running => "running",
+        TaskLaneSessionStatus::Completed => "completed",
+        TaskLaneSessionStatus::Failed => "failed",
+        TaskLaneSessionStatus::TimedOut => "timed_out",
+        TaskLaneSessionStatus::Transitioned => "transitioned",
+    }
 }
 
 async fn ensure_transition_artifacts(

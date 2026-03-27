@@ -348,6 +348,14 @@ async fn api_task_artifact_flow_and_gate() {
         .as_array()
         .expect("columns array")
         .clone();
+    let dev = columns
+        .iter_mut()
+        .find(|column| column["id"].as_str() == Some("dev"))
+        .expect("dev column");
+    dev["automation"] = json!({
+        "enabled": true,
+        "requiredArtifacts": ["screenshot"]
+    });
     let review = columns
         .iter_mut()
         .find(|column| column["id"].as_str() == Some("review"))
@@ -382,6 +390,19 @@ async fn api_task_artifact_flow_and_gate() {
     assert_eq!(create_task.status(), StatusCode::CREATED);
     let task_json: Value = create_task.json().await.expect("decode task");
     let task_id = task_json["task"]["id"].as_str().expect("task id");
+    assert_eq!(task_json["task"]["artifactSummary"]["total"], json!(0));
+    assert_eq!(
+        task_json["task"]["artifactSummary"]["requiredSatisfied"],
+        json!(false)
+    );
+    assert_eq!(
+        task_json["task"]["artifactSummary"]["missingRequired"],
+        json!(["screenshot"])
+    );
+    assert_eq!(
+        task_json["task"]["evidenceSummary"]["runs"]["latestStatus"],
+        json!("idle")
+    );
 
     let blocked_move = fixture
         .client
@@ -411,6 +432,32 @@ async fn api_task_artifact_flow_and_gate() {
         .expect("create artifact");
     assert_eq!(create_artifact.status(), StatusCode::CREATED);
 
+    let get_task = fixture
+        .client
+        .get(fixture.endpoint(&format!("/api/tasks/{task_id}")))
+        .send()
+        .await
+        .expect("get task");
+    assert_eq!(get_task.status(), StatusCode::OK);
+    let get_task_json: Value = get_task.json().await.expect("decode task");
+    assert_eq!(get_task_json["task"]["artifactSummary"]["total"], json!(1));
+    assert_eq!(
+        get_task_json["task"]["artifactSummary"]["byType"]["screenshot"],
+        json!(1)
+    );
+    assert_eq!(
+        get_task_json["task"]["artifactSummary"]["requiredSatisfied"],
+        json!(true)
+    );
+    assert_eq!(
+        get_task_json["task"]["artifactSummary"]["missingRequired"],
+        json!([])
+    );
+    assert_eq!(
+        get_task_json["task"]["evidenceSummary"]["artifact"]["byType"]["screenshot"],
+        json!(1)
+    );
+
     let list_artifacts = fixture
         .client
         .get(fixture.endpoint(&format!("/api/tasks/{task_id}/artifacts")))
@@ -425,6 +472,26 @@ async fn api_task_artifact_flow_and_gate() {
             .expect("artifact array")
             .len(),
         1
+    );
+
+    let list_tasks = fixture
+        .client
+        .get(fixture.endpoint("/api/tasks?workspaceId=default"))
+        .send()
+        .await
+        .expect("list tasks");
+    assert_eq!(list_tasks.status(), StatusCode::OK);
+    let list_tasks_json: Value = list_tasks.json().await.expect("decode tasks");
+    let listed_task = list_tasks_json["tasks"]
+        .as_array()
+        .expect("task array")
+        .iter()
+        .find(|task| task["id"].as_str() == Some(task_id))
+        .expect("listed task");
+    assert_eq!(listed_task["artifactSummary"]["total"], json!(1));
+    assert_eq!(
+        listed_task["evidenceSummary"]["artifact"]["requiredSatisfied"],
+        json!(true)
     );
 
     let allowed_move = fixture
