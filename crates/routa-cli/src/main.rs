@@ -5,6 +5,7 @@
 
 mod commands;
 
+use crate::commands::acp::AcpAction;
 use crate::commands::fitness::FitnessAction;
 use clap::{Parser, Subcommand};
 
@@ -56,8 +57,13 @@ enum Commands {
     /// Use subcommands to manage ACP agents and runtimes.
     Acp {
         #[command(subcommand)]
-        action: AcpAction,
+        action: commands::acp::AcpAction,
     },
+
+    /// Install an ACP provider from presets/registry.
+    Install(commands::acp::TopLevelInstallArgs),
+    /// Uninstall a Routa-managed ACP provider.
+    Uninstall(commands::acp::TopLevelUninstallArgs),
 
     /// Manage agents
     Agent {
@@ -191,42 +197,6 @@ enum Commands {
         #[command(subcommand)]
         action: TeamAction,
     },
-}
-
-#[derive(Subcommand)]
-enum AcpAction {
-    /// Run Routa as an ACP server over stdio (other agents can connect to it).
-    Serve {
-        /// Workspace ID
-        #[arg(long, default_value = "default")]
-        workspace_id: String,
-        /// Default ACP provider for child agents (e.g. "opencode", "claude")
-        #[arg(long, default_value = "opencode")]
-        provider: String,
-    },
-    /// Install an ACP agent (downloads runtime if needed).
-    Install {
-        /// Agent ID from the ACP registry (e.g. "opencode")
-        agent_id: String,
-        /// Distribution type override: npx | uvx | binary
-        #[arg(long)]
-        dist: Option<String>,
-    },
-    /// Uninstall a previously-installed ACP agent.
-    Uninstall {
-        /// Agent ID to remove
-        agent_id: String,
-    },
-    /// List agents from the ACP registry with their install status.
-    List,
-    /// List locally-installed ACP agents.
-    Installed,
-    /// Show Node.js / uv runtime status.
-    RuntimeStatus,
-    /// Download and cache Node.js (managed runtime) if not already present.
-    EnsureNode,
-    /// Download and cache uv (managed runtime) if not already present.
-    EnsureUv,
 }
 
 #[derive(Subcommand)]
@@ -820,6 +790,21 @@ async fn main() {
                         commands::acp::ensure_uv(&state).await
                     }
                 }
+            }
+
+            Commands::Install(args) => {
+                let state = commands::init_state(&cli.db).await;
+                commands::acp::install_top_level(
+                    &state,
+                    args.agent_id.as_deref(),
+                    args.dist.as_deref(),
+                )
+                .await
+            }
+
+            Commands::Uninstall(args) => {
+                let state = commands::init_state(&cli.db).await;
+                commands::acp::uninstall_top_level(&state, args.agent_id.as_deref()).await
             }
 
             Commands::Agent { action } => {
