@@ -8,7 +8,6 @@ export default function McpSettingsPage() {
     <SettingsRouteShell
       title="MCP Servers"
       description="Manage Model Context Protocol servers, transports, and local integration points for your workspace."
-      route="/settings/mcp"
     >
       <div className="h-full overflow-y-auto px-6 py-6">
         <McpServersTab />

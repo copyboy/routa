@@ -8,7 +8,6 @@ export default function WorkflowSettingsPage() {
     <SettingsRouteShell
       title="Workflows"
       description="Compose and run recurring workflows that coordinate multiple actions, triggers, and agents."
-      route="/settings/workflows"
     >
       <div className="h-full overflow-y-auto px-6 py-6">
         <WorkflowPanel />

@@ -8,7 +8,6 @@ export default function SchedulesSettingsPage() {
     <SettingsRouteShell
       title="Schedules"
       description="Run agents automatically on a recurring cron schedule. Use this for audits, cleanup, sync, and regular maintenance jobs."
-      route="/settings/schedules"
     >
       <div className="h-full min-h-0 overflow-hidden">
         <div className="border-b border-blue-100 bg-blue-50 px-6 py-3 text-xs text-blue-700 dark:border-blue-900/30 dark:bg-blue-900/10 dark:text-blue-400">

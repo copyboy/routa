@@ -6,7 +6,6 @@ import type { SettingsTab } from "./settings-panel-shared";
 
 interface SettingsCenterNavProps {
   activeConfigTab?: SettingsTab;
-  activeRoute?: string;
   onBack: () => void;
 }
 
@@ -17,19 +16,7 @@ const CONFIG_ITEMS: Array<{ key: SettingsTab; label: string; href: string }> = [
   { key: "webhooks", label: "Webhooks", href: "/settings?tab=webhooks" },
 ];
 
-const TOOL_ITEMS = [
-  { key: "mcp", label: "MCP Servers", href: "/settings/mcp" },
-  { key: "schedules", label: "Schedules", href: "/settings/schedules" },
-  { key: "workflows", label: "Workflows", href: "/settings/workflows" },
-  { key: "specialists", label: "Specialists", href: "/settings/specialists" },
-];
-
-const DEBUG_ITEMS = [
-  { key: "config", label: "Config", href: "/settings" },
-  { key: "traces", label: "Traces", href: "/traces" },
-];
-
-export function SettingsCenterNav({ activeConfigTab, activeRoute, onBack }: SettingsCenterNavProps) {
+export function SettingsCenterNav({ activeConfigTab, onBack }: SettingsCenterNavProps) {
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-desktop-border bg-desktop-bg-secondary px-4 py-5">
       <button
@@ -48,23 +35,7 @@ export function SettingsCenterNav({ activeConfigTab, activeRoute, onBack }: Sett
           label="Config"
           items={CONFIG_ITEMS.map((item) => ({
             ...item,
-            active: activeRoute === "/settings" && activeConfigTab === item.key,
-          }))}
-        />
-        <NavGroup
-          label="Tools"
-          items={TOOL_ITEMS.map((item) => ({
-            ...item,
-            active: activeRoute === item.href,
-          }))}
-        />
-        <NavGroup
-          label="Debug"
-          items={DEBUG_ITEMS.map((item) => ({
-            ...item,
-            active: item.href === "/settings"
-              ? activeRoute === "/settings" && !activeConfigTab
-              : activeRoute === item.href,
+            active: activeConfigTab === item.key,
           }))}
         />
       </div>
