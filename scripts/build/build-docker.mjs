@@ -17,7 +17,7 @@
  *   node scripts/build/build-docker.mjs
  */
 
-import { execSync } from "child_process";
+import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -29,8 +29,28 @@ const standaloneDir = path.join(root, ".next", "standalone");
 const chunksDir = path.join(standaloneDir, ".next", "server", "chunks");
 const targetDbDir = path.join(chunksDir, "db");
 
-function run(cmd) {
-  execSync(cmd, { cwd: root, stdio: "inherit" });
+function runEsbuild(entry, outfile) {
+  const result = spawnSync("npx", [
+    "esbuild",
+    entry,
+    "--bundle",
+    "--platform=node",
+    "--format=cjs",
+    "--external:better-sqlite3",
+    `--outfile=${outfile}`,
+  ], {
+    cwd: root,
+    stdio: "inherit",
+    env: process.env,
+    shell: false,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    const code = typeof result.status === "number" ? result.status : 1;
+    throw new Error(`Command failed with status ${code}: npx esbuild ${entry}`);
+  }
 }
 
 function ensureDir(dir) {
@@ -56,10 +76,7 @@ const sqliteSources = [
 
 for (const { entry, out } of sqliteSources) {
   const outfile = path.join(targetDbDir, out);
-  run(
-    `npx esbuild ${entry} --bundle --platform=node --format=cjs ` +
-      `--external:better-sqlite3 --outfile=${outfile}`
-  );
+  runEsbuild(entry, outfile);
   console.log(`  ✓ ${out}`);
 }
 

@@ -13,7 +13,7 @@
  * resolves them at runtime. better-sqlite3 (with its native addon) is
  * copied into the standalone node_modules.
  */
-import { execSync } from "child_process";
+import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, rmSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -33,12 +33,48 @@ const bundleRoot = path.join(
   "desktop-server"
 );
 
-function run(cmd, env = {}) {
-  execSync(cmd, {
+function runNextBuild() {
+  const result = spawnSync("npx", ["next", "build"], {
     cwd: root,
     stdio: "inherit",
-    env: { ...process.env, ...env },
+    env: {
+      ...process.env,
+      ROUTA_DESKTOP_SERVER_BUILD: "1",
+      ROUTA_DESKTOP_STANDALONE: "1",
+    },
+    shell: false,
   });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    const code = typeof result.status === "number" ? result.status : 1;
+    throw new Error(`Command failed with status ${code}: npx next build`);
+  }
+}
+
+function runEsbuild(entry, outfile) {
+  const result = spawnSync("npx", [
+    "esbuild",
+    entry,
+    "--bundle",
+    "--platform=node",
+    "--format=cjs",
+    "--external:better-sqlite3",
+    `--outfile=${outfile}`,
+  ], {
+    cwd: root,
+    stdio: "inherit",
+    env: process.env,
+    shell: false,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    const code = typeof result.status === "number" ? result.status : 1;
+    throw new Error(`Command failed with status ${code}: npx esbuild ${entry}`);
+  }
 }
 
 function ensureDir(dir) {
@@ -47,10 +83,7 @@ function ensureDir(dir) {
 
 // ── Step 1: Build Next.js standalone output ──────────────────────────
 console.log("[build-desktop-bundle] Building Next desktop standalone output...");
-run("npx next build", {
-  ROUTA_DESKTOP_SERVER_BUILD: "1",
-  ROUTA_DESKTOP_STANDALONE: "1",
-});
+runNextBuild();
 
 if (!existsSync(standaloneDir)) {
   throw new Error(`Standalone output not found: ${standaloneDir}`);
@@ -96,10 +129,7 @@ const sqliteSources = [
 console.log("[build-desktop-bundle] Compiling SQLite modules with esbuild...");
 for (const { entry, out } of sqliteSources) {
   const outfile = path.join(targetDbDir, out);
-  run(
-    `npx esbuild ${entry} --bundle --platform=node --format=cjs ` +
-      `--external:better-sqlite3 --outfile=${outfile}`,
-  );
+  runEsbuild(entry, outfile);
   console.log(`  ✓ ${out}`);
 }
 
