@@ -117,9 +117,12 @@ fn resolve_model_path(
     workspace_root: &Path,
 ) -> Result<PathBuf, String> {
     if let Some(path) = &args.model {
-        return Ok(resolve_requested_path(path, &std::env::current_dir().map_err(|error| {
-            format!("failed to determine cwd for model resolution: {error}")
-        })?));
+        return Ok(resolve_requested_path(
+            path,
+            &std::env::current_dir().map_err(|error| {
+                format!("failed to determine cwd for model resolution: {error}")
+            })?,
+        ));
     }
 
     let repo_candidate = repo_root.join(args.profile.bundled_model_relative_path());
@@ -140,7 +143,10 @@ fn resolve_model_path(
 
 fn resolve_snapshot_path(args: &FluencyArgs, repo_root: &Path) -> PathBuf {
     match &args.snapshot_path {
-        Some(path) => resolve_requested_path(path, &std::env::current_dir().unwrap_or_else(|_| repo_root.to_path_buf())),
+        Some(path) => resolve_requested_path(
+            path,
+            &std::env::current_dir().unwrap_or_else(|_| repo_root.to_path_buf()),
+        ),
         None => repo_root.join(profile_snapshot_filename(args.profile)),
     }
 }
@@ -260,7 +266,9 @@ mod tests {
     #[test]
     fn resolve_workspace_root_contains_bundled_fluency_model() {
         let workspace_root = resolve_workspace_root().expect("workspace root");
-        assert!(workspace_root.join("docs/fitness/harness-fluency.model.yaml").exists());
+        assert!(workspace_root
+            .join("docs/fitness/harness-fluency.model.yaml")
+            .exists());
     }
 
     #[test]
