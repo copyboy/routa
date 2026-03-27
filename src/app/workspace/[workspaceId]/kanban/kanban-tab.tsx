@@ -28,6 +28,7 @@ import { createKanbanSpecialistResolver } from "./kanban-card-session-utils";
 import { normalizeKanbanAutomation } from "@/core/models/kanban";
 import type { RepoSelection } from "@/client/components/repo-picker";
 import type { RepoSyncState } from "./kanban-repo-sync-status";
+import type { KanbanRepoChanges } from "./kanban-file-changes-types";
 import {
   applySpecialistLanguageToBoardColumns,
   canSelectTaskSessionInAcp,
@@ -70,6 +71,8 @@ interface KanbanTabProps {
   codebases: CodebaseData[];
   onRefresh: () => void;
   repoSync?: RepoSyncState;
+  repoChanges?: KanbanRepoChanges[];
+  repoChangesLoading?: boolean;
   /** ACP state and actions for agent input and session management */
   acp?: UseAcpState & UseAcpActions;
   /** Handler for agent prompt - creates session and sends prompt */
@@ -94,6 +97,8 @@ export function KanbanTab({
   codebases,
   onRefresh,
   repoSync,
+  repoChanges = [],
+  repoChangesLoading = false,
   acp,
   onAgentPrompt,
 }: KanbanTabProps) {
@@ -1213,6 +1218,8 @@ export function KanbanTab({
         specialistLanguage={specialistLanguage}
         onSpecialistLanguageChange={handleSpecialistLanguageChange}
         onRefresh={onRefresh}
+        repoChanges={repoChanges}
+        repoChangesLoading={repoChangesLoading}
       />
       <KanbanBoardSurface
         moveError={moveError}
@@ -1225,6 +1232,8 @@ export function KanbanTab({
         fetchCodebaseWorktrees={fetchCodebaseWorktrees}
         onRefresh={onRefresh}
         onAgentPrompt={onAgentPrompt}
+        repoChanges={repoChanges}
+        repoChangesLoading={repoChangesLoading}
         availableProviders={availableProviders}
         acp={acp}
         kanbanTaskAgentCopy={kanbanTaskAgentCopy}

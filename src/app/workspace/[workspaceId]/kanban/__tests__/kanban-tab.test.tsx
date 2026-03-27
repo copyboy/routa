@@ -173,6 +173,51 @@ describe("KanbanTab repo sync indicator", () => {
   });
 });
 
+describe("KanbanTab file changes panel", () => {
+  it("renders the right-side file changes panel and allows collapsing it", () => {
+    render(
+      <KanbanTab
+        workspaceId="workspace-1"
+        boards={[board]}
+        tasks={[]}
+        sessions={[]}
+        providers={[]}
+        specialists={[]}
+        codebases={[{
+          id: "codebase-1",
+          workspaceId: "workspace-1",
+          repoPath: "/tmp/repo",
+          branch: "main",
+          label: "routa-js",
+          isDefault: true,
+          createdAt: "2025-01-01T00:00:00.000Z",
+          updatedAt: "2025-01-01T00:00:00.000Z",
+        }]}
+        repoChanges={[{
+          codebaseId: "codebase-1",
+          repoPath: "/tmp/repo",
+          label: "routa-js",
+          branch: "main",
+          status: { clean: false, ahead: 1, behind: 0, modified: 1, untracked: 1 },
+          files: [
+            { path: "src/app.tsx", status: "modified" },
+            { path: "README.md", status: "untracked" },
+          ],
+        }]}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("kanban-file-changes-panel")).toBeTruthy();
+    expect(screen.getByText("File Changes")).toBeTruthy();
+    expect(screen.getByText("src/app.tsx")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+
+    expect(screen.getByTestId("kanban-file-changes-collapsed")).toBeTruthy();
+  });
+});
+
 describe("KanbanTab stale worktree recovery", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

@@ -69,6 +69,15 @@ pub fn dir_name_to_repo(dir_name: &str) -> String {
     }
 }
 
+pub fn is_git_repository(repo_path: &str) -> bool {
+    Command::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .current_dir(repo_path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 pub fn get_current_branch(repo_path: &str) -> Option<String> {
     let output = Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
@@ -211,7 +220,7 @@ pub fn get_branch_status(repo_path: &str, branch: &str) -> BranchStatus {
     }
 
     if let Ok(o) = Command::new("git")
-        .args(["status", "--porcelain"])
+        .args(["status", "--porcelain", "-uall"])
         .current_dir(repo_path)
         .output()
     {
@@ -259,6 +268,36 @@ pub struct RepoStatus {
     pub untracked: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum FileChangeStatus {
+    Modified,
+    Added,
+    Deleted,
+    Renamed,
+    Copied,
+    Untracked,
+    Typechange,
+    Conflicted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitFileChange {
+    pub path: String,
+    pub status: FileChangeStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoChanges {
+    pub branch: String,
+    pub status: RepoStatus,
+    pub files: Vec<GitFileChange>,
+}
+
 pub fn get_repo_status(repo_path: &str) -> RepoStatus {
     let mut status = RepoStatus {
         clean: true,
@@ -269,7 +308,7 @@ pub fn get_repo_status(repo_path: &str) -> RepoStatus {
     };
 
     if let Ok(o) = Command::new("git")
-        .args(["status", "--porcelain"])
+        .args(["status", "--porcelain", "-uall"])
         .current_dir(repo_path)
         .output()
     {
@@ -298,6 +337,94 @@ pub fn get_repo_status(repo_path: &str) -> RepoStatus {
     }
 
     status
+}
+
+fn map_porcelain_status(code: &str) -> FileChangeStatus {
+    if code == "??" {
+        return FileChangeStatus::Untracked;
+    }
+
+    let mut chars = code.chars();
+    let index_status = chars.next().unwrap_or(' ');
+    let worktree_status = chars.next().unwrap_or(' ');
+
+    if index_status == 'U' || worktree_status == 'U' || code == "AA" || code == "DD" {
+        return FileChangeStatus::Conflicted;
+    }
+    if index_status == 'R' || worktree_status == 'R' {
+        return FileChangeStatus::Renamed;
+    }
+    if index_status == 'C' || worktree_status == 'C' {
+        return FileChangeStatus::Copied;
+    }
+    if index_status == 'A' || worktree_status == 'A' {
+        return FileChangeStatus::Added;
+    }
+    if index_status == 'D' || worktree_status == 'D' {
+        return FileChangeStatus::Deleted;
+    }
+    if index_status == 'T' || worktree_status == 'T' {
+        return FileChangeStatus::Typechange;
+    }
+    FileChangeStatus::Modified
+}
+
+pub fn parse_git_status_porcelain(output: &str) -> Vec<GitFileChange> {
+    output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| {
+            if line.len() < 3 {
+                return None;
+            }
+
+            let code = &line[0..2];
+            if code == "!!" {
+                return None;
+            }
+
+            let raw_path = line[3..].trim().to_string();
+            let status = map_porcelain_status(code);
+
+            if matches!(status, FileChangeStatus::Renamed | FileChangeStatus::Copied)
+                && raw_path.contains(" -> ")
+            {
+                let parts: Vec<&str> = raw_path.splitn(2, " -> ").collect();
+                if parts.len() == 2 {
+                    return Some(GitFileChange {
+                        path: parts[1].to_string(),
+                        previous_path: Some(parts[0].to_string()),
+                        status,
+                    });
+                }
+            }
+
+            Some(GitFileChange {
+                path: raw_path,
+                previous_path: None,
+                status,
+            })
+        })
+        .collect()
+}
+
+pub fn get_repo_changes(repo_path: &str) -> RepoChanges {
+    let branch = get_current_branch(repo_path).unwrap_or_else(|| "unknown".into());
+    let status = get_repo_status(repo_path);
+    let files = Command::new("git")
+        .args(["status", "--porcelain", "-uall"])
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| parse_git_status_porcelain(&String::from_utf8_lossy(&o.stdout)))
+        .unwrap_or_default();
+
+    RepoChanges {
+        branch,
+        status,
+        files,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -456,6 +583,27 @@ fn parse_discovered_skill(path: &Path) -> Option<DiscoveredSkill> {
         license: None,
         compatibility: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_git_status_porcelain, FileChangeStatus};
+
+    #[test]
+    fn parse_git_status_porcelain_maps_statuses() {
+        let output = " M src/app.ts\nA  src/new.ts\nD  src/old.ts\nR  src/was.ts -> src/now.ts\n?? scratch.txt\nUU merge.txt\n";
+        let files = parse_git_status_porcelain(output);
+
+        assert_eq!(files.len(), 6);
+        assert_eq!(files[0].status, FileChangeStatus::Modified);
+        assert_eq!(files[1].status, FileChangeStatus::Added);
+        assert_eq!(files[2].status, FileChangeStatus::Deleted);
+        assert_eq!(files[3].status, FileChangeStatus::Renamed);
+        assert_eq!(files[3].previous_path.as_deref(), Some("src/was.ts"));
+        assert_eq!(files[3].path, "src/now.ts");
+        assert_eq!(files[4].status, FileChangeStatus::Untracked);
+        assert_eq!(files[5].status, FileChangeStatus::Conflicted);
+    }
 }
 
 /// Extract YAML frontmatter from between `---` delimiters.

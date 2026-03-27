@@ -25,6 +25,7 @@ import type {
 import type { CodebaseData } from "@/client/hooks/use-workspaces";
 import { resolveKanbanAutomationStep } from "@/core/kanban/effective-task-automation";
 import { createKanbanSpecialistResolver } from "./kanban-card-session-utils";
+import type { KanbanRepoChanges } from "./kanban-file-changes-types";
 
 interface SpecialistOption {
   id: string;
@@ -50,6 +51,8 @@ export function KanbanPageClient() {
   const [tasks, setTasks] = useState<TaskInfo[]>([]);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [specialists, setSpecialists] = useState<SpecialistOption[]>([]);
+  const [repoChanges, setRepoChanges] = useState<KanbanRepoChanges[]>([]);
+  const [repoChangesLoading, setRepoChangesLoading] = useState(false);
   const [specialistLanguage, setSpecialistLanguage] = useState<KanbanSpecialistLanguage>("en");
   const [refreshKey, setRefreshKey] = useState(0);
   const [repoSync, setRepoSync] = useState<RepoSyncState>({
@@ -197,6 +200,39 @@ export function KanbanPageClient() {
       } catch { /* ignore */ }
     })();
   }, [workspaceId, specialistLanguage]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    if (!workspaceId || workspaceId === "__placeholder__") return () => controller.abort();
+    if (codebases.length === 0) {
+      setRepoChanges([]);
+      setRepoChangesLoading(false);
+      return () => controller.abort();
+    }
+
+    setRepoChangesLoading(true);
+    void (async () => {
+      try {
+        const res = await desktopAwareFetch(
+          `/api/workspaces/${encodeURIComponent(workspaceId)}/codebases/changes`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (controller.signal.aborted) return;
+        setRepoChanges(Array.isArray(data?.repos) ? data.repos : []);
+      } catch {
+        if (controller.signal.aborted) return;
+        setRepoChanges([]);
+      } finally {
+        if (!controller.signal.aborted) {
+          setRepoChangesLoading(false);
+        }
+      }
+    })();
+
+    return () => controller.abort();
+  }, [workspaceId, codebases, refreshKey]);
 
   const localizedSpecialists = useMemo(
     () => localizeSpecialists(specialists),
@@ -438,6 +474,8 @@ export function KanbanPageClient() {
             acp={acp}
             onAgentPrompt={handleAgentPrompt}
             repoSync={repoSync}
+            repoChanges={repoChanges}
+            repoChangesLoading={repoChangesLoading}
           />
         </div>
       </div>

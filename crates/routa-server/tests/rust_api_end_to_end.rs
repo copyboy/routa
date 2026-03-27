@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::Write as _;
 use std::path::PathBuf;
+use std::process::Command;
 use std::time::Duration;
 
 use reqwest::{Client, StatusCode};
@@ -82,6 +83,22 @@ fn write_repo_file(path: &std::path::Path, file_name: &str, content: &str) {
     }
     let mut file = File::create(file_path).unwrap();
     file.write_all(content.as_bytes()).unwrap();
+}
+
+fn run_git(repo_path: &std::path::Path, args: &[&str]) {
+    let status = Command::new("git")
+        .args(args)
+        .current_dir(repo_path)
+        .status()
+        .expect("run git command");
+    assert!(status.success(), "git {:?} should succeed", args);
+}
+
+fn init_git_repo(repo_path: &std::path::Path) {
+    fs::create_dir_all(repo_path).expect("create repo dir");
+    run_git(repo_path, &["init", "--initial-branch=main"]);
+    run_git(repo_path, &["config", "user.email", "test@example.com"]);
+    run_git(repo_path, &["config", "user.name", "Routa Test"]);
 }
 
 fn json_has_error(resp: &Value, expected: &str) -> bool {
@@ -428,8 +445,17 @@ async fn api_task_flow_with_validation() {
 async fn api_codebase_and_file_search_flow() {
     let fixture = ApiFixture::new().await;
     let repo_path = random_repo_path();
+    init_git_repo(&repo_path);
     write_repo_file(&repo_path, "README.md", "# routa\n");
     write_repo_file(&repo_path, "src/lib.rs", "pub fn main() {}\n");
+    run_git(&repo_path, &["add", "."]);
+    run_git(&repo_path, &["commit", "-m", "initial"]);
+    write_repo_file(
+        &repo_path,
+        "src/lib.rs",
+        "pub fn main() { println!(\"changed\"); }\n",
+    );
+    write_repo_file(&repo_path, "notes/todo.md", "- pending\n");
 
     let codebase_created = fixture
         .client
@@ -509,6 +535,27 @@ async fn api_codebase_and_file_search_flow() {
             .and_then(Value::as_str)
             .is_some_and(|path| path.contains("lib.rs"))
     }));
+
+    let changes = fixture
+        .client
+        .get(fixture.endpoint("/api/workspaces/default/codebases/changes"))
+        .send()
+        .await
+        .expect("list codebase changes");
+    assert_eq!(changes.status(), StatusCode::OK);
+    let changes_json: Value = changes.json().await.expect("decode codebase changes");
+    let repos = changes_json["repos"].as_array().expect("repos array");
+    assert_eq!(repos.len(), 1);
+    assert_eq!(repos[0]["branch"].as_str(), Some("main"));
+    assert_eq!(repos[0]["status"]["modified"].as_i64(), Some(1));
+    assert_eq!(repos[0]["status"]["untracked"].as_i64(), Some(1));
+    let files = repos[0]["files"].as_array().expect("files array");
+    assert!(files
+        .iter()
+        .any(|item| item["path"].as_str() == Some("src/lib.rs")));
+    assert!(files
+        .iter()
+        .any(|item| item["path"].as_str() == Some("notes/todo.md")));
 
     let invalid_search = fixture
         .client

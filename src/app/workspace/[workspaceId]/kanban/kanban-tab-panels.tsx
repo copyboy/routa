@@ -8,6 +8,7 @@ import { RepoPicker, type RepoSelection } from "@/client/components/repo-picker"
 import { resolveEffectiveTaskAutomation } from "@/core/kanban/effective-task-automation";
 import { KanbanCard } from "./kanban-card";
 import { KanbanCardActivityBar, KanbanCardDetail } from "./kanban-card-detail";
+import { KanbanFileChangesPanel } from "./kanban-file-changes-panel";
 import type { KanbanTaskAgentCopy } from "./i18n/kanban-task-agent";
 import { KanbanCreateModal, type DraftIssue } from "../kanban-create-modal";
 import { KanbanCardActivityPanel, KanbanEmptySessionPane } from "./kanban-card-activity";
@@ -22,6 +23,7 @@ import {
 } from "./kanban-tab-helpers";
 import type { ColumnAutomationConfig } from "./kanban-settings-modal";
 import type { KanbanBoardInfo, SessionInfo, TaskInfo, WorktreeInfo } from "../types";
+import type { KanbanRepoChanges } from "./kanban-file-changes-types";
 
 interface SpecialistOption {
   id: string;
@@ -42,6 +44,8 @@ export function KanbanBoardSurface({
   fetchCodebaseWorktrees,
   onRefresh,
   onAgentPrompt,
+  repoChanges,
+  repoChangesLoading,
   availableProviders,
   acp,
   kanbanTaskAgentCopy,
@@ -87,6 +91,8 @@ export function KanbanBoardSurface({
   fetchCodebaseWorktrees: (codebase: CodebaseData) => Promise<void>;
   onRefresh: () => void;
   onAgentPrompt?: unknown;
+  repoChanges: KanbanRepoChanges[];
+  repoChangesLoading: boolean;
   availableProviders: AcpProviderInfo[];
   acp?: UseAcpState & UseAcpActions;
   kanbanTaskAgentCopy: KanbanTaskAgentCopy;
@@ -359,6 +365,8 @@ export function KanbanBoardSurface({
             </div>
           </div>
         </div>
+
+        <KanbanFileChangesPanel repos={repoChanges} loading={repoChangesLoading} />
 
         {agentPanelOpen && agentSessionId && acp && (
           <aside

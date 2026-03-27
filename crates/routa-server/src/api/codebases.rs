@@ -9,11 +9,23 @@ use crate::error::ServerError;
 use crate::models::codebase::Codebase;
 use crate::state::AppState;
 
+fn repo_label_from_path(repo_path: &str) -> String {
+    std::path::Path::new(repo_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| repo_path.to_string())
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
             "/workspaces/{workspace_id}/codebases",
             get(list_codebases).post(add_codebase),
+        )
+        .route(
+            "/workspaces/{workspace_id}/codebases/changes",
+            get(list_codebase_changes),
         )
         .route(
             "/codebases/{id}",
@@ -31,6 +43,65 @@ async fn list_codebases(
         .list_by_workspace(&workspace_id)
         .await?;
     Ok(Json(serde_json::json!({ "codebases": codebases })))
+}
+
+async fn list_codebase_changes(
+    State(state): State<AppState>,
+    axum::extract::Path(workspace_id): axum::extract::Path<String>,
+) -> Result<Json<serde_json::Value>, ServerError> {
+    let codebases = state
+        .codebase_store
+        .list_by_workspace(&workspace_id)
+        .await?;
+
+    let repos = codebases
+        .into_iter()
+        .map(|codebase| {
+            let label = codebase
+                .label
+                .clone()
+                .unwrap_or_else(|| repo_label_from_path(&codebase.repo_path));
+
+            if codebase.repo_path.is_empty() {
+                return serde_json::json!({
+                    "codebaseId": codebase.id,
+                    "repoPath": codebase.repo_path,
+                    "label": label,
+                    "branch": codebase.branch.unwrap_or_else(|| "unknown".to_string()),
+                    "status": { "clean": true, "ahead": 0, "behind": 0, "modified": 0, "untracked": 0 },
+                    "files": [],
+                    "error": "Missing repository path",
+                });
+            }
+
+            if !crate::git::is_git_repository(&codebase.repo_path) {
+                return serde_json::json!({
+                    "codebaseId": codebase.id,
+                    "repoPath": codebase.repo_path,
+                    "label": label,
+                    "branch": codebase.branch.unwrap_or_else(|| "unknown".to_string()),
+                    "status": { "clean": true, "ahead": 0, "behind": 0, "modified": 0, "untracked": 0 },
+                    "files": [],
+                    "error": "Repository is missing or not a git repository",
+                });
+            }
+
+            let changes = crate::git::get_repo_changes(&codebase.repo_path);
+            serde_json::json!({
+                "codebaseId": codebase.id,
+                "repoPath": codebase.repo_path,
+                "label": label,
+                "branch": changes.branch,
+                "status": changes.status,
+                "files": changes.files,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Json(serde_json::json!({
+        "workspaceId": workspace_id,
+        "repos": repos,
+    })))
 }
 
 #[derive(Debug, Deserialize)]

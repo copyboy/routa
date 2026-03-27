@@ -78,6 +78,28 @@ export interface RepoBranchInfo {
   branches: string[];
 }
 
+export type FileChangeStatus =
+  | "modified"
+  | "added"
+  | "deleted"
+  | "renamed"
+  | "copied"
+  | "untracked"
+  | "typechange"
+  | "conflicted";
+
+export interface GitFileChange {
+  path: string;
+  status: FileChangeStatus;
+  previousPath?: string;
+}
+
+export interface RepoChanges {
+  branch: string;
+  status: RepoStatus;
+  files: GitFileChange[];
+}
+
 /**
  * Check if a directory is a git repository.
  */
@@ -165,7 +187,7 @@ export function getRepoStatus(repoPath: string): RepoStatus {
   };
 
   try {
-    const output = gitExecSync("git status --porcelain", repoPath);
+    const output = gitExecSync("git status --porcelain -uall", repoPath);
     const lines = output.split("\n").filter(Boolean);
     status.modified = lines.filter((l) => !l.startsWith("??")).length;
     status.untracked = lines.filter((l) => l.startsWith("??")).length;
@@ -184,6 +206,66 @@ export function getRepoStatus(repoPath: string): RepoStatus {
   }
 
   return status;
+}
+
+function mapPorcelainStatus(code: string): FileChangeStatus {
+  if (code === "??") return "untracked";
+  const [indexStatus = " ", worktreeStatus = " "] = code.split("");
+
+  if (indexStatus === "U" || worktreeStatus === "U" || code === "AA" || code === "DD") {
+    return "conflicted";
+  }
+  if (indexStatus === "R" || worktreeStatus === "R") return "renamed";
+  if (indexStatus === "C" || worktreeStatus === "C") return "copied";
+  if (indexStatus === "A" || worktreeStatus === "A") return "added";
+  if (indexStatus === "D" || worktreeStatus === "D") return "deleted";
+  if (indexStatus === "T" || worktreeStatus === "T") return "typechange";
+  return "modified";
+}
+
+export function parseGitStatusPorcelain(output: string): GitFileChange[] {
+  return output
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .flatMap((line): GitFileChange[] => {
+      if (line.length < 3) return [];
+
+      const code = line.slice(0, 2);
+      if (code === "!!") return [];
+
+      const rawPath = line.slice(3).trim();
+      const status = mapPorcelainStatus(code);
+
+      if ((status === "renamed" || status === "copied") && rawPath.includes(" -> ")) {
+        const [previousPath, nextPath] = rawPath.split(" -> ");
+        if (previousPath && nextPath) {
+          return [{ path: nextPath, previousPath, status }];
+        }
+      }
+
+      return [{ path: rawPath, status }];
+    });
+}
+
+export function getRepoChanges(repoPath: string): RepoChanges {
+  const branch = getCurrentBranch(repoPath) ?? "unknown";
+  const status = getRepoStatus(repoPath);
+
+  try {
+    const output = gitExecSync("git status --porcelain -uall", repoPath);
+    return {
+      branch,
+      status,
+      files: parseGitStatusPorcelain(output),
+    };
+  } catch {
+    return {
+      branch,
+      status,
+      files: [],
+    };
+  }
 }
 
 // ─── Repo Directory Helpers ─────────────────────────────────────────────
@@ -326,7 +408,7 @@ export function getBranchStatus(
   }
 
   try {
-    const status = gitExecSync("git status --porcelain", repoPath);
+    const status = gitExecSync("git status --porcelain -uall", repoPath);
     result.hasUncommittedChanges = status.trim().length > 0;
   } catch {
     // ignore
