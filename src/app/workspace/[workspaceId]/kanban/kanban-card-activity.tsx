@@ -167,7 +167,7 @@ export function KanbanCardActivityPanel({
   compact?: boolean;
 }) {
   const copy = getKanbanSessionCopy(specialistLanguage);
-  const { runs } = useTaskRuns(
+  const { runs, error } = useTaskRuns(
     task.id,
     `${refreshSignal ?? ""}:${task.updatedAt ?? ""}:${task.triggerSessionId ?? ""}:${task.laneSessions?.length ?? 0}`,
   );
@@ -186,6 +186,11 @@ export function KanbanCardActivityPanel({
       compact={compact}
     >
       <div>
+        {error && (
+          <div className="mb-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-200">
+            Run ledger unavailable, showing local run history. {error}
+          </div>
+        )}
         <div className="flex flex-wrap gap-1.5">
           {tabs.map((tab) => {
             const active = tab.id === activeTab;
@@ -254,7 +259,7 @@ export function KanbanCardActivityBar({
   onCloseSession?: () => void;
 }) {
   const copy = getKanbanSessionCopy(specialistLanguage);
-  const { runs } = useTaskRuns(
+  const { runs, error } = useTaskRuns(
     task.id,
     `${task.updatedAt ?? ""}:${task.triggerSessionId ?? ""}:${task.laneSessions?.length ?? 0}`,
   );
@@ -291,6 +296,11 @@ export function KanbanCardActivityBar({
 
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-white/95 px-3 pt-2 pb-2 shadow-sm dark:border-[#232736] dark:bg-[#121620]">
+      {error && (
+        <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-200">
+          Run ledger unavailable, using cached task history.
+        </div>
+      )}
       <div className="flex items-start gap-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-end gap-1.5">
           {orderedSessionIds.map((sessionId, index) => {
