@@ -13,18 +13,11 @@ import {
   saveHiddenProviders,
   type CustomAcpProvider,
 } from "../utils/custom-acp-providers";
-import {
-  getStoredThemePreference,
-  resolveThemePreference,
-  setThemePreference,
-  subscribeToThemePreference,
-  type ResolvedTheme,
-  type ThemePreference,
-} from "../utils/theme";
 import { ModelsTab } from "./settings-panel-models-tab";
 import { McpServersTab } from "./settings-panel-mcp-tab";
 import { SpecialistsTab } from "./settings-panel-specialists-tab";
 import { LanguageSwitcher } from "./language-switcher";
+import { ThemeSwitcher } from "./theme-switcher";
 import {
   clearOnboardingState,
   ONBOARDING_COMPLETED_KEY,
@@ -849,17 +842,6 @@ function SettingsPanelContent({ onClose, providers, initialTab, onResetOnboardin
   const [settings, setSettings] = useState<DefaultProviderSettings>(() => loadDefaultProviders());
   const [modelDefs, setModelDefs] = useState<ModelDefinition[]>(() => loadModelDefinitions());
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => initialTab ?? "providers");
-  const [themePreference, setThemePreferenceState] = useState<ThemePreference>(() => getStoredThemePreference());
-  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
-    resolveThemePreference(getStoredThemePreference()),
-  );
-
-  useEffect(() => {
-    return subscribeToThemePreference((nextThemePreference, nextResolvedTheme) => {
-      setThemePreferenceState(nextThemePreference);
-      setResolvedTheme(nextResolvedTheme);
-    });
-  }, []);
 
   const handleChange = useCallback(
     (role: AgentRoleKey, field: "provider" | "model", value: string) => {
@@ -876,11 +858,6 @@ function SettingsPanelContent({ onClose, providers, initialTab, onResetOnboardin
   const builtinProviders = providers.filter((provider) => provider.source !== "registry" && !isCustomProvider(provider));
   const customProviders = providers.filter((provider) => isCustomProvider(provider));
   const registryProviders = providers.filter((p) => p.source === "registry");
-  const handleThemeModeChange = (nextTheme: Exclude<ThemePreference, "system">) => {
-    const nextResolvedTheme = setThemePreference(nextTheme);
-    setThemePreferenceState(nextTheme);
-    setResolvedTheme(nextResolvedTheme);
-  };
   const handleTabChange = (tab: SettingsTab) => {
     setActiveTab(tab);
     if (tab === "models") {
@@ -917,37 +894,7 @@ function SettingsPanelContent({ onClose, providers, initialTab, onResetOnboardin
           </div>
           <div className="flex items-center gap-2">
             <LanguageSwitcher />
-            <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-[#111423]">
-              <span className="px-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                {t.settings.theme}
-              </span>
-              <button
-                type="button"
-                onClick={() => handleThemeModeChange("light")}
-                className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-                  resolvedTheme === "light"
-                    ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
-                    : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                }`}
-                aria-pressed={resolvedTheme === "light"}
-                title={themePreference === "system" ? "Following system theme" : "Switch to light theme"}
-              >
-                Day
-              </button>
-              <button
-                type="button"
-                onClick={() => handleThemeModeChange("dark")}
-                className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-                  resolvedTheme === "dark"
-                    ? "bg-slate-900 text-white shadow-sm dark:bg-slate-800"
-                    : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                }`}
-                aria-pressed={resolvedTheme === "dark"}
-                title={themePreference === "system" ? "Following system theme" : "Switch to dark theme"}
-              >
-                Night
-              </button>
-            </div>
+            <ThemeSwitcher showLabel />
             <button onClick={onClose}
               className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

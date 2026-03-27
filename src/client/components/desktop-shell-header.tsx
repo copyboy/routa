@@ -4,6 +4,8 @@ import React from "react";
 import Image from "next/image";
 import Link from "next/link";
 
+import { ThemeSwitcher } from "./theme-switcher";
+
 interface DesktopShellHeaderProps {
   workspaceId?: string | null;
   workspaceTitle?: string;
@@ -57,6 +59,10 @@ export function DesktopShellHeader({
       </div>
 
       <div className="flex-1 app-drag-region h-full" />
+
+      <div className="px-2">
+        <ThemeSwitcher compact />
+      </div>
 
       {titleBarRight && (
         <div className="flex items-center gap-1 px-2">

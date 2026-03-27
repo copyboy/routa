@@ -16,6 +16,7 @@ import {
   loadDockerOpencodeAuthJson,
   loadProviderConnections,
 } from "@/client/components/settings-panel";
+import { ThemeSwitcher } from "@/client/components/theme-switcher";
 import { desktopAwareFetch } from "@/client/utils/diagnostics";
 import {
   clearOnboardingState,
@@ -209,6 +210,7 @@ export default function HomePage() {
             )}
 
             <NotificationBell />
+            <ThemeSwitcher compact className="border-black/8 bg-white/60 dark:border-white/8 dark:bg-white/[0.03]" />
 
             <button
               onClick={() => {

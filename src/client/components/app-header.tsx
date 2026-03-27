@@ -14,6 +14,7 @@ import { Button } from "./button";
 import { WorkspaceSwitcher } from "@/client/components/workspace-switcher";
 import { ProtocolBadge } from "@/app/protocol-badge";
 import { DockerStatusIndicator } from "@/client/components/docker-status-indicator";
+import { ThemeSwitcher } from "@/client/components/theme-switcher";
 import type { WorkspaceData } from "@/client/hooks/use-workspaces";
 
 export interface AppHeaderProps {
@@ -152,6 +153,8 @@ export function AppHeader({
         <ProtocolBadge name="MCP" endpoint="/api/mcp" />
         <ProtocolBadge name="ACP" endpoint="/api/acp" />
       </div>
+
+      <ThemeSwitcher compact className="mr-2" />
 
       {/* ── Right slot (tool toggle, links, settings, etc.) ── */}
       {rightSlot}
