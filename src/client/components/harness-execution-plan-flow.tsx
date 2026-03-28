@@ -131,12 +131,12 @@ function PlanNodeView({ data }: NodeProps<Node<PlanNodeData>>) {
     ? "mt-1 overflow-hidden text-[14px] leading-7 text-desktop-text-secondary"
     : "mt-1 overflow-hidden text-[13px] leading-6 text-desktop-text-secondary";
   const heightClass = data.kind === "metric"
-    ? "h-[144px]"
+    ? "h-[160px]"
     : data.kind === "dimension"
-      ? "h-[164px]"
+      ? "h-[184px]"
       : data.kind === "lane"
         ? ""
-      : "h-[104px]";
+      : "h-[124px]";
   const visibleMeta = data.kind === "dimension" ? [] : [];
 
   if (data.kind === "lane") {
@@ -267,16 +267,16 @@ function buildPlanGraph(
   const edges: Edge[] = [];
 
   const stageX = 420;
-  const dimensionsTopY = 470;
+  const dimensionsTopY = 492;
   const dimensionsStartX = 72;
   const dimensionColumnWidth = 284;
   const dimensionColumns = Math.max(plan.dimensions.length, 1);
-  const dimensionRowHeight = 208;
-  const metricRowOffsetY = 92;
+  const dimensionRowHeight = 224;
+  const metricRowOffsetY = 56;
   const metricSpacingX = 264;
-  const metricRowHeight = 168;
+  const metricRowHeight = 176;
   const metricColumns = 6;
-  const rowContentHeight = 176;
+  const rowContentHeight = 188;
   const dimensionPositions = new Map<string, { x: number; y: number }>();
 
   nodes.push(
@@ -377,21 +377,21 @@ function buildPlanGraph(
     const activeDimensionPosition = dimensionPositions.get(activeDimension.name) ?? { x: dimensionsStartX, y: dimensionsTopY };
     const detailColumns = Math.min(metricColumns, Math.max(activeDimension.metrics.length, 1));
     const centeredMetricStartX = Math.max(72, stageX - ((detailColumns - 1) * metricSpacingX) / 2);
-    const metricsStartY = currentMetricsY + 12;
+    const metricsStartY = currentMetricsY + 8;
     let metricGridBottom = metricsStartY;
     const metricRows = Math.max(1, Math.ceil(activeDimension.metrics.length / metricColumns));
     const detailLaneId = `lane:${activeDimension.name}`;
     const detailLaneX = centeredMetricStartX - 72;
-    const detailLaneY = currentMetricsY - 32;
+    const detailLaneY = currentMetricsY - 24;
     const detailLaneWidth = Math.max(420, (detailColumns - 1) * metricSpacingX + 232 + 144);
-    const detailLaneHeight = Math.max(232, 40 + (metricRows - 1) * metricRowHeight + 144 + 56);
+    const detailLaneHeight = Math.max(236, 36 + (metricRows - 1) * metricRowHeight + 148 + 40);
     const activeDimensionHasHardMetric = activeDimension.metrics.some((metric) => metric.hardGate);
     const activeDimensionCenterX = activeDimensionPosition.x + 126;
     const laneJunctionId = `lane-junction:${activeDimension.name}`;
     const laneEntryOffsetPx = Math.max(32, Math.min(detailLaneWidth - 32, activeDimensionCenterX - detailLaneX));
     const laneExitOffsetPx = Math.max(32, Math.min(detailLaneWidth - 32, stageX - detailLaneX));
     const detailLaneCenterX = stageX;
-    const laneJunctionY = detailLaneY + detailLaneHeight + 42;
+    const laneJunctionY = detailLaneY + detailLaneHeight + 28;
 
     nodes.push(buildNode(detailLaneId, detailLaneX, detailLaneY, {
       kind: "lane",
@@ -458,9 +458,9 @@ function buildPlanGraph(
 
   const detailLaneY = currentMetricsY;
   const gatesX = stageX;
-  const gatesY = detailLaneY + 28;
+  const gatesY = detailLaneY + 36;
   const reportX = stageX;
-  const reportY = gatesY + 148;
+  const reportY = gatesY + 156;
 
   nodes.push(
     buildNode("gates", gatesX, gatesY, {
@@ -522,7 +522,7 @@ function buildPlanGraph(
   return {
     nodes,
     edges,
-    minHeight: Math.max(920, reportY + 180),
+    minHeight: Math.max(660, reportY + 96),
   };
 }
 
@@ -561,7 +561,7 @@ export function HarnessExecutionPlanFlow({
 
   const graph = useMemo(() => {
     if (!plan) {
-      return { nodes: [] as Node<PlanNodeData>[], edges: [] as Edge[], minHeight: 920 };
+      return { nodes: [] as Node<PlanNodeData>[], edges: [] as Edge[], minHeight: 660 };
     }
 
     return buildPlanGraph(plan, expandedDimensions, (name) => {
@@ -577,7 +577,6 @@ export function HarnessExecutionPlanFlow({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Execution plan</div>
-          <h3 className="mt-1 text-sm font-semibold text-desktop-text-primary">Top-down flow for dimensions and metrics</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="rounded-full border border-desktop-border bg-desktop-bg-primary p-0.5">

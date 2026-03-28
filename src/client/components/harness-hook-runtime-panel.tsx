@@ -209,7 +209,6 @@ export function HarnessHookRuntimePanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Hook system</div>
-          <h3 className="mt-1 text-sm font-semibold text-desktop-text-primary">hooks.yaml driven local gate profiles</h3>
         </div>
         <div className="flex flex-wrap gap-2 text-[10px]">
           <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-desktop-text-secondary">
@@ -225,15 +224,6 @@ export function HarnessHookRuntimePanel({
             {metricCount} mapped metrics
           </span>
         </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-desktop-text-secondary">
-        <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1">
-          hooks.yaml = source of truth
-        </span>
-        <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1">
-          Git hook files = trigger bindings
-        </span>
       </div>
 
       {hooksState.loading ? (

@@ -294,7 +294,7 @@ function buildGraph(args: {
       title: "构建",
       tone: "sky",
       note: "本地集成 / 运行准备",
-      active: false,
+      active: true,
     }),
     buildNode("test", 734, 86, {
       layer: "internal",

@@ -191,7 +191,6 @@ export function HarnessGitHubActionsFlowPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">GitHub Actions flow</div>
-          <h3 className="mt-1 text-sm font-semibold text-desktop-text-primary">Dependency-first harness view for repository GitHub Actions jobs</h3>
         </div>
         <div className="flex flex-wrap gap-2 text-[10px]">
           <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-desktop-text-secondary">
@@ -201,15 +200,6 @@ export function HarnessGitHubActionsFlowPanel({
             Repository workflows
           </span>
         </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-desktop-text-secondary">
-        <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1">
-          Trigger event -&gt; needs graph -&gt; gate
-        </span>
-        <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1">
-          Read from .github/workflows
-        </span>
       </div>
 
       {isLoading ? (
