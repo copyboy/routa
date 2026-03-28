@@ -275,14 +275,14 @@ function buildGraph(args: {
   } = args;
 
   const nodes: Node<LoopNodeData>[] = [
-    buildNode("instructions", 96, 282, {
+    buildNode("instructions", 92, 228, {
       kind: "spec",
       title: instructionSummary?.fileName ?? "Instruction File",
       subtitle: instructionSummary?.fallbackUsed ? "Fallback repository rulebook." : "Preferred repository rulebook.",
       meta: instructionSummary?.fallbackUsed ? ["fallback", "hook preflight"] : ["preferred", "hook preflight"],
       tone: "neutral",
     }),
-    buildNode("hook", 248, 164, {
+    buildNode("hook", 246, 112, {
       kind: "local",
       title: "Hook Runtime",
       subtitle: "First local gate.",
@@ -291,21 +291,21 @@ function buildGraph(args: {
         : ["loading hooks", "git bindings"],
       tone: "sky",
     }),
-    buildNode("fitness", 516, 84, {
+    buildNode("fitness", 516, 44, {
       kind: "spec",
       title: "Fitness Files",
       subtitle: "Narrative + executable specs.",
       meta: [`${fitnessFileCount} files`, `${dimensionCount} dimensions`],
       tone: "emerald",
     }),
-    buildNode("plan", 836, 164, {
+    buildNode("plan", 836, 110, {
       kind: "plan",
       title: "Execution Plan",
       subtitle: "Filter, dispatch, score.",
       meta: [`${metricCount} metrics`, `${hardGateCount} hard gates`],
       tone: "amber",
     }),
-    buildNode("actions", 862, 428, {
+    buildNode("actions", 862, 366, {
       kind: "remote",
       title: "GitHub Actions",
       subtitle: "Remote enforcement.",
@@ -314,7 +314,7 @@ function buildGraph(args: {
         : ["loading workflows", "remote checks"],
       tone: "violet",
     }),
-    buildNode("feedback", 344, 438, {
+    buildNode("feedback", 344, 374, {
       kind: "feedback",
       title: "Evidence",
       subtitle: "Scores feed back.",
@@ -324,7 +324,7 @@ function buildGraph(args: {
       ],
       tone: "emerald",
     }),
-    buildNode("core", 552, 292, {
+    buildNode("core", 552, 236, {
       kind: "core",
       title: "Governance Loop",
       subtitle: "Local gates, executable fitness, and CI feedback in one loop.",
@@ -345,7 +345,7 @@ function buildGraph(args: {
     buildEdge("core-hook", "core", "hook", "source-left", "target-right", "govern", "#60a5fa", "6 4"),
   ];
 
-  return { nodes, edges, minHeight: 620 };
+  return { nodes, edges, minHeight: 568 };
 }
 
 export function HarnessGovernanceLoopGraph({
@@ -578,21 +578,21 @@ export function HarnessGovernanceLoopGraph({
 
           <div className="relative overflow-hidden rounded-2xl border border-desktop-border bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.98))]">
             <div className="pointer-events-none absolute inset-0">
-              <div className="absolute left-[36px] top-[18px] h-[530px] w-[1080px] rounded-[999px] border-2 border-dashed border-sky-300/60 bg-slate-100/25" />
-              <div className="absolute left-[78px] top-[54px] h-[510px] w-[640px] rounded-[999px] border-[3px] border-sky-500/80 bg-[radial-gradient(circle_at_center,rgba(253,224,71,0.30),rgba(245,158,11,0.18))]" />
-              <div className="absolute left-[122px] top-[186px] h-[230px] w-[360px] rounded-[999px] border-2 border-dashed border-sky-400/75 bg-sky-100/20" />
+              <div className="absolute left-[36px] top-[8px] h-[492px] w-[1080px] rounded-[999px] border-2 border-dashed border-sky-300/60 bg-slate-100/25" />
+              <div className="absolute left-[80px] top-[34px] h-[466px] w-[640px] rounded-[999px] border-[3px] border-sky-500/80 bg-[radial-gradient(circle_at_center,rgba(253,224,71,0.30),rgba(245,158,11,0.18))]" />
+              <div className="absolute left-[122px] top-[140px] h-[214px] w-[360px] rounded-[999px] border-2 border-dashed border-sky-400/75 bg-sky-100/20" />
 
-              <div className="absolute left-[48px] top-[34px] rounded-2xl border border-slate-200 bg-white/85 px-3 py-2 shadow-sm">
+              <div className="absolute left-[48px] top-[20px] rounded-2xl border border-slate-200 bg-white/85 px-3 py-2 shadow-sm">
                 <div className="text-[18px] font-bold text-slate-900">外部反馈环</div>
                 <div className="text-[13px] font-semibold text-slate-600">Agent + DevOps</div>
               </div>
 
-              <div className="absolute left-[164px] top-[78px] rounded-2xl border border-slate-200 bg-white/85 px-3 py-2 shadow-sm">
+              <div className="absolute left-[164px] top-[58px] rounded-2xl border border-slate-200 bg-white/85 px-3 py-2 shadow-sm">
                 <div className="text-[18px] font-bold text-slate-900">提交反馈环</div>
                 <div className="text-[13px] font-semibold text-slate-600">Agent + Hook 工具</div>
               </div>
 
-              <div className="absolute left-[144px] top-[312px] rounded-2xl border border-slate-200 bg-white/85 px-3 py-2 shadow-sm">
+              <div className="absolute left-[140px] top-[252px] rounded-2xl border border-slate-200 bg-white/85 px-3 py-2 shadow-sm">
                 <div className="text-[18px] font-bold text-slate-900">内部反馈环</div>
                 <div className="text-[13px] font-semibold text-slate-600">Agent + IDE</div>
               </div>
