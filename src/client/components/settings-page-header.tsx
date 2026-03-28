@@ -1,15 +1,19 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 type SettingsPageHeaderProps = {
   title: string;
   description: string;
   metadata?: Array<{ label: string; value: string }>;
+  extra?: ReactNode;
 };
 
 export function SettingsPageHeader({
   title,
   description,
   metadata = [],
+  extra,
 }: SettingsPageHeaderProps) {
   return (
     <header className="mb-4 border-b border-desktop-border pb-3">
@@ -17,6 +21,7 @@ export function SettingsPageHeader({
         <div className="min-w-0">
           <h1 className="truncate text-[14px] font-semibold text-desktop-text-primary">{title}</h1>
           <p className="mt-1 max-w-3xl text-[11px] leading-5 text-desktop-text-secondary">{description}</p>
+          {extra ? <div className="mt-3">{extra}</div> : null}
         </div>
 
         {metadata.length > 0 ? (
