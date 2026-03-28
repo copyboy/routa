@@ -586,7 +586,7 @@ fn parse_discovered_skill(path: &Path) -> Option<DiscoveredSkill> {
 }
 
 #[cfg(test)]
-mod tests {
+mod status_tests {
     use super::{parse_git_status_porcelain, FileChangeStatus};
 
     #[test]

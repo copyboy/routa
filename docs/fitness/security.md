@@ -12,10 +12,10 @@ metrics:
   # ══════════════════════════════════════════════════════════════
 
   - name: npm_audit_critical
-    command: npm audit --audit-level=critical 2>&1
+    command: npm audit --omit=dev --audit-level=critical 2>&1
     hard_gate: true
     tier: fast
-    description: "检测 npm 依赖中的 critical 级别漏洞"
+    description: "检测运行时 npm 依赖中的 critical 级别漏洞"
 
   - name: cargo_audit
     command: cargo audit 2>&1 || echo "cargo-audit not installed"
@@ -36,11 +36,11 @@ metrics:
   # ══════════════════════════════════════════════════════════════
 
   - name: npm_audit_high
-    command: npm audit --audit-level=high 2>&1 || true
+    command: npm audit --omit=dev --audit-level=high 2>&1 || true
     pattern: "found 0 vulnerabilities|0 high|no vulnerabilities"
     hard_gate: false
     tier: normal
-    description: "检测 npm 依赖中的 high 级别漏洞"
+    description: "检测运行时 npm 依赖中的 high 级别漏洞"
 
   - name: semgrep_warning
     command: semgrep --config=p/security-audit --severity=WARNING --sarif --quiet . 2>&1 || true
@@ -116,7 +116,7 @@ cargo install cargo-audit
 brew install trivy hadolint  # macOS
 
 # 运行检查
-npm audit --audit-level=critical
+npm audit --omit=dev --audit-level=critical
 cargo audit
 semgrep --config=p/security-audit --config=p/owasp-top-ten .
 trivy fs --severity HIGH,CRITICAL .

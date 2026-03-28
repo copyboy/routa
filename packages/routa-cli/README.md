@@ -103,6 +103,7 @@ Run the Harness Fluency assessment from the CLI:
 ```bash
 routa fitness fluency
 routa fitness fluency --profile agent_orchestrator
+routa fitness fluency --json
 routa fitness fluency --format json --compare-last --no-save
 ```
 

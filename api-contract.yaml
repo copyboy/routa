@@ -3312,6 +3312,31 @@ paths:
         "200":
           description: Created codebase
 
+  /api/workspaces/{id}/codebases/changes:
+    get:
+      operationId: listWorkspaceCodebaseChanges
+      summary: List git change summaries for workspace codebases
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Per-codebase git status summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workspaceId:
+                    type: string
+                  repos:
+                    type: array
+                    items:
+                      type: object
+
   # ── Codebases ──
   /api/codebases/{id}:
     patch:

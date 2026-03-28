@@ -40,6 +40,9 @@ cargo run -p routa-cli -- fitness fluency --no-save
 # 包管理器快捷入口（仍走 Rust CLI）
 npm run fitness:fluency
 
+# 旧 TS 入口（兼容层，内部会转发到 routa-cli）
+node --import tsx tools/harness-fluency/src/cli.ts --json
+
 # 并行执行（加速）
 entrix run --parallel
 
@@ -54,6 +57,8 @@ entrix validate
 ```
 
 Harness Fluency 默认跑通用 `generic` 模型；如果要评估编排型 agent 平台能力，可显式传 `--profile agent_orchestrator`。不同 profile 会使用独立快照文件，避免 `--compare-last` 互相污染。
+
+`tools/harness-fluency` 已降级为兼容层，唯一权威实现是 `routa fitness fluency`。后续 detector、profile、输出格式与测试应只在 Rust CLI 侧演进。
 
 ### Tier 分层
 
