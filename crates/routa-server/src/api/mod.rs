@@ -13,6 +13,7 @@ pub mod codebases;
 pub mod debug;
 pub mod files;
 pub mod github;
+pub mod harness;
 pub mod kanban;
 pub mod mcp_routes;
 pub mod mcp_server_mgmt;
@@ -23,6 +24,7 @@ pub mod notes;
 pub mod polling;
 pub mod provider_models;
 pub mod providers;
+pub(crate) mod repo_context;
 pub mod review;
 pub mod rpc;
 pub mod sandbox;
@@ -40,6 +42,7 @@ pub mod tasks_github;
 pub mod test_mcp;
 pub mod traces;
 pub mod webhooks;
+pub mod fitness;
 pub mod workflows;
 pub mod workspaces;
 pub mod worktrees;
@@ -74,6 +77,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/api/mcp-server", mcp_server_mgmt::router())
         .nest("/api/mcp-servers", mcp_servers::router())
         .nest("/api/github", github::router())
+        .nest("/api/harness", harness::router())
         .nest("/api/webhooks", webhooks::router())
         .nest("/api/background-tasks", background_tasks::router())
         .nest("/api/test-mcp", test_mcp::router())
@@ -81,6 +85,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/api/clone/progress", clone_progress::router())
         .nest("/api/clone/branches", clone_branches::router())
         .nest("/api/files", files::router())
+        .nest("/api/fitness", fitness::router())
         .nest("/api/rpc", rpc::router())
         .nest("/api/a2a", a2a::router())
         .nest("/api/ag-ui", ag_ui::router())

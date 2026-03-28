@@ -4277,6 +4277,323 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  # ── Fitness ──
+  /api/fitness/analyze:
+    post:
+      operationId: analyzeFitness
+      summary: Run harness fitness fluency analysis for one or more profiles
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Fitness analysis result payload
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Invalid fitness analysis context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Fitness analysis failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/fitness/plan:
+    get:
+      operationId: getFitnessPlan
+      summary: Build the executable fitness plan for a repository context
+      parameters:
+        - name: workspaceId
+          in: query
+          schema:
+            type: string
+        - name: codebaseId
+          in: query
+          schema:
+            type: string
+        - name: repoPath
+          in: query
+          schema:
+            type: string
+        - name: tier
+          in: query
+          schema:
+            type: string
+            enum: [fast, normal, deep]
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [local, ci, staging, prod_observation]
+      responses:
+        "200":
+          description: Fitness plan payload
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Invalid fitness plan context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to build fitness plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/fitness/report:
+    get:
+      operationId: getFitnessReport
+      summary: Read persisted fitness fluency report snapshots
+      parameters:
+        - name: workspaceId
+          in: query
+          schema:
+            type: string
+        - name: codebaseId
+          in: query
+          schema:
+            type: string
+        - name: repoPath
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Fitness snapshot payload
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Invalid fitness report context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to read fitness report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/fitness/specs:
+    get:
+      operationId: getFitnessSpecs
+      summary: Inspect docs/fitness source files and parsed metric metadata
+      parameters:
+        - name: workspaceId
+          in: query
+          schema:
+            type: string
+        - name: codebaseId
+          in: query
+          schema:
+            type: string
+        - name: repoPath
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Fitness specs payload
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Invalid fitness specs context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to read fitness specs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Harness ──
+  /api/harness/github-actions:
+    get:
+      operationId: getHarnessGithubActions
+      summary: Inspect repository GitHub Actions workflow files
+      parameters:
+        - name: workspaceId
+          in: query
+          schema:
+            type: string
+        - name: codebaseId
+          in: query
+          schema:
+            type: string
+        - name: repoPath
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: GitHub Actions workflow inspection payload
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Invalid harness context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to inspect workflows
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/harness/hooks:
+    get:
+      operationId: getHarnessHooks
+      summary: Inspect hook runtime profiles, bound hook files, and resolved metrics
+      parameters:
+        - name: workspaceId
+          in: query
+          schema:
+            type: string
+        - name: codebaseId
+          in: query
+          schema:
+            type: string
+        - name: repoPath
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Hook runtime inspection payload
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Invalid harness hooks context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to inspect harness hooks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/harness/hooks/preview:
+    get:
+      operationId: getHarnessHookPreview
+      summary: Run hook runtime preview for a configured profile
+      parameters:
+        - name: workspaceId
+          in: query
+          schema:
+            type: string
+        - name: codebaseId
+          in: query
+          schema:
+            type: string
+        - name: repoPath
+          in: query
+          schema:
+            type: string
+        - name: profile
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: mode
+          in: query
+          schema:
+            type: string
+            enum: [dry-run, live]
+      responses:
+        "200":
+          description: Hook preview payload
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Invalid harness hook preview request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to execute hook preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/harness/instructions:
+    get:
+      operationId: getHarnessInstructions
+      summary: Read repository guidance documents used by harness views
+      parameters:
+        - name: workspaceId
+          in: query
+          schema:
+            type: string
+        - name: codebaseId
+          in: query
+          schema:
+            type: string
+        - name: repoPath
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Harness instruction document payload
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Invalid harness instructions context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Guidance file not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to read harness instructions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/kanban/events:
     get:
       operationId: streamKanbanEvents

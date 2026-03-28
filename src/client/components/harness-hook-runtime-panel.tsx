@@ -59,18 +59,6 @@ type HooksState = {
   data: HooksResponse | null;
 };
 
-const GIT_HOOK_CATALOG = [
-  "pre-commit",
-  "prepare-commit-msg",
-  "commit-msg",
-  "post-commit",
-  "pre-rebase",
-  "post-checkout",
-  "post-merge",
-  "pre-push",
-  "post-rewrite",
-] as const;
-
 function formatTokenLabel(value: string): string {
   return value
     .split(/[-_]/u)
@@ -90,7 +78,7 @@ export function HarnessHookRuntimePanel({
     error: null,
     data: null,
   });
-  const [selectedHookName, setSelectedHookName] = useState<string | null>(null);
+  const [selectedProfileName, setSelectedProfileName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!workspaceId || !codebaseId || !repoPath) {
@@ -180,48 +168,39 @@ export function HarnessHookRuntimePanel({
       .map(({ profile }) => profile);
   }, [hooksState.data?.hookFiles, hooksState.data?.profiles]);
 
-  const hookEntries = useMemo(() => {
-    const hookFilesByName = new Map((hooksState.data?.hookFiles ?? []).map((hook) => [hook.name, hook]));
-    const profilesByName = new Map(orderedProfiles.map((profile) => [profile.name, profile]));
-
-    return GIT_HOOK_CATALOG.map((hookName) => {
-      const hookFile = hookFilesByName.get(hookName) ?? null;
-      const runtimeProfile = hookFile?.runtimeProfileName
-        ? profilesByName.get(hookFile.runtimeProfileName) ?? null
-        : null;
-      return {
-        hookName,
-        hookFile,
-        runtimeProfile,
-        isConfigured: Boolean(hookFile && runtimeProfile),
-      };
-    });
-  }, [hooksState.data?.hookFiles, orderedProfiles]);
+  const profileEntries = useMemo(
+    () => orderedProfiles.map((profile) => ({
+      profile,
+      hookNames: profile.hooks,
+      isBound: profile.hooks.length > 0,
+    })),
+    [orderedProfiles],
+  );
 
   const defaultSelectableHook = useMemo(
-    () => hookEntries.find((entry) => entry.isConfigured) ?? null,
-    [hookEntries],
+    () => profileEntries[0] ?? null,
+    [profileEntries],
   );
 
   const activeHookName = useMemo(() => {
     if (!defaultSelectableHook) {
-      return selectedHookName ?? "";
+      return selectedProfileName ?? "";
     }
 
-    const selectedEntry = hookEntries.find((entry) => entry.hookName === selectedHookName && entry.isConfigured);
+    const selectedEntry = profileEntries.find((entry) => entry.profile.name === selectedProfileName);
     if (selectedEntry) {
-      return selectedEntry.hookName;
+      return selectedEntry.profile.name;
     }
 
-    return defaultSelectableHook.hookName;
-  }, [defaultSelectableHook, hookEntries, selectedHookName]);
+    return defaultSelectableHook.profile.name;
+  }, [defaultSelectableHook, profileEntries, selectedProfileName]);
 
   const activeHookEntry = useMemo(
-    () => hookEntries.find((entry) => entry.hookName === activeHookName) ?? defaultSelectableHook ?? null,
-    [activeHookName, defaultSelectableHook, hookEntries],
+    () => profileEntries.find((entry) => entry.profile.name === activeHookName) ?? defaultSelectableHook ?? null,
+    [activeHookName, defaultSelectableHook, profileEntries],
   );
 
-  const runtimeProfile = activeHookEntry?.runtimeProfile ?? null;
+  const runtimeProfile = activeHookEntry?.profile ?? null;
 
   const hookCount = hooksState.data?.hookFiles.length ?? 0;
   const profileCount = hooksState.data?.profiles.length ?? 0;
@@ -282,64 +261,61 @@ export function HarnessHookRuntimePanel({
           <div className="rounded-2xl border border-desktop-border bg-desktop-bg-primary/60 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Git hooks</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Profiles</div>
                 <h4 className="mt-1 text-sm font-semibold text-desktop-text-primary">Configured profiles</h4>
               </div>
               <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
-                {hookEntries.length} hooks
+                {profileEntries.length} profiles
               </div>
             </div>
 
             <div className="mt-4 space-y-1.5">
-              {hookEntries.map((entry) => {
-                const isSelected = activeHookEntry?.hookName === entry.hookName;
-                const profile = entry.runtimeProfile;
+              {profileEntries.map((entry) => {
+                const isSelected = activeHookEntry?.profile.name === entry.profile.name;
+                const profile = entry.profile;
                 return (
                   <button
-                    key={entry.hookName}
+                    key={entry.profile.name}
                     type="button"
-                    disabled={!entry.isConfigured}
                     onClick={() => {
-                      if (!entry.isConfigured) {
-                        return;
-                      }
-                      setSelectedHookName(entry.hookName);
+                      setSelectedProfileName(entry.profile.name);
                     }}
                     className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${
                       isSelected
                         ? "border-desktop-accent bg-desktop-bg-secondary text-desktop-text-primary"
-                        : !entry.isConfigured
-                          ? "cursor-not-allowed border-desktop-border bg-desktop-bg-primary/50 text-desktop-text-secondary/55"
+                        : !entry.isBound
+                          ? "border-desktop-border bg-desktop-bg-primary/60 text-desktop-text-secondary hover:bg-desktop-bg-secondary"
                           : "border-desktop-border bg-desktop-bg-primary/80 text-desktop-text-secondary hover:bg-desktop-bg-secondary"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-[12px] font-semibold">{entry.hookName}</div>
+                        <div className="text-[12px] font-semibold">{profile.name}</div>
                         <div className="mt-1 text-[10px]">
-                          {profile ? `${profile.name} · ${profile.metrics.length} metrics` : "Not configured"}
+                          {profile.phases.length} phases · {profile.metrics.length} metrics
                         </div>
                       </div>
                       <span className={`rounded-full border px-2 py-0.5 text-[10px] ${
-                        entry.isConfigured
+                        entry.isBound
                           ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : entry.hookFile
-                            ? "border-amber-200 bg-amber-50 text-amber-800"
-                            : "border-desktop-border bg-desktop-bg-primary text-desktop-text-secondary/60"
+                          : "border-desktop-border bg-desktop-bg-primary text-desktop-text-secondary/60"
                       }`}>
-                        {entry.isConfigured ? "active" : entry.hookFile ? "unmapped" : "missing"}
+                        {entry.isBound ? `${entry.hookNames.length} hooks` : "unbound"}
                       </span>
                     </div>
-                    {profile ? (
-                      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-desktop-text-secondary">
-                        {profile.phases.slice(0, 3).map((phase) => (
-                          <span
-                            key={`${entry.hookName}-${phase}`}
-                            className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2 py-0.5"
-                          >
-                            {formatTokenLabel(phase)}
-                          </span>
-                        ))}
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-desktop-text-secondary">
+                      {profile.phases.slice(0, 3).map((phase) => (
+                        <span
+                          key={`${entry.profile.name}-${phase}`}
+                          className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2 py-0.5"
+                        >
+                          {formatTokenLabel(phase)}
+                        </span>
+                      ))}
+                    </div>
+                    {!entry.isBound ? (
+                      <div className="mt-2 text-[10px] text-desktop-text-secondary/60">
+                        Configured in `hooks.yaml`, but not wired by any checked-in git hook file.
                       </div>
                     ) : null}
                   </button>
@@ -357,9 +333,9 @@ export function HarnessHookRuntimePanel({
                     <h4 className="mt-1 text-sm font-semibold text-desktop-text-primary">{runtimeProfile.name}</h4>
                   </div>
                   <div className="flex flex-wrap gap-2 text-[10px]">
-                    {activeHookEntry ? (
+                    {activeHookEntry?.hookNames.length ? (
                       <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">
-                        {activeHookEntry.hookName}
+                        {activeHookEntry.hookNames.join(", ")}
                       </span>
                     ) : null}
                     <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">
@@ -422,7 +398,7 @@ export function HarnessHookRuntimePanel({
               </>
             ) : (
               <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-4 py-5 text-[11px] text-desktop-text-secondary">
-                No configured git hook currently maps to a selectable runtime profile.
+                No runtime profiles found for the selected repository.
               </div>
             )}
           </div>
