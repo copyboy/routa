@@ -15,7 +15,7 @@ export default function SchedulesSettingsPage() {
   return (
     <SettingsRouteShell
       title="Schedules"
-      description="Run agents automatically on a recurring cron schedule. Use this for audits, cleanup, sync, and regular maintenance jobs."
+      description="Recurring jobs."
       badgeLabel="Background jobs"
       workspaceSwitcher={(
         <WorkspaceSwitcher
@@ -45,18 +45,11 @@ export default function SchedulesSettingsPage() {
       ]}
     >
       <div className="space-y-6">
-        <SettingsPageHeader
-          title="Schedules"
-          description="Run agents automatically on a recurring cron schedule. Jobs are scoped to the selected workspace."
-          metadata={[
-            { label: "Trigger", value: "Cron-driven automation" },
-            { label: "Runtime", value: "Background execution" },
-          ]}
-        />
-        <div className="rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-sm text-blue-700 shadow-sm dark:border-blue-900/30 dark:bg-blue-900/10 dark:text-blue-400">
-          <span className="font-semibold">Tick endpoint:</span>{" "}
-          <code className="rounded bg-blue-100 px-1 py-0.5 font-mono dark:bg-blue-900/30">/api/schedules/tick</code>
-          <span className="ml-2">Production can trigger it with Vercel Cron; local runs use the in-process scheduler.</span>
+        <SettingsPageHeader title="Schedules" />
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-desktop-border bg-desktop-bg-secondary/70 px-3 py-2 text-[11px] text-desktop-text-secondary">
+          <span className="font-medium text-desktop-text-primary">Tick endpoint</span>
+          <code className="rounded bg-desktop-bg-primary px-1.5 py-0.5 font-mono text-desktop-text-primary">/api/schedules/tick</code>
+          <span>Vercel Cron or local scheduler.</span>
         </div>
         <SchedulePanel workspaceId={effectiveWorkspaceId || undefined} />
       </div>
