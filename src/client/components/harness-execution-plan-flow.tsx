@@ -485,7 +485,7 @@ function buildPlanGraph(
       target: "gates",
       type: "smoothstep",
       sourceHandle: "right",
-      targetHandle: "bottom",
+      targetHandle: "left",
       style: activeDimensionHasHardMetric ? { ...buildEdgeStyle("hard"), strokeWidth: 2.2 } : buildEdgeStyle("pass"),
       markerEnd: { type: MarkerType.ArrowClosed, color: activeDimensionHasHardMetric ? "#dc2626" : "#059669" },
     });
@@ -496,7 +496,7 @@ function buildPlanGraph(
       target: "report",
       type: "smoothstep",
       sourceHandle: "right",
-      targetHandle: "bottom",
+      targetHandle: "left",
       style: buildEdgeStyle(activeDimensionHasHardMetric ? "warn" : "pass"),
       markerEnd: { type: MarkerType.ArrowClosed, color: activeDimensionHasHardMetric ? "#d97706" : "#059669" },
     });
