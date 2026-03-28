@@ -109,17 +109,26 @@ function getStatusTone(status: EdgeStatus | undefined) {
 function PlanNodeView({ data }: NodeProps<Node<PlanNodeData>>) {
   const tone = getStatusTone(data.status);
   const interactive = typeof data.onToggle === "function";
+  const widthClass = data.kind === "metric"
+    ? "w-[208px]"
+    : data.kind === "dimension"
+      ? "w-[224px]"
+      : "w-[248px]";
 
   return (
     <div className="relative">
-      <Handle type="target" position={Position.Top} className="!h-2.5 !w-2.5 !border-0 !bg-desktop-border" />
-      <Handle type="source" position={Position.Bottom} className="!h-2.5 !w-2.5 !border-0 !bg-desktop-border" />
+      <Handle id="top" type="target" position={Position.Top} className="!h-2.5 !w-2.5 !border-0 !bg-desktop-border" />
+      <Handle id="left" type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-0 !bg-desktop-border" />
+      <Handle id="right" type="target" position={Position.Right} className="!h-2.5 !w-2.5 !border-0 !bg-desktop-border" />
+      <Handle id="bottom" type="source" position={Position.Bottom} className="!h-2.5 !w-2.5 !border-0 !bg-desktop-border" />
+      <Handle id="left" type="source" position={Position.Left} className="!h-2.5 !w-2.5 !border-0 !bg-desktop-border" />
+      <Handle id="right" type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-0 !bg-desktop-border" />
       <button
         type="button"
         onClick={() => {
           data.onToggle?.();
         }}
-        className={`w-[248px] rounded-2xl border bg-desktop-bg-primary/96 px-4 py-3 text-left shadow-sm transition ${tone.border} ${tone.glow} ${interactive ? "cursor-pointer hover:bg-desktop-bg-secondary/90" : "cursor-default"}`}
+        className={`${widthClass} rounded-2xl border bg-desktop-bg-primary/96 px-4 py-3 text-left shadow-sm transition ${tone.border} ${tone.glow} ${interactive ? "cursor-pointer hover:bg-desktop-bg-secondary/90" : "cursor-default"}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -181,8 +190,8 @@ function buildNode(id: string, x: number, y: number, data: PlanNodeData): Node<P
     data,
     draggable: false,
     selectable: false,
-    sourcePosition: Position.Bottom,
-    targetPosition: Position.Top,
+    sourcePosition: data.kind === "metric" ? Position.Right : Position.Bottom,
+    targetPosition: data.kind === "metric" ? Position.Left : Position.Top,
   };
 }
 
@@ -194,29 +203,32 @@ function buildPlanGraph(
   const nodes: Node<PlanNodeData>[] = [];
   const edges: Edge[] = [];
 
-  const topX = 420;
+  const stageX = 420;
   const dimensionsTopY = 470;
-  const dimensionX = 72;
-  const metricStartX = 384;
-  const metricColumnWidth = 272;
-  const metricRowHeight = 132;
-  const metricColumns = 3;
+  const dimensionsStartX = 72;
+  const dimensionColumnWidth = 272;
+  const dimensionColumns = 3;
+  const dimensionRowHeight = 180;
+  const metricRowOffsetY = 72;
+  const metricSpacingX = 228;
+  const rowContentHeight = 124;
+  const dimensionPositions = new Map<string, { x: number; y: number }>();
 
   nodes.push(
-    buildNode("root", topX, 24, {
+    buildNode("root", stageX, 24, {
       kind: "root",
       title: "Execution Plan",
       subtitle: `${plan.dimensionCount} dimensions · ${plan.metricCount} metrics`,
       meta: [`tier ${plan.tier}`, `scope ${plan.scope}`, `${plan.hardGateCount} hard gates`],
     }),
-    buildNode("filter", topX, 168, {
+    buildNode("filter", stageX, 168, {
       kind: "stage",
       title: "Filter",
       subtitle: "Tier and scope decide which checks survive planning.",
       meta: [`tier <= ${plan.tier}`, `scope = ${plan.scope}`, `${plan.dimensionCount} dimensions`],
       status: "pass",
     }),
-    buildNode("dispatch", topX, 312, {
+    buildNode("dispatch", stageX, 312, {
       kind: "stage",
       title: "Dispatch",
       subtitle: "Metrics route to shell, graph, or sarif runners.",
@@ -244,14 +256,18 @@ function buildPlanGraph(
     },
   );
 
-  let currentY = dimensionsTopY;
+  let maxMetricRight = 0;
+  let dimensionGridBottom = dimensionsTopY;
 
-  plan.dimensions.forEach((dimension) => {
-    const dimensionY = currentY;
+  plan.dimensions.forEach((dimension, dimensionIndex) => {
+    const dimensionColumn = dimensionIndex % dimensionColumns;
+    const dimensionRow = Math.floor(dimensionIndex / dimensionColumns);
+    const dimensionX = dimensionsStartX + dimensionColumn * dimensionColumnWidth;
+    const dimensionY = dimensionsTopY + dimensionRow * dimensionRowHeight;
     const dimensionId = `dimension:${dimension.name}`;
     const expanded = expandedDimensions.has(dimension.name);
-    const metrics = expanded ? dimension.metrics : [];
     const hasHardMetric = dimension.metrics.some((metric) => metric.hardGate);
+    dimensionPositions.set(dimension.name, { x: dimensionX, y: dimensionY });
 
     nodes.push(buildNode(dimensionId, dimensionX, dimensionY, {
       kind: "dimension",
@@ -270,17 +286,26 @@ function buildPlanGraph(
       source: "dispatch",
       target: dimensionId,
       type: "smoothstep",
+      sourceHandle: "bottom",
+      targetHandle: "top",
       style: buildEdgeStyle(hasHardMetric ? "hard" : "pass"),
       markerEnd: { type: MarkerType.ArrowClosed, color: hasHardMetric ? "#dc2626" : "#059669" },
     });
 
-    let rowBottomY = dimensionY + 112;
-    metrics.forEach((metric, metricIndex) => {
+    dimensionGridBottom = Math.max(dimensionGridBottom, dimensionY + rowContentHeight);
+  });
+
+  const activeDimension = plan.dimensions.find((dimension) => expandedDimensions.has(dimension.name)) ?? null;
+  let currentMetricsY = dimensionGridBottom + metricRowOffsetY;
+
+  if (activeDimension) {
+    const dimensionId = `dimension:${activeDimension.name}`;
+    const anchor = dimensionPositions.get(activeDimension.name) ?? { x: dimensionsStartX, y: dimensionsTopY };
+
+    activeDimension.metrics.forEach((metric, metricIndex) => {
       const metricId = `${dimensionId}:metric:${metric.name}`;
-      const metricColumn = metricIndex % metricColumns;
-      const metricRow = Math.floor(metricIndex / metricColumns);
-      const metricX = metricStartX + metricColumn * metricColumnWidth;
-      const metricY = dimensionY + metricRow * metricRowHeight;
+      const metricX = anchor.x + metricIndex * metricSpacingX;
+      const metricY = currentMetricsY;
       const metricStatus: EdgeStatus = metric.hardGate ? "hard" : metric.gate === "warn" ? "warn" : "pass";
 
       nodes.push(buildNode(metricId, metricX, metricY, {
@@ -296,19 +321,21 @@ function buildPlanGraph(
         source: dimensionId,
         target: metricId,
         type: "smoothstep",
+        sourceHandle: "bottom",
+        targetHandle: "top",
         style: buildEdgeStyle(metricStatus),
         markerEnd: { type: MarkerType.ArrowClosed, color: metricStatus === "hard" ? "#dc2626" : metricStatus === "warn" ? "#d97706" : "#059669" },
       });
 
-      rowBottomY = Math.max(rowBottomY, metricY + 96);
+      maxMetricRight = Math.max(maxMetricRight, metricX + 208);
     });
 
-    currentY = Math.max(rowBottomY + 44, dimensionY + 156);
-  });
+    currentMetricsY += rowContentHeight + 44;
+  }
 
-  const gatesY = currentY + 24;
+  const gatesY = currentMetricsY + 24;
   const gatesX = 96;
-  const reportX = 420;
+  const reportX = Math.max(420, Math.min((maxMetricRight || 920) - 120, 760));
 
   nodes.push(
     buildNode("gates", gatesX, gatesY, {
@@ -332,19 +359,23 @@ function buildPlanGraph(
     source: "gates",
     target: "report",
     type: "smoothstep",
+    sourceHandle: "right",
+    targetHandle: "left",
     style: buildEdgeStyle(plan.hardGateCount > 0 ? "blocked" : "pass"),
     markerEnd: { type: MarkerType.ArrowClosed, color: plan.hardGateCount > 0 ? "#64748b" : "#059669" },
   });
 
-  plan.dimensions.forEach((dimension) => {
-    const dimensionId = `dimension:${dimension.name}`;
-    const hasHardMetric = dimension.metrics.some((metric) => metric.hardGate);
+  if (activeDimension) {
+    const dimensionId = `dimension:${activeDimension.name}`;
+    const hasHardMetric = activeDimension.metrics.some((metric) => metric.hardGate);
 
     edges.push({
       id: `${dimensionId}-report`,
       source: dimensionId,
       target: "report",
       type: "smoothstep",
+      sourceHandle: "bottom",
+      targetHandle: "top",
       style: buildEdgeStyle(hasHardMetric ? "warn" : "pass"),
       markerEnd: { type: MarkerType.ArrowClosed, color: hasHardMetric ? "#d97706" : "#059669" },
     });
@@ -355,16 +386,18 @@ function buildPlanGraph(
         source: dimensionId,
         target: "gates",
         type: "smoothstep",
+        sourceHandle: "bottom",
+        targetHandle: "top",
         style: buildEdgeStyle("hard"),
         markerEnd: { type: MarkerType.ArrowClosed, color: "#dc2626" },
       });
     }
-  });
+  }
 
   return {
     nodes,
     edges,
-    minHeight: Math.max(920, gatesY + 180),
+    minHeight: Math.max(780, gatesY + 180),
   };
 }
 
@@ -407,18 +440,9 @@ export function HarnessExecutionPlanFlow({
     }
 
     return buildPlanGraph(plan, expandedDimensions, (name) => {
-      setExpandedState((current) => {
-        const base = current.planKey === planKey ? current.names : expandedDimensions;
-        const next = new Set(base);
-        if (next.has(name)) {
-          next.delete(name);
-        } else {
-          next.add(name);
-        }
-        return {
-          planKey,
-          names: next,
-        };
+      setExpandedState({
+        planKey,
+        names: expandedDimensions.has(name) ? new Set<string>() : new Set([name]),
       });
     });
   }, [expandedDimensions, plan, planKey]);
@@ -457,18 +481,15 @@ export function HarnessExecutionPlanFlow({
               }
               setExpandedState((current) => {
                 const base = current.planKey === planKey ? current.names : expandedDimensions;
-                const next = base.size === plan.dimensions.length
-                  ? new Set<string>()
-                  : new Set(plan.dimensions.map((dimension) => dimension.name));
                 return {
                   planKey,
-                  names: next,
+                  names: base.size > 0 ? new Set<string>() : new Set(plan.dimensions.slice(0, 1).map((dimension) => dimension.name)),
                 };
               });
             }}
             className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary"
           >
-            {plan && expandedDimensions.size === plan.dimensions.length ? "Collapse metrics" : "Expand metrics"}
+            {expandedDimensions.size > 0 ? "Hide metrics" : "Show metrics"}
           </button>
           <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
             {repoLabel}
@@ -507,10 +528,10 @@ export function HarnessExecutionPlanFlow({
                 elementsSelectable={false}
                 zoomOnScroll
                 panOnDrag
-                minZoom={0.55}
+                minZoom={0.42}
                 maxZoom={1.2}
                 fitView
-                fitViewOptions={{ padding: 0.12, minZoom: 0.6, maxZoom: 0.92 }}
+                fitViewOptions={{ padding: 0.07, minZoom: 0.46, maxZoom: 0.95 }}
                 proOptions={{ hideAttribution: true }}
               >
                 <Background color="#d7dee7" gap={20} size={1} />
