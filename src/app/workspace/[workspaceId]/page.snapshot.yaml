@@ -1,9 +1,9 @@
 # page-id: workspace
 # route: /workspace/default
 # source-page: src/app/workspace/[workspaceId]/page.tsx
-# url: http://127.0.0.1:3000/workspace/default
+# url: http://127.0.0.1:61939/workspace/default
 # title: Routa - Multi-Agent Coordinator
-# generated-at: 2026-03-26T12:21:53.918Z
+# generated-at: 2026-03-28T01:43:00.195Z
 # generator: playwright
 # playwright-version: 1.58.2
 - banner:
@@ -13,26 +13,57 @@
     - img
     - text: Default Workspace
     - img
+  - button "Docker fixture" [disabled]
+  - button "EN"
+  - button "中文"
+  - button "Light" [pressed]:
+    - img
+  - button "Dark":
+    - img
 - complementary:
+  - button "Collapse sidebar":
+    - img
   - navigation:
     - link "Home":
       - /url: /
       - img
-    - link "Overview":
+      - text: Home
+    - link "Workspace":
       - /url: /workspace/default
       - img
+      - text: Workspace
     - link "Kanban":
       - /url: /workspace/default/kanban
       - img
+      - text: Kanban
     - link "Team":
       - /url: /workspace/default/team
       - img
-    - link "Traces":
-      - /url: /traces
+      - text: Team
+    - link "MCP Servers":
+      - /url: /settings/mcp
       - img
-  - link "Settings":
+      - text: MCP Servers
+    - link "Schedules":
+      - /url: /settings/schedules
+      - img
+      - text: Schedules
+    - link "Workflows":
+      - /url: /settings/workflows
+      - img
+      - text: Workflows
+    - link "Specialists":
+      - /url: /settings/specialists
+      - img
+      - text: Specialists
+  - link "Config":
     - /url: /settings
     - img
+    - text: Config
+  - link "Debug":
+    - /url: /traces
+    - img
+    - text: Debug
 - main:
   - img
   - heading "Default Workspace" [level=1]

@@ -14,8 +14,13 @@
  * while delegating all interactive behavior to the client component.
  */
 
+import { Suspense } from "react";
 import { SettingsPageClient } from "./settings-page-client";
 
 export default function SettingsPage() {
-  return <SettingsPageClient />;
+  return (
+    <Suspense fallback={null}>
+      <SettingsPageClient />
+    </Suspense>
+  );
 }

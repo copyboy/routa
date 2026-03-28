@@ -7,7 +7,7 @@
  * static build, then restores it.
  */
 import { execSync } from "child_process";
-import { existsSync, renameSync } from "fs";
+import { existsSync, renameSync, rmSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -17,10 +17,17 @@ const apiDir = path.join(rootDir, "src/app/api");
 const apiBackup = path.join(rootDir, "src/app/_api_excluded");
 const wellKnownDir = path.join(rootDir, "src/app/.well-known");
 const wellKnownBackup = path.join(rootDir, "src/app/_well-known_excluded");
+const pageSnapshotsBuildDir = path.join(rootDir, ".next-page-snapshots");
 
 function moveDir(from, to) {
   if (existsSync(from)) {
     renameSync(from, to);
+  }
+}
+
+function removeGeneratedDir(targetDir) {
+  if (existsSync(targetDir)) {
+    rmSync(targetDir, { recursive: true, force: true });
   }
 }
 
@@ -30,6 +37,7 @@ try {
   console.log("[build-static] Temporarily excluding API routes and .well-known...");
   moveDir(apiDir, apiBackup);
   moveDir(wellKnownDir, wellKnownBackup);
+  removeGeneratedDir(pageSnapshotsBuildDir);
 
   console.log("[build-static] Running Next.js static export...");
   execSync("npx next build", {

@@ -471,8 +471,19 @@ function initializeFixtureDb(dbPath, projectRoot, homeDir) {
       error_message TEXT,
       attempts INTEGER NOT NULL DEFAULT 0,
       max_attempts INTEGER NOT NULL DEFAULT 3,
+      started_at INTEGER,
+      completed_at INTEGER,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      last_activity INTEGER,
+      current_activity TEXT,
+      tool_call_count INTEGER DEFAULT 0,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      workflow_run_id TEXT,
+      workflow_step_name TEXT,
+      depends_on_task_ids TEXT,
+      task_output TEXT
     );
   `);
 
