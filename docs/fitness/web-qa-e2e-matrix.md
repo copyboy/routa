@@ -1,3 +1,93 @@
+---
+dimension: ui_consistency
+weight: 0
+tier: deep
+threshold:
+  pass: 80
+  warn: 70
+
+metrics:
+  - name: web_main_journey_e2e
+    command: "playwright test e2e/homepage-open-board-tauri.spec.ts e2e/repo-picker.spec.ts e2e/specialist-selection.spec.ts e2e/session-layout-ux.spec.ts e2e/agent-trace.spec.ts 2>&1"
+    pattern: "\\d+\\s+passed"
+    hard_gate: false
+    tier: deep
+    execution_scope: ci
+    gate: advisory
+    kind: holistic
+    analysis: dynamic
+    stability: noisy
+    evidence_type: test
+    scope: [web]
+    run_when_changed:
+      - src/app/**
+      - src/client/**
+      - e2e/**
+      - playwright*.ts
+    description: "首页 -> repo/provider/specialist -> session -> trace 的 Web 主链路回归"
+
+  - name: web_kanban_journey_e2e
+    command: "playwright test e2e/kanban-drag-drop.spec.ts e2e/kanban-agent-panel.spec.ts e2e/kanban-column-automation.spec.ts e2e/kanban-opencode-smoke.spec.ts e2e/kanban-workspace-events.spec.ts 2>&1"
+    pattern: "\\d+\\s+passed"
+    hard_gate: false
+    tier: deep
+    execution_scope: ci
+    gate: advisory
+    kind: holistic
+    analysis: dynamic
+    stability: noisy
+    evidence_type: test
+    scope: [web]
+    run_when_changed:
+      - src/app/workspace/**
+      - src/client/components/kanban/**
+      - crates/routa-server/**
+      - e2e/**
+      - playwright*.ts
+    description: "Kanban 建卡、列流转、列自动化与 workspace 事件同步回归"
+
+  - name: web_settings_protocol_regression
+    command: "playwright test e2e/provider-changes.spec.ts e2e/acp-provider-switching.spec.ts e2e/install-agents-check.spec.ts e2e/install-agents-modal.spec.ts e2e/custom-mcp-servers.spec.ts e2e/a2a-protocol.spec.ts e2e/ag-ui-protocol.spec.ts e2e/mcp-tools.spec.ts e2e/mcp-integration.spec.ts 2>&1"
+    pattern: "\\d+\\s+passed"
+    hard_gate: false
+    tier: deep
+    execution_scope: ci
+    gate: advisory
+    kind: holistic
+    analysis: dynamic
+    stability: noisy
+    evidence_type: test
+    scope: [web]
+    run_when_changed:
+      - src/app/settings/**
+      - src/app/a2a/**
+      - src/app/ag-ui/**
+      - src/app/mcp-tools/**
+      - src/client/components/settings/**
+      - e2e/**
+      - playwright*.ts
+    description: "Settings、Agent/MCP 安装、自定义 MCP，以及协议测试页的 Web 回归"
+
+  - name: web_accessibility_smoke
+    command: npm run test:accessibility 2>&1
+    pattern: "accessibility smoke passed"
+    hard_gate: false
+    tier: deep
+    execution_scope: ci
+    gate: advisory
+    kind: holistic
+    analysis: dynamic
+    stability: noisy
+    evidence_type: test
+    scope: [web]
+    run_when_changed:
+      - src/app/**
+      - src/client/**
+      - scripts/fitness/check-accessibility-smoke.mjs
+      - e2e/**
+    description: "关键 Web 页面保留基本 aria 结构与交互可访问性 smoke"
+---
+
 # Web QA / E2E 测试矩阵
 
 面向 Routa.js Web 端主链路的 QA 回归清单。目标不是替代单元测试，而是把“按产品功能组织的人工验证”与“现有/推荐的 e2e 自动化”对应起来，方便回归、提测和补齐覆盖。
