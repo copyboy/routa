@@ -109,11 +109,7 @@ impl ShellRunner {
                 };
 
                 let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-                let output_truncated = if combined.len() > 2000 {
-                    combined[..2000].to_string()
-                } else {
-                    combined.to_string()
-                };
+                let output_truncated = truncate_utf8(&combined, 2000);
 
                 MetricResult::new(metric.name.clone(), passed, output_truncated, metric.tier)
                     .with_hard_gate(metric.gate == Gate::Hard)
@@ -166,11 +162,12 @@ impl ShellRunner {
             return results;
         }
 
-        // Parallel execution
-        let results: Vec<(usize, MetricResult)> = metrics
+        // Parallel execution — results already collected in order since
+        // map() iterates sequentially here. True thread-pool parallelism
+        // mirrors the Python ThreadPoolExecutor approach.
+        metrics
             .iter()
-            .enumerate()
-            .map(|(i, metric)| {
+            .map(|metric| {
                 if let Some(cb) = progress_callback {
                     cb("start", metric, None);
                 }
@@ -178,19 +175,24 @@ impl ShellRunner {
                 if let Some(cb) = progress_callback {
                     cb("end", metric, Some(&result));
                 }
-                (i, result)
+                result
             })
-            .collect();
-
-        let mut ordered = vec![MetricResult::new("", false, "", Tier::Normal); metrics.len()];
-        for (i, result) in results {
-            ordered[i] = result;
-        }
-        ordered
+            .collect()
     }
 }
 
-use crate::model::Tier;
+/// Safely truncate a string to a maximum number of bytes at a valid UTF-8 boundary.
+fn truncate_utf8(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    // Find a valid UTF-8 char boundary
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
+}
 
 fn wait_thread_with_timeout(
     handle: std::thread::JoinHandle<Result<std::process::Output, std::io::Error>>,
