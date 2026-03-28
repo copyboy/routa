@@ -55,6 +55,48 @@ type HooksState = {
   data: HooksResponse | null;
 };
 
+type PreviewMode = "dry-run" | "live";
+
+type PhasePreview = {
+  phase: RuntimePhase;
+  status: "passed" | "failed" | "skipped";
+  durationMs: number;
+  reason?: string;
+  message?: string;
+  metrics?: string[];
+};
+
+type MetricPreview = {
+  name: string;
+  status: "passed" | "failed" | "skipped";
+  durationMs?: number;
+  exitCode?: number;
+  command?: string;
+  sourceFile?: string;
+  outputTail?: string;
+};
+
+type HookPreviewResponse = {
+  generatedAt: string;
+  repoRoot: string;
+  profile: HookProfileName;
+  mode: PreviewMode;
+  ok: boolean;
+  exitCode: number;
+  command: string[];
+  phaseResults: PhasePreview[];
+  metricResults: MetricPreview[];
+  eventSample: Record<string, unknown>[];
+  stderr: string;
+};
+
+type PreviewState = {
+  loading: boolean;
+  error: string | null;
+  data: HookPreviewResponse | null;
+  mode: PreviewMode;
+};
+
 const PHASE_LABELS: Record<RuntimePhase, string> = {
   submodule: "Submodule",
   fitness: "Fitness",
@@ -74,6 +116,12 @@ export function HarnessHookRuntimePanel({
     data: null,
   });
   const [selectedHookName, setSelectedHookName] = useState("");
+  const [previewState, setPreviewState] = useState<PreviewState>({
+    loading: false,
+    error: null,
+    data: null,
+    mode: "dry-run",
+  });
 
   useEffect(() => {
     if (!workspaceId || !codebaseId || !repoPath) {
@@ -161,9 +209,117 @@ export function HarnessHookRuntimePanel({
     return hooksState.data?.profiles.find((profile) => profile.name === visibleHook.runtimeProfileName) ?? null;
   }, [hooksState.data?.profiles, visibleHook]);
 
+  useEffect(() => {
+    if (!workspaceId || !codebaseId || !repoPath || !runtimeProfile) {
+      setPreviewState({
+        loading: false,
+        error: null,
+        data: null,
+        mode: "dry-run",
+      });
+      return;
+    }
+
+    let cancelled = false;
+    const loadPreview = async (mode: PreviewMode) => {
+      setPreviewState({
+        loading: true,
+        error: null,
+        data: null,
+        mode,
+      });
+
+      try {
+        const query = new URLSearchParams();
+        query.set("workspaceId", workspaceId);
+        query.set("codebaseId", codebaseId);
+        query.set("repoPath", repoPath);
+        query.set("profile", runtimeProfile.name);
+        query.set("mode", mode);
+
+        const response = await fetch(`/api/harness/hooks/preview?${query.toString()}`);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(typeof payload?.details === "string" ? payload.details : "Failed to load hook preview");
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        setPreviewState({
+          loading: false,
+          error: null,
+          data: payload as HookPreviewResponse,
+          mode,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setPreviewState({
+          loading: false,
+          error: error instanceof Error ? error.message : String(error),
+          data: null,
+          mode,
+        });
+      }
+    };
+
+    void loadPreview("dry-run");
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, codebaseId, repoPath, runtimeProfile]);
+
+  const runPreview = async (mode: PreviewMode) => {
+    if (!workspaceId || !codebaseId || !repoPath || !runtimeProfile) {
+      return;
+    }
+
+    setPreviewState({
+      loading: true,
+      error: null,
+      data: null,
+      mode,
+    });
+
+    try {
+      const query = new URLSearchParams();
+      query.set("workspaceId", workspaceId);
+      query.set("codebaseId", codebaseId);
+      query.set("repoPath", repoPath);
+      query.set("profile", runtimeProfile.name);
+      query.set("mode", mode);
+
+      const response = await fetch(`/api/harness/hooks/preview?${query.toString()}`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof payload?.details === "string" ? payload.details : "Failed to load hook preview");
+      }
+
+      setPreviewState({
+        loading: false,
+        error: null,
+        data: payload as HookPreviewResponse,
+        mode,
+      });
+    } catch (error) {
+      setPreviewState({
+        loading: false,
+        error: error instanceof Error ? error.message : String(error),
+        data: null,
+        mode,
+      });
+    }
+  };
+
   const hookCount = hooksState.data?.hookFiles.length ?? 0;
   const profileCount = hooksState.data?.profiles.length ?? 0;
   const metricCount = hooksState.data?.profiles.reduce((sum, profile) => sum + profile.metrics.length, 0) ?? 0;
+  const previewJson = previewState.data ? JSON.stringify(previewState.data.eventSample, null, 2) : "[]";
+  const metricOutputTails = previewState.data?.metricResults.filter((metric) => metric.outputTail) ?? [];
 
   return (
     <section className="rounded-2xl border border-desktop-border bg-desktop-bg-secondary/55 p-4 shadow-sm">
@@ -304,7 +460,27 @@ export function HarnessHookRuntimePanel({
 
                 {runtimeProfile ? (
                   <div className="rounded-xl border border-desktop-border bg-desktop-bg-secondary/55 p-4">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Runtime graph</div>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Runtime graph</div>
+                      <div className="flex flex-wrap gap-2 text-[10px]">
+                        <button
+                          type="button"
+                          onClick={() => { void runPreview("dry-run"); }}
+                          disabled={previewState.loading}
+                          className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-desktop-text-secondary transition-colors hover:bg-desktop-bg-secondary disabled:opacity-60"
+                        >
+                          Dry run preview
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { void runPreview("live"); }}
+                          disabled={previewState.loading}
+                          className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-desktop-text-secondary transition-colors hover:bg-desktop-bg-secondary disabled:opacity-60"
+                        >
+                          Run live preview
+                        </button>
+                      </div>
+                    </div>
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
                       <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-3 py-1 text-desktop-text-primary">
                         {visibleHook.name}
@@ -342,7 +518,158 @@ export function HarnessHookRuntimePanel({
                 </div>
 
                 {runtimeProfile ? (
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-desktop-border bg-desktop-bg-secondary/55 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Runtime preview</div>
+                          <div className="mt-1 text-[11px] text-desktop-text-secondary">
+                            JSONL preview from the actual hook runtime entrypoint
+                          </div>
+                        </div>
+                        {previewState.data ? (
+                          <div className="flex flex-wrap gap-2 text-[10px]">
+                            <span className={`rounded-full border px-2.5 py-1 ${
+                              previewState.data.ok
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : "border-red-200 bg-red-50 text-red-700"
+                            }`}>
+                              {previewState.data.ok ? "ok" : `exit ${previewState.data.exitCode}`}
+                            </span>
+                            <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-desktop-text-secondary">
+                              {previewState.data.mode}
+                            </span>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {previewState.loading ? (
+                        <div className="mt-4 rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-4 py-4 text-[11px] text-desktop-text-secondary">
+                          Running runtime preview...
+                        </div>
+                      ) : null}
+
+                      {previewState.error ? (
+                        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-[11px] text-red-700">
+                          {previewState.error}
+                        </div>
+                      ) : null}
+
+                      {previewState.data ? (
+                        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                          <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-4">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Phase status</div>
+                            <div className="mt-3 space-y-2">
+                              {previewState.data.phaseResults.map((phase) => (
+                                <div key={`${phase.phase}-${phase.status}`} className="rounded-xl border border-desktop-border bg-desktop-bg-secondary/55 px-3 py-2.5">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <div className="text-[11px] font-semibold text-desktop-text-primary">{PHASE_LABELS[phase.phase]}</div>
+                                      <div className="mt-1 text-[10px] text-desktop-text-secondary">{phase.phase}</div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 text-[10px]">
+                                      <span className={`rounded-full border px-2.5 py-1 ${
+                                        phase.status === "passed"
+                                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                          : phase.status === "failed"
+                                            ? "border-red-200 bg-red-50 text-red-700"
+                                            : "border-amber-200 bg-amber-50 text-amber-800"
+                                      }`}>
+                                        {phase.status}
+                                      </span>
+                                      <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-desktop-text-secondary">
+                                        {phase.durationMs}ms
+                                      </span>
+                                    </div>
+                                  </div>
+                                  {phase.reason ? (
+                                    <div className="mt-2 text-[10px] text-desktop-text-secondary">reason: {phase.reason}</div>
+                                  ) : null}
+                                  {phase.metrics?.length ? (
+                                    <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-desktop-text-secondary">
+                                      {phase.metrics.map((metric) => (
+                                        <span key={`${phase.phase}-${metric}`} className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2 py-0.5">
+                                          {metric}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                  {phase.message ? (
+                                    <div className="mt-2 text-[10px] text-desktop-text-secondary">{phase.message}</div>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-4">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Event sample</div>
+                            <div className="mt-2 text-[11px] text-desktop-text-secondary">
+                              Recent JSONL events emitted by `hook-runtime`
+                            </div>
+                            <div className="mt-3">
+                              <CodeViewer
+                                code={previewJson}
+                                filename={`${runtimeProfile.name}.preview.json`}
+                                language="json"
+                                maxHeight="280px"
+                                showHeader={false}
+                                wordWrap
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {previewState.data?.stderr ? (
+                        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-800">stderr</div>
+                          <CodeViewer
+                            code={previewState.data.stderr}
+                            filename={`${runtimeProfile.name}.stderr.txt`}
+                            maxHeight="180px"
+                            showHeader={false}
+                            wordWrap
+                          />
+                        </div>
+                      ) : null}
+
+                      {metricOutputTails.length ? (
+                        <div className="mt-4 space-y-3">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Output tails</div>
+                          {metricOutputTails.map((metric) => (
+                            <div key={`${metric.name}-${metric.exitCode ?? "tail"}`} className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
+                              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                <div className="text-[11px] font-semibold text-desktop-text-primary">{metric.name}</div>
+                                <div className="flex flex-wrap gap-2 text-[10px]">
+                                  <span className={`rounded-full border px-2.5 py-1 ${
+                                    metric.status === "failed"
+                                      ? "border-red-200 bg-red-50 text-red-700"
+                                      : "border-desktop-border bg-desktop-bg-secondary text-desktop-text-secondary"
+                                  }`}>
+                                    {metric.status}
+                                  </span>
+                                  {typeof metric.durationMs === "number" ? (
+                                    <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">
+                                      {metric.durationMs}ms
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <CodeViewer
+                                code={metric.outputTail ?? ""}
+                                filename={`${metric.name}.tail.txt`}
+                                maxHeight="220px"
+                                showHeader={false}
+                                wordWrap
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
                     <div className="rounded-xl border border-desktop-border bg-desktop-bg-secondary/55 p-4">
                       <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Phase contract</div>
                       <div className="mt-3 space-y-2">
@@ -408,6 +735,7 @@ export function HarnessHookRuntimePanel({
                         ))}
                       </div>
                     </div>
+                  </div>
                   </div>
                 ) : null}
               </>
