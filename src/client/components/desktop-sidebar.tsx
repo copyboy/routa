@@ -47,6 +47,9 @@ export function DesktopSidebar({
   const settingsHarnessHref = normalizedWorkspaceId
     ? `/settings/harness?workspaceId=${encodeURIComponent(normalizedWorkspaceId)}`
     : "/settings/harness";
+  const settingsFluencyHref = normalizedWorkspaceId
+    ? `/settings/fluency?workspaceId=${encodeURIComponent(normalizedWorkspaceId)}`
+    : "/settings/fluency";
 
   const primaryItems: NavItem[] = [
     {
@@ -129,6 +132,16 @@ export function DesktopSidebar({
       ),
     },
     {
+      id: "fluency",
+      label: "Fluency（试验性）",
+      href: settingsFluencyHref,
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12a7.5 7.5 0 1115 0m-7.5 0v5.25m0-5.25l3.25-3.25m-3.25 3.25L8.75 8.75" />
+        </svg>
+      ),
+    },
+    {
       id: "workflows",
       label: "Workflows",
       href: "/settings/workflows",
@@ -174,9 +187,10 @@ export function DesktopSidebar({
   ];
 
   const isActive = (href: string) => {
-    if (href === "/") return pathname === "/";
-    if (href === workspaceBaseHref) return pathname === href;
-    return pathname === href || pathname.startsWith(`${href}/`);
+    const hrefPath = href.split("?")[0]?.split("#")[0] ?? href;
+    if (hrefPath === "/") return pathname === "/";
+    if (hrefPath === workspaceBaseHref) return pathname === hrefPath;
+    return pathname === hrefPath || pathname.startsWith(`${hrefPath}/`);
   };
 
   const renderNavItem = (item: NavItem) => {

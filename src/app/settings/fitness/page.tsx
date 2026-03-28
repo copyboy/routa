@@ -23,5 +23,5 @@ export default function FitnessSettingsPage({ searchParams }: { searchParams: Se
   if (repoPath) query.set("repoPath", repoPath);
 
   const suffix = query.toString();
-  redirect(suffix ? `/settings/harness?${suffix}` : "/settings/harness");
+  redirect(suffix ? `/settings/fluency?${suffix}` : "/settings/fluency");
 }

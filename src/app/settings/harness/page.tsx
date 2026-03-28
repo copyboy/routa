@@ -12,7 +12,6 @@ import {
   type TierValue,
 } from "@/client/components/harness-execution-plan-flow";
 import { HarnessAgentInstructionsPanel } from "@/client/components/harness-agent-instructions-panel";
-import { FitnessAnalysisPanel } from "@/client/components/fitness-analysis-panel";
 import { HarnessGovernanceLoopGraph } from "@/client/components/harness-governance-loop-graph";
 import { HarnessGitHubActionsFlowPanel } from "@/client/components/harness-github-actions-flow-panel";
 import { HarnessHookRuntimePanel } from "@/client/components/harness-hook-runtime-panel";
@@ -418,25 +417,6 @@ export default function HarnessSettingsPage() {
           repoLabel={selectedRepoLabel}
           unsupportedMessage={unsupportedRepoMessage}
         />
-
-        <section className="rounded-2xl border border-desktop-border bg-desktop-bg-secondary/55 p-4 shadow-sm">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Assessment</div>
-              <h3 className="mt-1 text-sm font-semibold text-desktop-text-primary">Harness fluency</h3>
-            </div>
-            <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
-              generic + orchestrator
-            </div>
-          </div>
-
-          <FitnessAnalysisPanel
-            workspaceId={workspaceId}
-            codebaseId={activeRepoCodebaseId}
-            repoPath={activeRepoPath}
-            codebaseLabel={selectedRepoLabel}
-          />
-        </section>
 
         <section className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
           <div className="rounded-2xl border border-desktop-border bg-desktop-bg-secondary/55 p-3 shadow-sm">
