@@ -13,14 +13,29 @@ const MANIFEST_FILE: &str = "manifest.yaml";
 
 /// Extract YAML frontmatter from markdown content.
 pub fn parse_frontmatter(content: &str) -> Option<serde_yaml::Value> {
-    // Match ^---\n...\n---
-    if !content.starts_with("---\n") {
+    let mut lines = content.lines();
+    let first_line = lines.next()?.trim_end_matches('\r');
+    if first_line != "---" {
         return None;
     }
-    let rest = &content[4..]; // skip "---\n"
-    let end = rest.find("\n---")?;
-    let yaml_str = &rest[..end];
-    let value: serde_yaml::Value = serde_yaml::from_str(yaml_str).ok()?;
+
+    let mut yaml_lines = Vec::new();
+    let mut found_closing_delimiter = false;
+    for line in lines {
+        let normalized = line.trim_end_matches('\r');
+        if normalized == "---" {
+            found_closing_delimiter = true;
+            break;
+        }
+        yaml_lines.push(normalized);
+    }
+
+    if !found_closing_delimiter {
+        return None;
+    }
+
+    let yaml_str = yaml_lines.join("\n");
+    let value: serde_yaml::Value = serde_yaml::from_str(&yaml_str).ok()?;
     if value.is_null() {
         return None;
     }
@@ -127,9 +142,7 @@ fn parse_waiver(raw: &serde_yaml::Value) -> Option<Waiver> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let tracking_issue = waiver
-        .get("tracking_issue")
-        .and_then(|v| v.as_i64());
+    let tracking_issue = waiver.get("tracking_issue").and_then(|v| v.as_i64());
 
     let expires_at = waiver.get("expires_at").and_then(|v| {
         if let Some(s) = v.as_str() {
@@ -202,9 +215,7 @@ fn build_metric(raw: &serde_yaml::Value) -> Metric {
     let scope = parse_string_list(raw, "scope");
     let run_when_changed = parse_string_list(raw, "run_when_changed");
 
-    let timeout_seconds = raw
-        .get("timeout_seconds")
-        .and_then(|v| v.as_u64());
+    let timeout_seconds = raw.get("timeout_seconds").and_then(|v| v.as_u64());
 
     let owner = raw
         .get("owner")
@@ -286,11 +297,7 @@ fn discover_evidence_files(fitness_dir: &Path) -> Vec<std::path::PathBuf> {
         .flatten()
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
-        .filter(|path| {
-            path.extension()
-                .map(|ext| ext == "md")
-                .unwrap_or(false)
-        })
+        .filter(|path| path.extension().map(|ext| ext == "md").unwrap_or(false))
         .collect();
     files.sort();
     files
@@ -324,7 +331,10 @@ pub fn load_dimensions(fitness_dir: &Path) -> Vec<Dimension> {
             continue;
         }
 
-        let threshold = fm.get("threshold").cloned().unwrap_or(serde_yaml::Value::Null);
+        let threshold = fm
+            .get("threshold")
+            .cloned()
+            .unwrap_or(serde_yaml::Value::Null);
 
         let metrics: Vec<Metric> = fm
             .get("metrics")
@@ -355,18 +365,9 @@ pub fn load_dimensions(fitness_dir: &Path) -> Vec<Dimension> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
                 .to_string(),
-            weight: fm
-                .get("weight")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0) as i32,
-            threshold_pass: threshold
-                .get("pass")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(90) as i32,
-            threshold_warn: threshold
-                .get("warn")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(80) as i32,
+            weight: fm.get("weight").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+            threshold_pass: threshold.get("pass").and_then(|v| v.as_i64()).unwrap_or(90) as i32,
+            threshold_warn: threshold.get("warn").and_then(|v| v.as_i64()).unwrap_or(80) as i32,
             metrics,
             source_file,
         };
@@ -395,7 +396,10 @@ mod tests {
         let fm = parse_frontmatter(content);
         assert!(fm.is_some());
         let fm = fm.unwrap();
-        assert_eq!(fm.get("dimension").unwrap().as_str().unwrap(), "testability");
+        assert_eq!(
+            fm.get("dimension").unwrap().as_str().unwrap(),
+            "testability"
+        );
         assert_eq!(fm.get("weight").unwrap().as_i64().unwrap(), 20);
         assert_eq!(fm.get("metrics").unwrap().as_sequence().unwrap().len(), 1);
     }
@@ -410,6 +414,27 @@ mod tests {
         let content = "---\n---\n# Empty";
         let fm = parse_frontmatter(content);
         assert!(fm.is_none()); // yaml returns None for empty
+    }
+
+    #[test]
+    fn test_parse_frontmatter_supports_crlf() {
+        let content =
+            "---\r\ndimension: testability\r\nweight: 20\r\nmetrics: []\r\n---\r\n# Body\r\n";
+        let fm = parse_frontmatter(content).unwrap();
+        assert_eq!(
+            fm.get("dimension").unwrap().as_str().unwrap(),
+            "testability"
+        );
+    }
+
+    #[test]
+    fn test_parse_frontmatter_requires_delimiter_on_its_own_line() {
+        let content = "---\nmessage: |\n  keep this line\n  --- still yaml content\nmetrics: []\n---\n# Body\n";
+        let fm = parse_frontmatter(content).unwrap();
+        assert_eq!(
+            fm.get("message").unwrap().as_str().unwrap(),
+            "keep this line\n--- still yaml content\n"
+        );
     }
 
     #[test]
@@ -475,7 +500,8 @@ metrics:
 ---
 # Runtime evidence
 "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let dims = load_dimensions(tmp.path());
         assert_eq!(dims.len(), 1);
@@ -492,7 +518,10 @@ metrics:
         assert_eq!(runtime_metric.scope, vec!["web", "rust"]);
         assert_eq!(
             runtime_metric.run_when_changed,
-            vec!["src/instrumentation.ts", "crates/routa-server/src/telemetry/**"]
+            vec![
+                "src/instrumentation.ts",
+                "crates/routa-server/src/telemetry/**"
+            ]
         );
         assert_eq!(runtime_metric.timeout_seconds, Some(120));
         assert_eq!(runtime_metric.owner, "platform");
@@ -502,10 +531,7 @@ metrics:
         assert_eq!(waiver.reason, "legacy hotspot pending refactor");
         assert_eq!(waiver.owner, "phodal");
         assert_eq!(waiver.tracking_issue, Some(217));
-        assert_eq!(
-            waiver.expires_at.unwrap().to_string(),
-            "2026-04-30"
-        );
+        assert_eq!(waiver.expires_at.unwrap().to_string(), "2026-04-30");
 
         let legacy_metric = &metrics[1];
         assert_eq!(legacy_metric.gate, Gate::Hard);
@@ -543,7 +569,8 @@ metrics:
         fs::write(
             tmp.path().join("README.md"),
             "---\ndimension: x\nweight: 10\nmetrics:\n  - name: y\n    command: z\n---\n",
-        ).unwrap();
+        )
+        .unwrap();
         let dims = load_dimensions(tmp.path());
         assert_eq!(dims.len(), 0);
     }
@@ -554,7 +581,8 @@ metrics:
         fs::write(
             tmp.path().join("notes.md"),
             "# Just notes\nNo frontmatter here.",
-        ).unwrap();
+        )
+        .unwrap();
         let dims = load_dimensions(tmp.path());
         assert_eq!(dims.len(), 0);
     }
@@ -589,10 +617,7 @@ metrics:
 
     #[test]
     fn test_validate_weights() {
-        let dims = vec![
-            Dimension::new("a", 60),
-            Dimension::new("b", 40),
-        ];
+        let dims = vec![Dimension::new("a", 60), Dimension::new("b", 40)];
         let (valid, total) = validate_weights(&dims);
         assert!(valid);
         assert_eq!(total, 100);

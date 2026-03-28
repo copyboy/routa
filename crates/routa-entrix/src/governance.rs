@@ -66,10 +66,7 @@ pub fn filter_metrics(metrics: &[Metric], policy: &GovernancePolicy) -> Vec<Metr
 }
 
 /// Apply tier filtering to dimensions, returning only those with remaining metrics.
-pub fn filter_dimensions(
-    dimensions: &[Dimension],
-    policy: &GovernancePolicy,
-) -> Vec<Dimension> {
+pub fn filter_dimensions(dimensions: &[Dimension], policy: &GovernancePolicy) -> Vec<Dimension> {
     let allowed_dimensions: Vec<String> = policy
         .dimension_filters
         .iter()
@@ -79,8 +76,7 @@ pub fn filter_dimensions(
 
     let mut result = Vec::new();
     for dim in dimensions {
-        if !allowed_dimensions.is_empty()
-            && !allowed_dimensions.contains(&dim.name.to_lowercase())
+        if !allowed_dimensions.is_empty() && !allowed_dimensions.contains(&dim.name.to_lowercase())
         {
             continue;
         }
@@ -109,7 +105,9 @@ pub fn enforce(report: &FitnessReport, policy: &GovernancePolicy) -> i32 {
     if policy.fail_on_hard_gate && report.hard_gate_blocked {
         return 2;
     }
-    if report.score_blocked {
+
+    let has_weighted_dimensions = report.dimensions.iter().any(|ds| ds.weight > 0);
+    if has_weighted_dimensions && report.final_score < policy.min_score {
         return 1;
     }
     0
@@ -316,6 +314,15 @@ mod tests {
             final_score: 70.0,
             hard_gate_blocked: false,
             score_blocked: true,
+            dimensions: vec![crate::model::DimensionScore {
+                dimension: "quality".to_string(),
+                weight: 100,
+                passed: 7,
+                total: 10,
+                score: 70.0,
+                hard_gate_failures: Vec::new(),
+                results: Vec::new(),
+            }],
             ..Default::default()
         };
         assert_eq!(enforce(&report, &GovernancePolicy::default()), 1);
@@ -327,6 +334,15 @@ mod tests {
             final_score: 70.0,
             hard_gate_blocked: true,
             score_blocked: true,
+            dimensions: vec![crate::model::DimensionScore {
+                dimension: "quality".to_string(),
+                weight: 100,
+                passed: 7,
+                total: 10,
+                score: 70.0,
+                hard_gate_failures: Vec::new(),
+                results: Vec::new(),
+            }],
             ..Default::default()
         };
         assert_eq!(enforce(&report, &GovernancePolicy::default()), 2);
@@ -345,5 +361,47 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(enforce(&report, &policy), 0);
+    }
+
+    #[test]
+    fn test_enforce_uses_policy_min_score_even_when_report_flag_differs() {
+        let report = FitnessReport {
+            final_score: 70.0,
+            hard_gate_blocked: false,
+            score_blocked: false,
+            dimensions: vec![crate::model::DimensionScore {
+                dimension: "quality".to_string(),
+                weight: 100,
+                passed: 7,
+                total: 10,
+                score: 70.0,
+                hard_gate_failures: Vec::new(),
+                results: Vec::new(),
+            }],
+        };
+        let policy = GovernancePolicy {
+            min_score: 80.0,
+            ..Default::default()
+        };
+        assert_eq!(enforce(&report, &policy), 1);
+    }
+
+    #[test]
+    fn test_enforce_does_not_block_when_no_weighted_dimensions() {
+        let report = FitnessReport {
+            final_score: 0.0,
+            hard_gate_blocked: false,
+            score_blocked: true,
+            dimensions: vec![crate::model::DimensionScore {
+                dimension: "observability".to_string(),
+                weight: 0,
+                passed: 0,
+                total: 0,
+                score: 0.0,
+                hard_gate_failures: Vec::new(),
+                results: Vec::new(),
+            }],
+        };
+        assert_eq!(enforce(&report, &GovernancePolicy::default()), 0);
     }
 }

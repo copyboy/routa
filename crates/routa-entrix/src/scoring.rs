@@ -66,7 +66,7 @@ pub fn score_report(dimension_scores: &[DimensionScore], min_score: f64) -> Fitn
 
     for ds in dimension_scores {
         all_hard_gate_failures.extend(ds.hard_gate_failures.iter().cloned());
-        if ds.total > 0 {
+        if ds.weight > 0 {
             weighted_sum += ds.score * ds.weight as f64;
             total_weight += ds.weight;
         }
@@ -118,9 +118,7 @@ mod tests {
 
     #[test]
     fn test_score_dimension_hard_gate_failure() {
-        let results = vec![
-            MetricResult::new("lint", false, "", Tier::Fast).with_hard_gate(true),
-        ];
+        let results = vec![MetricResult::new("lint", false, "", Tier::Fast).with_hard_gate(true)];
         let ds = score_dimension(&results, "quality", 24);
         assert_eq!(ds.hard_gate_failures, vec!["lint"]);
     }
@@ -149,9 +147,7 @@ mod tests {
 
     #[test]
     fn test_score_report_hard_gate_blocked() {
-        let results = vec![
-            MetricResult::new("gate", false, "", Tier::Fast).with_hard_gate(true),
-        ];
+        let results = vec![MetricResult::new("gate", false, "", Tier::Fast).with_hard_gate(true)];
         let ds = score_dimension(&results, "sec", 20);
         let report = score_report(&[ds], 80.0);
         assert!(report.hard_gate_blocked);
@@ -188,8 +184,7 @@ mod tests {
     #[test]
     fn test_score_dimension_counts_waived_as_pass() {
         let results = vec![
-            MetricResult::new("waived", true, "waived", Tier::Fast)
-                .with_state(ResultState::Waived),
+            MetricResult::new("waived", true, "waived", Tier::Fast).with_state(ResultState::Waived),
             MetricResult::new("fail", false, "", Tier::Fast),
         ];
         let ds = score_dimension(&results, "quality", 100);
@@ -201,13 +196,34 @@ mod tests {
     #[test]
     fn test_score_report_does_not_block_when_no_scorable_weight() {
         let ds = score_dimension(
-            &[MetricResult::new("graph_probe", false, "skipped", Tier::Normal)
-                .with_state(ResultState::Skipped)],
+            &[
+                MetricResult::new("graph_probe", false, "skipped", Tier::Normal)
+                    .with_state(ResultState::Skipped),
+            ],
             "observability",
             0,
         );
         let report = score_report(&[ds], 80.0);
         assert_eq!(report.final_score, 0.0);
+        assert!(!report.score_blocked);
+    }
+
+    #[test]
+    fn test_score_report_counts_weighted_zero_total_dimensions() {
+        let scored = score_dimension(
+            &[MetricResult::new("lint", true, "", Tier::Fast)],
+            "quality",
+            80,
+        );
+        let skipped_only = score_dimension(
+            &[MetricResult::new("probe", false, "skipped", Tier::Normal)
+                .with_state(ResultState::Skipped)],
+            "observability",
+            20,
+        );
+
+        let report = score_report(&[scored, skipped_only], 80.0);
+        assert_eq!(report.final_score, 80.0);
         assert!(!report.score_blocked);
     }
 }

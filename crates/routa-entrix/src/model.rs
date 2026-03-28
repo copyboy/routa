@@ -212,6 +212,8 @@ impl Metric {
         self.hard_gate = hard_gate;
         if hard_gate {
             self.gate = Gate::Hard;
+        } else if self.gate == Gate::Hard {
+            self.gate = Gate::Soft;
         }
         self
     }
@@ -255,8 +257,17 @@ pub struct MetricResult {
 }
 
 impl MetricResult {
-    pub fn new(metric_name: impl Into<String>, passed: bool, output: impl Into<String>, tier: Tier) -> Self {
-        let state = if passed { ResultState::Pass } else { ResultState::Fail };
+    pub fn new(
+        metric_name: impl Into<String>,
+        passed: bool,
+        output: impl Into<String>,
+        tier: Tier,
+    ) -> Self {
+        let state = if passed {
+            ResultState::Pass
+        } else {
+            ResultState::Fail
+        };
         Self {
             metric_name: metric_name.into(),
             passed,
@@ -298,7 +309,13 @@ pub struct DimensionScore {
 }
 
 impl DimensionScore {
-    pub fn new(dimension: impl Into<String>, weight: i32, passed: usize, total: usize, score: f64) -> Self {
+    pub fn new(
+        dimension: impl Into<String>,
+        weight: i32,
+        passed: usize,
+        total: usize,
+        score: f64,
+    ) -> Self {
         Self {
             dimension: dimension.into(),
             weight,
@@ -373,6 +390,23 @@ mod tests {
     fn test_metric_hard_gate_sets_default_gate() {
         let m = Metric::new("lint", "npm run lint").with_hard_gate(true);
         assert_eq!(m.gate, Gate::Hard);
+    }
+
+    #[test]
+    fn test_metric_disabling_hard_gate_resets_hard_gate_default() {
+        let m = Metric::new("lint", "npm run lint")
+            .with_hard_gate(true)
+            .with_hard_gate(false);
+        assert!(!m.hard_gate);
+        assert_eq!(m.gate, Gate::Soft);
+    }
+
+    #[test]
+    fn test_metric_disabling_hard_gate_preserves_non_hard_gate() {
+        let mut m = Metric::new("lint", "npm run lint");
+        m.gate = Gate::Advisory;
+        let m = m.with_hard_gate(false);
+        assert_eq!(m.gate, Gate::Advisory);
     }
 
     #[test]

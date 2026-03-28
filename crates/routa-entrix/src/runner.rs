@@ -1,9 +1,14 @@
 //! Shell runner — execute metric commands via subprocess.
 
 use std::collections::HashMap;
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Instant;
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 
 use regex::Regex;
 
@@ -82,57 +87,52 @@ impl ShellRunner {
         let project_root = self.project_root.clone();
         let env_clone = env;
 
-        let handle = std::thread::spawn(move || {
-            let mut cmd = Command::new("/bin/bash");
-            cmd.arg("-lc")
-                .arg(&command_str)
-                .current_dir(&project_root)
-                .envs(&env_clone);
+        let result =
+            match run_command_with_timeout(&command_str, &project_root, &env_clone, timeout) {
+                Ok(command_result) => {
+                    let CommandRunOutput { output, timed_out } = command_result;
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let combined = format!("{}{}", stdout, stderr);
+                    let output_truncated = truncate_utf8(&combined, 2000);
+                    let elapsed = start.elapsed().as_secs_f64() * 1000.0;
 
-            cmd.output()
-        });
+                    if timed_out {
+                        let timed_out_output = if output_truncated.trim().is_empty() {
+                            format!("TIMEOUT ({}s)", timeout)
+                        } else {
+                            format!("TIMEOUT ({}s)\n{}", timeout, output_truncated)
+                        };
 
-        // Wait for the thread with timeout
-        let timeout_duration = std::time::Duration::from_secs(timeout);
-        let result = match wait_thread_with_timeout(handle, timeout_duration) {
-            Some(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let combined = format!("{}{}", stdout, stderr);
+                        MetricResult::new(metric.name.clone(), false, timed_out_output, metric.tier)
+                            .with_hard_gate(metric.gate == Gate::Hard)
+                            .with_duration_ms(elapsed)
+                    } else {
+                        let passed = if !metric.pattern.is_empty() {
+                            Regex::new(&metric.pattern)
+                                .map(|re| re.is_match(&combined))
+                                .unwrap_or(false)
+                        } else {
+                            output.status.success()
+                        };
 
-                let passed = if !metric.pattern.is_empty() {
-                    Regex::new(&metric.pattern)
-                        .map(|re| re.is_match(&combined))
-                        .unwrap_or(false)
-                } else {
-                    output.status.success()
-                };
-
-                let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-                let output_truncated = truncate_utf8(&combined, 2000);
-
-                MetricResult::new(metric.name.clone(), passed, output_truncated, metric.tier)
-                    .with_hard_gate(metric.gate == Gate::Hard)
-                    .with_duration_ms(elapsed)
-            }
-            Some(Err(e)) => {
-                let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-                MetricResult::new(metric.name.clone(), false, e.to_string(), metric.tier)
-                    .with_hard_gate(metric.gate == Gate::Hard)
-                    .with_duration_ms(elapsed)
-            }
-            None => {
-                let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-                MetricResult::new(
-                    metric.name.clone(),
-                    false,
-                    format!("TIMEOUT ({}s)", timeout),
-                    metric.tier,
-                )
-                .with_hard_gate(metric.gate == Gate::Hard)
-                .with_duration_ms(elapsed)
-            }
-        };
+                        MetricResult::new(
+                            metric.name.clone(),
+                            passed,
+                            output_truncated,
+                            metric.tier,
+                        )
+                        .with_hard_gate(metric.gate == Gate::Hard)
+                        .with_duration_ms(elapsed)
+                    }
+                }
+                Err(e) => {
+                    let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+                    MetricResult::new(metric.name.clone(), false, e.to_string(), metric.tier)
+                        .with_hard_gate(metric.gate == Gate::Hard)
+                        .with_duration_ms(elapsed)
+                }
+            };
 
         result
     }
@@ -162,22 +162,40 @@ impl ShellRunner {
             return results;
         }
 
-        // Parallel execution — results already collected in order since
-        // map() iterates sequentially here. True thread-pool parallelism
-        // mirrors the Python ThreadPoolExecutor approach.
-        metrics
-            .iter()
-            .map(|metric| {
-                if let Some(cb) = progress_callback {
-                    cb("start", metric, None);
-                }
-                let result = self.run(metric, false);
-                if let Some(cb) = progress_callback {
-                    cb("end", metric, Some(&result));
-                }
-                result
-            })
-            .collect()
+        thread::scope(|scope| {
+            let handles: Vec<_> = metrics
+                .iter()
+                .cloned()
+                .map(|metric| {
+                    scope.spawn(move || {
+                        if let Some(cb) = progress_callback {
+                            cb("start", &metric, None);
+                        }
+                        let result = self.run(&metric, false);
+                        if let Some(cb) = progress_callback {
+                            cb("end", &metric, Some(&result));
+                        }
+                        result
+                    })
+                })
+                .collect();
+
+            handles
+                .into_iter()
+                .zip(metrics.iter())
+                .map(|(handle, metric)| {
+                    handle.join().unwrap_or_else(|_| {
+                        MetricResult::new(
+                            metric.name.clone(),
+                            false,
+                            "runner thread panicked",
+                            metric.tier,
+                        )
+                        .with_hard_gate(metric.gate == Gate::Hard)
+                    })
+                })
+                .collect()
+        })
     }
 }
 
@@ -194,25 +212,135 @@ fn truncate_utf8(s: &str, max_bytes: usize) -> String {
     s[..end].to_string()
 }
 
-fn wait_thread_with_timeout(
-    handle: std::thread::JoinHandle<Result<std::process::Output, std::io::Error>>,
-    timeout: std::time::Duration,
-) -> Option<Result<std::process::Output, std::io::Error>> {
+struct CommandRunOutput {
+    output: Output,
+    timed_out: bool,
+}
+
+fn run_command_with_timeout(
+    command_str: &str,
+    project_root: &Path,
+    env: &HashMap<String, String>,
+    timeout: u64,
+) -> io::Result<CommandRunOutput> {
+    let mut cmd = Command::new("/bin/bash");
+    cmd.arg("-lc")
+        .arg(command_str)
+        .current_dir(project_root)
+        .envs(env)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(unix)]
+    cmd.process_group(0);
+
+    let mut child = cmd.spawn()?;
+    let timeout_duration = Duration::from_secs(timeout);
+    let timed_out = wait_for_child_with_timeout(&mut child, timeout_duration)?;
+
+    if timed_out {
+        terminate_child(&mut child)?;
+    }
+
+    let output = child.wait_with_output()?;
+    Ok(CommandRunOutput { output, timed_out })
+}
+
+fn wait_for_child_with_timeout(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> io::Result<bool> {
     let start = Instant::now();
     loop {
-        if handle.is_finished() {
-            return Some(handle.join().unwrap_or_else(|_| {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "thread panicked",
-                ))
-            }));
+        if child.try_wait()?.is_some() {
+            return Ok(false);
         }
-        if start.elapsed() > timeout {
-            return None;
+        if start.elapsed() >= timeout {
+            return Ok(true);
         }
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(50));
     }
+}
+
+fn terminate_child(child: &mut std::process::Child) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        terminate_process_group(child)?;
+        return Ok(());
+    }
+
+    #[cfg(not(unix))]
+    {
+        child.kill()?;
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+fn terminate_process_group(child: &mut std::process::Child) -> io::Result<()> {
+    const GRACE_PERIOD: Duration = Duration::from_millis(200);
+    const SIGTERM: i32 = 15;
+    const SIGKILL: i32 = 9;
+    let pid = child.id() as i32;
+
+    send_signal_to_group(pid, SIGTERM)?;
+
+    let start = Instant::now();
+    loop {
+        if child.try_wait()?.is_some() {
+            return Ok(());
+        }
+        if start.elapsed() >= GRACE_PERIOD {
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    send_signal_to_group(pid, SIGKILL)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn send_signal_to_group(pid: i32, signal: i32) -> io::Result<()> {
+    let signal_name = match signal {
+        15 => "TERM",
+        9 => "KILL",
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported signal",
+            ))
+        }
+    };
+
+    let status = Command::new("kill")
+        .arg(format!("-{}", signal_name))
+        .arg(format!("-{}", pid))
+        .status()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        let err = io::Error::new(
+            io::ErrorKind::Other,
+            format!("failed to send {} to process group {}", signal_name, pid),
+        );
+        if child_process_group_missing(pid) {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(unix)]
+fn child_process_group_missing(pid: i32) -> bool {
+    Command::new("kill")
+        .arg("-0")
+        .arg(format!("-{}", pid))
+        .status()
+        .map(|status| !status.success())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -287,6 +415,22 @@ mod tests {
     }
 
     #[test]
+    fn test_run_timeout_kills_background_processes() {
+        let leak_path = format!("/tmp/routa-entrix-timeout-{}.txt", std::process::id());
+        let _ = std::fs::remove_file(&leak_path);
+
+        let runner = ShellRunner::new(Path::new("/tmp")).with_timeout(1);
+        let command = format!("sh -c 'sleep 2; echo leaked > {}' & wait", leak_path);
+        let result = runner.run(&Metric::new("slow", command), false);
+
+        assert!(!result.passed);
+        assert!(result.output.contains("TIMEOUT"));
+
+        thread::sleep(Duration::from_secs(3));
+        assert!(!Path::new(&leak_path).exists());
+    }
+
+    #[test]
     fn test_run_hard_gate_preserved() {
         let runner = ShellRunner::new(Path::new("/tmp"));
         let m = Metric::new("gate", "echo ok").with_hard_gate(true);
@@ -297,10 +441,7 @@ mod tests {
     #[test]
     fn test_run_batch_serial() {
         let runner = ShellRunner::new(Path::new("/tmp"));
-        let metrics = vec![
-            Metric::new("a", "echo a"),
-            Metric::new("b", "echo b"),
-        ];
+        let metrics = vec![Metric::new("a", "echo a"), Metric::new("b", "echo b")];
         let results = runner.run_batch(&metrics, false, false, None);
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].metric_name, "a");
@@ -310,15 +451,25 @@ mod tests {
     #[test]
     fn test_run_batch_parallel() {
         let runner = ShellRunner::new(Path::new("/tmp"));
-        let metrics = vec![
-            Metric::new("a", "echo a"),
-            Metric::new("b", "echo b"),
-        ];
+        let metrics = vec![Metric::new("a", "echo a"), Metric::new("b", "echo b")];
         let results = runner.run_batch(&metrics, true, false, None);
         assert_eq!(results.len(), 2);
         // Order preserved
         assert_eq!(results[0].metric_name, "a");
         assert_eq!(results[1].metric_name, "b");
+    }
+
+    #[test]
+    fn test_run_batch_parallel_executes_concurrently() {
+        let runner = ShellRunner::new(Path::new("/tmp"));
+        let metrics = vec![Metric::new("a", "sleep 1"), Metric::new("b", "sleep 1")];
+
+        let start = Instant::now();
+        let results = runner.run_batch(&metrics, true, false, None);
+        let elapsed = start.elapsed();
+
+        assert_eq!(results.len(), 2);
+        assert!(elapsed < Duration::from_millis(1800));
     }
 
     #[test]
