@@ -273,14 +273,14 @@ function buildGraph(args: {
   } = args;
 
   const nodes: Node<LoopNodeData>[] = [
-    buildNode("thinking", 128, 96, {
+    buildNode("thinking", 128, 86, {
       layer: "internal",
       title: "思考",
       tone: "neutral",
       note: "需求澄清 / 任务规划",
       active: false,
     }),
-    buildNode("coding", 330, 96, {
+    buildNode("coding", 330, 86, {
       layer: "internal",
       title: "编码",
       tone: "sky",
@@ -289,28 +289,28 @@ function buildGraph(args: {
         : "受开发规范约束",
       active: Boolean(instructionSummary),
     }),
-    buildNode("build", 532, 96, {
+    buildNode("build", 532, 86, {
       layer: "internal",
       title: "构建",
       tone: "sky",
       note: "本地集成 / 运行准备",
       active: false,
     }),
-    buildNode("test", 734, 96, {
+    buildNode("test", 734, 86, {
       layer: "internal",
       title: "测试",
       tone: "emerald",
       note: "本地验证 / 回归检查",
       active: dimensionCount > 0 || metricCount > 0,
     }),
-    buildNode("lint", 128, 264, {
+    buildNode("lint", 128, 248, {
       layer: "commit",
       title: "Lint",
       tone: "emerald",
       note: "静态质量检查",
       active: dimensionCount > 0,
     }),
-    buildNode("precommit", 330, 264, {
+    buildNode("precommit", 330, 248, {
       layer: "commit",
       title: "预提交",
       tone: "sky",
@@ -319,49 +319,49 @@ function buildGraph(args: {
         : "本地门禁执行",
       active: Boolean(hookSummary),
     }),
-    buildNode("review", 532, 264, {
+    buildNode("review", 532, 248, {
       layer: "commit",
       title: "代码检视",
       tone: "emerald",
       note: "规则校验 + review",
       active: dimensionCount > 0,
     }),
-    buildNode("commit", 734, 264, {
+    buildNode("commit", 734, 248, {
       layer: "commit",
       title: "提交",
       tone: "neutral",
       note: "进入远程流水线",
       active: false,
     }),
-    buildNode("post-commit", 27, 430, {
+    buildNode("post-commit", 27, 416, {
       layer: "external",
       title: "提交后阶段",
       tone: "violet",
       note: "远程校验 / 自动构建",
       active: Boolean(workflowSummary),
     }),
-    buildNode("staging", 229, 430, {
+    buildNode("staging", 229, 416, {
       layer: "external",
       title: "预发环境",
       tone: "violet",
       note: "环境验证 / 验收",
       active: false,
     }),
-    buildNode("canary", 431, 430, {
+    buildNode("canary", 431, 416, {
       layer: "external",
       title: "金丝雀发布",
       tone: "amber",
       note: "小流量验证 / 渐进放量",
       active: false,
     }),
-    buildNode("production", 633, 430, {
+    buildNode("production", 633, 416, {
       layer: "external",
       title: "生产环境",
       tone: "amber",
       note: "真实流量运行",
       active: false,
     }),
-    buildNode("metrics", 835, 430, {
+    buildNode("metrics", 835, 416, {
       layer: "external",
       title: "度量",
       tone: "emerald",
@@ -652,15 +652,15 @@ export function HarnessGovernanceLoopGraph({
               <div className="absolute left-[104px] top-[214px] h-[152px] w-[842px] rounded-[36px] border border-sky-300/70 bg-sky-50/35" />
               <div className="absolute left-[20px] top-[386px] h-[152px] w-[1068px] rounded-[36px] border border-violet-300/65 bg-violet-50/35" />
 
-              <div className="absolute left-[126px] top-[66px] max-w-[180px] text-left text-slate-600">
+              <div className="absolute left-[126px] top-[54px] max-w-[180px] text-left text-slate-600">
                 <div className="text-[11px] font-semibold tracking-[0.06em]">内部反馈环</div>
               </div>
 
-              <div className="absolute left-[126px] top-[236px] max-w-[180px] text-left text-slate-600">
+              <div className="absolute left-[126px] top-[220px] max-w-[180px] text-left text-slate-600">
                 <div className="text-[11px] font-semibold tracking-[0.06em]">提交反馈环</div>
               </div>
 
-              <div className="absolute left-[42px] top-[408px] max-w-[180px] text-left text-slate-600">
+              <div className="absolute left-[42px] top-[392px] max-w-[180px] text-left text-slate-600">
                 <div className="text-[11px] font-semibold tracking-[0.06em]">外部反馈环</div>
               </div>
             </div>
