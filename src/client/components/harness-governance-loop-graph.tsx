@@ -77,6 +77,7 @@ type LoopLayer = "internal" | "commit" | "external";
 type LoopTone = "neutral" | "sky" | "emerald" | "amber" | "violet";
 
 type LoopNodeData = {
+  nodeId: string;
   layer: LoopLayer;
   title: string;
   tone: LoopTone;
@@ -84,6 +85,7 @@ type LoopNodeData = {
   active?: boolean;
   selected?: boolean;
   onSelect?: () => void;
+  onNavigate?: (direction: "up" | "down" | "left" | "right") => void;
 };
 
 const PHASE_LABELS: Record<HookPhase, string> = {
@@ -151,11 +153,27 @@ function LoopNodeView({ data }: NodeProps<Node<LoopNodeData>>) {
       <Handle id="source-left" type="source" position={Position.Left} className="!h-2.5 !w-2.5 !border-0 !bg-desktop-border" />
       <button
         type="button"
+        data-governance-node-id={data.nodeId}
         aria-pressed={data.selected}
         aria-label={`${layerLabel[data.layer]} ${data.title}${data.note ? `，${data.note}` : ""}`}
         onClick={(event) => {
           event.stopPropagation();
           data.onSelect?.();
+        }}
+        onKeyDown={(event) => {
+          const keyToDirection = {
+            ArrowUp: "up",
+            ArrowDown: "down",
+            ArrowLeft: "left",
+            ArrowRight: "right",
+          } as const;
+          const direction = keyToDirection[event.key as keyof typeof keyToDirection];
+          if (!direction) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          data.onNavigate?.(direction);
         }}
         className={`flex min-h-[96px] w-[168px] flex-col justify-between rounded-[24px] border px-4 py-3 text-left shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-desktop-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${
           data.active ? `bg-desktop-bg-primary/96 ${tone.border} ${tone.shadow}` : "border-slate-200 bg-slate-100/90 shadow-black/0"
@@ -283,8 +301,38 @@ function buildGraph(args: {
     onSelectNode,
   } = args;
 
+  const navigationGraph: Record<string, Partial<Record<"up" | "down" | "left" | "right", string>>> = {
+    thinking: { right: "coding", down: "lint" },
+    coding: { left: "thinking", right: "build", down: "precommit" },
+    build: { left: "coding", right: "test", down: "review" },
+    test: { left: "build", down: "commit" },
+    lint: { up: "thinking", right: "precommit", down: "metrics" },
+    precommit: { up: "coding", left: "lint", right: "review", down: "production" },
+    review: { up: "build", left: "precommit", right: "commit", down: "canary" },
+    commit: { up: "test", left: "review", down: "post-commit" },
+    metrics: { up: "lint", right: "production" },
+    production: { up: "precommit", left: "metrics", right: "canary" },
+    canary: { up: "review", left: "production", right: "staging" },
+    staging: { up: "commit", left: "canary", right: "post-commit" },
+    "post-commit": { up: "commit", left: "staging" },
+  };
+  const handleNavigate = (currentNodeId: string, direction: "up" | "down" | "left" | "right") => {
+    const nextNodeId = navigationGraph[currentNodeId]?.[direction];
+    if (!nextNodeId) {
+      return;
+    }
+    onSelectNode(nextNodeId);
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        const nextButton = document.querySelector<HTMLButtonElement>(`[data-governance-node-id="${nextNodeId}"]`);
+        nextButton?.focus();
+      });
+    }
+  };
+
   const nodes: Node<LoopNodeData>[] = [
     buildNode("thinking", 128, 86, {
+      nodeId: "thinking",
       layer: "internal",
       title: "思考",
       tone: "neutral",
@@ -294,8 +342,12 @@ function buildGraph(args: {
       onSelect: () => {
         onSelectNode("thinking");
       },
+      onNavigate: (direction) => {
+        handleNavigate("thinking", direction);
+      },
     }),
     buildNode("coding", 330, 86, {
+      nodeId: "coding",
       layer: "internal",
       title: "编码",
       tone: "sky",
@@ -307,8 +359,12 @@ function buildGraph(args: {
       onSelect: () => {
         onSelectNode("coding");
       },
+      onNavigate: (direction) => {
+        handleNavigate("coding", direction);
+      },
     }),
     buildNode("build", 532, 86, {
+      nodeId: "build",
       layer: "internal",
       title: "构建",
       tone: "sky",
@@ -318,8 +374,12 @@ function buildGraph(args: {
       onSelect: () => {
         onSelectNode("build");
       },
+      onNavigate: (direction) => {
+        handleNavigate("build", direction);
+      },
     }),
     buildNode("test", 734, 86, {
+      nodeId: "test",
       layer: "internal",
       title: "测试",
       tone: "emerald",
@@ -329,8 +389,12 @@ function buildGraph(args: {
       onSelect: () => {
         onSelectNode("test");
       },
+      onNavigate: (direction) => {
+        handleNavigate("test", direction);
+      },
     }),
     buildNode("lint", 128, 248, {
+      nodeId: "lint",
       layer: "commit",
       title: "Lint",
       tone: "emerald",
@@ -340,8 +404,12 @@ function buildGraph(args: {
       onSelect: () => {
         onSelectNode("lint");
       },
+      onNavigate: (direction) => {
+        handleNavigate("lint", direction);
+      },
     }),
     buildNode("precommit", 330, 248, {
+      nodeId: "precommit",
       layer: "commit",
       title: "预提交",
       tone: "sky",
@@ -353,8 +421,12 @@ function buildGraph(args: {
       onSelect: () => {
         onSelectNode("precommit");
       },
+      onNavigate: (direction) => {
+        handleNavigate("precommit", direction);
+      },
     }),
     buildNode("review", 532, 248, {
+      nodeId: "review",
       layer: "commit",
       title: "代码检视",
       tone: "emerald",
@@ -364,8 +436,12 @@ function buildGraph(args: {
       onSelect: () => {
         onSelectNode("review");
       },
+      onNavigate: (direction) => {
+        handleNavigate("review", direction);
+      },
     }),
     buildNode("commit", 734, 248, {
+      nodeId: "commit",
       layer: "commit",
       title: "提交",
       tone: "neutral",
@@ -375,8 +451,12 @@ function buildGraph(args: {
       onSelect: () => {
         onSelectNode("commit");
       },
+      onNavigate: (direction) => {
+        handleNavigate("commit", direction);
+      },
     }),
     buildNode("metrics", 27, 416, {
+      nodeId: "metrics",
       layer: "external",
       title: "度量",
       tone: "emerald",
@@ -386,8 +466,12 @@ function buildGraph(args: {
       onSelect: () => {
         onSelectNode("metrics");
       },
+      onNavigate: (direction) => {
+        handleNavigate("metrics", direction);
+      },
     }),
     buildNode("production", 229, 416, {
+      nodeId: "production",
       layer: "external",
       title: "生产环境",
       tone: "amber",
@@ -397,8 +481,12 @@ function buildGraph(args: {
       onSelect: () => {
         onSelectNode("production");
       },
+      onNavigate: (direction) => {
+        handleNavigate("production", direction);
+      },
     }),
     buildNode("canary", 431, 416, {
+      nodeId: "canary",
       layer: "external",
       title: "金丝雀发布",
       tone: "amber",
@@ -408,8 +496,12 @@ function buildGraph(args: {
       onSelect: () => {
         onSelectNode("canary");
       },
+      onNavigate: (direction) => {
+        handleNavigate("canary", direction);
+      },
     }),
     buildNode("staging", 633, 416, {
+      nodeId: "staging",
       layer: "external",
       title: "预发环境",
       tone: "violet",
@@ -419,8 +511,12 @@ function buildGraph(args: {
       onSelect: () => {
         onSelectNode("staging");
       },
+      onNavigate: (direction) => {
+        handleNavigate("staging", direction);
+      },
     }),
     buildNode("post-commit", 835, 416, {
+      nodeId: "post-commit",
       layer: "external",
       title: "CI/CD",
       tone: "violet",
@@ -429,6 +525,9 @@ function buildGraph(args: {
       selected: selectedNodeId === "post-commit",
       onSelect: () => {
         onSelectNode("post-commit");
+      },
+      onNavigate: (direction) => {
+        handleNavigate("post-commit", direction);
       },
     }),
   ];
