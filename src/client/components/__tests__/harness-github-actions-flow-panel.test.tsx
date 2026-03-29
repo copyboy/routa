@@ -88,8 +88,9 @@ describe("HarnessGitHubActionsFlowPanel", () => {
     expect(screen.getByText("Loading GitHub Actions workflows...")).not.toBeNull();
 
     await waitFor(() => {
-      expect(screen.getAllByText("Defense").length).toBeGreaterThan(0);
-      expect(screen.getByText("Fitness Dimensions")).not.toBeNull();
+      expect(screen.getByRole("heading", { name: "GitHub Actions Flow Gallery" })).not.toBeNull();
+      expect(screen.getByRole("button", { name: /Defense/i })).not.toBeNull();
+      expect(screen.getAllByRole("button", { name: /Fitness Dimensions/i }).length).toBeGreaterThan(0);
     });
   });
 
@@ -104,13 +105,15 @@ describe("HarnessGitHubActionsFlowPanel", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Routa Release")).not.toBeNull();
+      expect(screen.getByRole("button", { name: /Release/i })).not.toBeNull();
     });
+
+    fireEvent.click(screen.getByRole("button", { name: /Release/i }));
 
     fireEvent.click(screen.getByRole("button", { name: /Routa Release/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("Publish")).not.toBeNull();
+      expect(screen.getAllByRole("button", { name: /Publish/i }).length).toBeGreaterThan(0);
       expect(screen.getAllByText("workflow_dispatch").length).toBeGreaterThan(0);
       expect(screen.getAllByText(".github/workflows/release.yaml").length).toBeGreaterThan(0);
     });
