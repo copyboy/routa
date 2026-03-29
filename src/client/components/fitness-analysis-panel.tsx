@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { desktopAwareFetch } from "@/client/utils/diagnostics";
 
@@ -14,6 +14,7 @@ import {
   buildAnalysisPayload,
   buildAnalysisQuery,
   clampPercent,
+  criterionShortLabel,
   formatDuration,
   formatTime,
   normalizeApiResponse,
@@ -42,17 +43,79 @@ const EMPTY_STATE: Record<FitnessProfile, ProfilePanelState> = {
 
 function StatusBadge({ state }: { state: FitnessProfileState }) {
   const labels: Record<FitnessProfileState, string> = {
-    idle: "待运行",
-    loading: "分析中",
-    ready: "已就绪",
-    empty: "未生成",
-    error: "异常",
+    idle: "未运行",
+    loading: "运行中",
+    ready: "有结果",
+    empty: "无快照",
+    error: "失败",
   };
 
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${profileStateTone(state)}`}>
       {labels[state]}
     </span>
+  );
+}
+
+function SurfaceCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-3xl border border-desktop-border bg-desktop-bg-secondary/60 p-4 shadow-sm">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">
+        {title}
+      </div>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
+
+function SummaryMetric({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <article className="rounded-2xl border border-desktop-border bg-white/80 p-4 dark:bg-white/6">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">{label}</div>
+      <div className="mt-2 text-lg font-semibold text-desktop-text-primary">{value}</div>
+      <p className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">{detail}</p>
+    </article>
+  );
+}
+
+function ViewButton({
+  active,
+  label,
+  description,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  description: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
+        active
+          ? "border-desktop-accent bg-desktop-bg-primary"
+          : "border-desktop-border bg-white/70 hover:bg-desktop-bg-primary/80 dark:bg-white/5"
+      }`}
+    >
+      <div className="text-sm font-semibold text-desktop-text-primary">{label}</div>
+      <div className="mt-1 text-[11px] leading-5 text-desktop-text-secondary">{description}</div>
+    </button>
   );
 }
 
@@ -210,7 +273,7 @@ export function FitnessAnalysisPanel({
             args: pendingArgs,
             stdout: "",
             stderr: "",
-            data: `$ cargo ${pendingArgs.join(" ")}\n\n[running fluency analysis...]\n`,
+            data: `$ cargo ${pendingArgs.join(" ")}\n\n[running fluency analysis...]\n[note] This command does not stream step-by-step logs. On success it emits one final JSON report to stdout.\n`,
           },
         };
       }
@@ -275,18 +338,21 @@ export function FitnessAnalysisPanel({
   }, [applyProfiles, compareLast, contextPayload, hasContext, noSave, runMode]);
 
   const onRunSelectedProfile = useCallback(() => {
-    setViewMode("console");
+    setViewMode("overview");
     void runProfiles([selectedProfile]);
   }, [runProfiles, selectedProfile]);
 
   const onRunAllProfiles = useCallback(() => {
-    setViewMode("console");
+    setViewMode("overview");
     void runProfiles([...PROFILE_ORDER]);
   }, [runProfiles]);
 
   const selectedDef = PROFILE_DEFS.find((item) => item.id === selectedProfile) ?? PROFILE_DEFS[0];
   const selectedReport = selectedState.report;
   const peerReport = peerState.report;
+  const blockers = selectedReport?.blockingCriteria ?? [];
+  const failedCriteria = selectedReport?.criteria.filter((criterion) => criterion.status === "fail") ?? [];
+  const topRecommendation = selectedReport?.recommendations[0] ?? null;
   const peerDelta = useMemo(() => {
     if (!selectedReport || !peerReport) {
       return null;
@@ -295,11 +361,24 @@ export function FitnessAnalysisPanel({
     return clampPercent(selectedReport.currentLevelReadiness) - clampPercent(peerReport.currentLevelReadiness);
   }, [peerReport, selectedReport]);
 
+  const primaryViews = VIEW_MODES.filter((mode) => mode.id !== "console" && mode.id !== "raw");
+  const advancedViews = VIEW_MODES.filter((mode) => mode.id === "console" || mode.id === "raw");
+  const topBlockers = blockers.slice(0, 3);
+
   return (
-    <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+    <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
       <aside className="space-y-4">
-        <section className="rounded-2xl border border-desktop-border bg-desktop-bg-secondary/60 p-4">
-          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Profiles</div>
+        <SurfaceCard title="Run Setup">
+          <div className="rounded-2xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">
+              Repository Context
+            </div>
+            <div className="mt-2 text-sm font-semibold text-desktop-text-primary">{contextLabel ?? "未设置 Repository"}</div>
+            <p className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">
+              先确认 profile 和 mode，再运行分析。首屏会优先显示当前结论、阻塞原因和下一步动作。
+            </p>
+          </div>
+
           <div className="mt-3 space-y-3">
             {PROFILE_DEFS.map((profile) => {
               const state = profiles[profile.id];
@@ -321,7 +400,7 @@ export function FitnessAnalysisPanel({
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="text-sm font-semibold text-desktop-text-primary">{profile.name}</div>
-                      <div className="mt-1 text-[11px] leading-5 text-desktop-text-secondary">{profile.focus}</div>
+                      <div className="mt-1 text-[11px] leading-5 text-desktop-text-secondary">{profile.description}</div>
                     </div>
                     <StatusBadge state={state.state} />
                   </div>
@@ -329,18 +408,37 @@ export function FitnessAnalysisPanel({
                     <div className={`h-full rounded-full ${readinessBarTone(report?.currentLevelReadiness ?? 0)}`} style={{ width: `${score}%` }} />
                   </div>
                   <div className="mt-2 flex items-center justify-between text-[11px] text-desktop-text-secondary">
-                    <span>{report?.overallLevelName ?? "未分析"}</span>
-                    <span>{score}%</span>
+                    <span>{report?.overallLevelName ?? "尚无结果"}</span>
+                    <span>{report ? `${score}% 置信度` : "等待分析"}</span>
                   </div>
+                  <div className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">{profile.focus}</div>
                 </button>
               );
             })}
           </div>
-        </section>
 
-        <section className="rounded-2xl border border-desktop-border bg-desktop-bg-secondary/60 p-4">
-          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Execution</div>
-          <div className="mt-3 space-y-2">
+          <div className="mt-4">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">Mode</div>
+            <div className="mt-2 space-y-2">
+              {FLUENCY_MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => setRunMode(mode.id)}
+                  className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
+                    runMode === mode.id
+                      ? "border-desktop-accent bg-desktop-bg-primary"
+                      : "border-desktop-border bg-white/70 hover:bg-desktop-bg-primary/80 dark:bg-white/5"
+                  }`}
+                >
+                  <div className="text-sm font-semibold text-desktop-text-primary">{mode.label}</div>
+                  <div className="mt-1 text-[11px] leading-5 text-desktop-text-secondary">{mode.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-2">
             <button
               type="button"
               onClick={onRunSelectedProfile}
@@ -363,31 +461,10 @@ export function FitnessAnalysisPanel({
               disabled={!hasContext}
               className="w-full rounded-full border border-desktop-border px-4 py-2 text-sm font-semibold text-desktop-text-primary hover:bg-desktop-bg-primary/80 disabled:opacity-60"
             >
-              刷新快照
+              读取最新快照
             </button>
           </div>
-          <div className="mt-4">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">
-              Mode
-            </div>
-            <div className="mt-2 space-y-2">
-              {FLUENCY_MODES.map((mode) => (
-                <button
-                  key={mode.id}
-                  type="button"
-                  onClick={() => setRunMode(mode.id)}
-                  className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
-                    runMode === mode.id
-                      ? "border-desktop-accent bg-desktop-bg-primary"
-                      : "border-desktop-border bg-white/70 hover:bg-desktop-bg-primary/80 dark:bg-white/5"
-                  }`}
-                >
-                  <div className="text-sm font-semibold text-desktop-text-primary">{mode.label}</div>
-                  <div className="mt-1 text-[11px] leading-5 text-desktop-text-secondary">{mode.description}</div>
-                </button>
-              ))}
-            </div>
-          </div>
+
           <div className="mt-4 space-y-2 text-[11px] text-desktop-text-secondary">
             <label className="flex items-center gap-2">
               <input
@@ -396,7 +473,7 @@ export function FitnessAnalysisPanel({
                 onChange={(event) => setCompareLast(event.currentTarget.checked)}
                 className="h-4 w-4 rounded border-slate-300 text-desktop-accent"
               />
-              与上次对比
+              附带与上次对比结果
             </label>
             <label className="flex items-center gap-2">
               <input
@@ -405,53 +482,65 @@ export function FitnessAnalysisPanel({
                 onChange={(event) => setNoSave(event.currentTarget.checked)}
                 className="h-4 w-4 rounded border-slate-300 text-desktop-accent"
               />
-              不落盘
+              本次运行不写入快照
             </label>
           </div>
-          <div className="mt-4 rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-3 py-3 text-[11px] text-desktop-text-secondary">
-            {lastSnapshotAt ? `最近快照：${formatTime(lastSnapshotAt)}` : "尚未读取快照"}
+
+          <div className="mt-4 rounded-2xl border border-desktop-border bg-desktop-bg-primary/80 px-3 py-3 text-[11px] text-desktop-text-secondary">
+            {lastSnapshotAt ? `最近快照：${formatTime(lastSnapshotAt)}` : "尚未读取到快照"}
           </div>
+
           {globalError ? (
-            <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-[11px] text-rose-700">
+            <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-[11px] leading-5 text-rose-700">
               {globalError}
             </div>
           ) : null}
-        </section>
+        </SurfaceCard>
 
-        <section className="rounded-2xl border border-desktop-border bg-desktop-bg-secondary/60 p-4">
-          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Views</div>
-          <div className="mt-3 space-y-2">
-            {VIEW_MODES.map((mode) => (
-              <button
+        <SurfaceCard title="Views">
+          <div className="space-y-2">
+            {primaryViews.map((mode) => (
+              <ViewButton
                 key={mode.id}
-                type="button"
+                active={viewMode === mode.id}
+                label={mode.label}
+                description={mode.description}
                 onClick={() => setViewMode(mode.id)}
-                className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
-                  viewMode === mode.id
-                    ? "border-desktop-accent bg-desktop-bg-primary"
-                    : "border-desktop-border bg-white/70 hover:bg-desktop-bg-primary/80 dark:bg-white/5"
-                }`}
-              >
-                <div className="text-sm font-semibold text-desktop-text-primary">{mode.label}</div>
-                <div className="mt-1 text-[11px] leading-5 text-desktop-text-secondary">{mode.description}</div>
-              </button>
+              />
             ))}
           </div>
-        </section>
+
+          <div className="mt-4 border-t border-desktop-border pt-4">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">
+              Advanced Debug
+            </div>
+            <div className="mt-2 space-y-2">
+              {advancedViews.map((mode) => (
+                <ViewButton
+                  key={mode.id}
+                  active={viewMode === mode.id}
+                  label={mode.label}
+                  description={mode.description}
+                  onClick={() => setViewMode(mode.id)}
+                />
+              ))}
+            </div>
+          </div>
+        </SurfaceCard>
       </aside>
 
       <div className="space-y-4">
         <section className="rounded-[28px] border border-desktop-border bg-desktop-bg-secondary/60 p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
+            <div className="max-w-3xl">
               <div className="text-xs font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
                 {selectedDef.name}
               </div>
-              <h3 className="mt-1 text-xl font-semibold text-desktop-text-primary">
-                {selectedReport?.overallLevelName ?? "未生成报告"}
+              <h3 className="mt-1 text-2xl font-semibold text-desktop-text-primary">
+                {selectedReport?.overallLevelName ?? "等待 fluency 结果"}
               </h3>
-              <p className="mt-2 max-w-3xl text-[12px] leading-6 text-desktop-text-secondary">
-                {selectedDef.description}。{selectedDef.focus}。当前可靠性：{selectedDef.reliability}。
+              <p className="mt-2 text-[12px] leading-6 text-desktop-text-secondary">
+                {selectedDef.focus}。当前结果会优先告诉你仓库现在处于哪个 maturity level、卡在什么 blocker、以及下一步最值得做什么。
               </p>
             </div>
             <StatusBadge state={selectedState.state} />
@@ -459,65 +548,163 @@ export function FitnessAnalysisPanel({
 
           <div className="mt-4 flex flex-wrap gap-2">
             <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              Readiness:
+              结果来源:
               <span className="ml-1 font-semibold text-desktop-text-primary">
-                {selectedReport ? `${clampPercent(selectedReport.currentLevelReadiness)}%` : "N/A"}
+                {selectedState.source === "analysis" ? "本次运行" : selectedState.source === "snapshot" ? "已有快照" : "尚无结果"}
               </span>
             </div>
             <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              Mode:
-              <span className="ml-1 font-semibold text-desktop-text-primary">
-                {selectedReport?.mode ?? runMode}
-              </span>
+              当前模式:
+              <span className="ml-1 font-semibold text-desktop-text-primary">{selectedReport?.mode ?? runMode}</span>
             </div>
             <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              Source:
-              <span className="ml-1 font-semibold text-desktop-text-primary">
-                {selectedState.source === "analysis" ? "实时分析" : selectedState.source === "snapshot" ? "快照" : "未运行"}
-              </span>
-            </div>
-            <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              Duration:
-              <span className="ml-1 font-semibold text-desktop-text-primary">{formatDuration(selectedState.durationMs)}</span>
-            </div>
-            <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              Updated:
+              最近更新时间:
               <span className="ml-1 font-semibold text-desktop-text-primary">
                 {selectedState.updatedAt ? formatTime(selectedState.updatedAt) : "尚未更新"}
               </span>
             </div>
             <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              Context:
-              <span className="ml-1 font-semibold text-desktop-text-primary">{contextLabel ?? "未设置"}</span>
-            </div>
-            <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              Sibling:
+              执行耗时:
               <span className="ml-1 font-semibold text-desktop-text-primary">
-                {peerDelta === null ? "N/A" : `${peerDelta >= 0 ? "+" : ""}${peerDelta}%`}
+                {selectedState.durationMs === undefined ? "未记录" : formatDuration(selectedState.durationMs)}
               </span>
             </div>
-            <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              Console:
-              <span className="ml-1 font-semibold text-desktop-text-primary">
-                {selectedState.console?.data ? "Captured" : "N/A"}
-              </span>
-            </div>
-            <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              Evidence packs:
-              <span className="ml-1 font-semibold text-desktop-text-primary">
-                {selectedReport?.evidencePacks?.length ?? 0}
-              </span>
-            </div>
+            {peerDelta !== null ? (
+              <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
+                相对另一 profile:
+                <span className="ml-1 font-semibold text-desktop-text-primary">
+                  {peerDelta >= 0 ? "+" : ""}
+                  {peerDelta}%
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-5 grid gap-3 xl:grid-cols-4">
+            <SummaryMetric
+              label="Current Maturity"
+              value={selectedReport?.overallLevelName ?? "未生成"}
+              detail={selectedReport
+                ? `当前结论来自 ${selectedState.source === "analysis" ? "本次运行" : "最近快照"}。`
+                : "先运行一次分析，页面才会给出当前 maturity level。"}
+            />
+            <SummaryMetric
+              label="Confidence"
+              value={selectedReport ? `${clampPercent(selectedReport.currentLevelReadiness)}%` : "N/A"}
+              detail={selectedReport
+                ? "这里表示当前 level 的命中程度，不等于整个功能或仓库已经“完全可用”。"
+                : "没有报告时不显示置信度。"}
+            />
+            <SummaryMetric
+              label="Main Blockers"
+              value={selectedReport ? String(blockers.length) : "N/A"}
+              detail={selectedReport
+                ? blockers.length > 0
+                  ? `当前还差 ${blockers.length} 个 blocker 才能继续往下一个 level 推进。`
+                  : "当前没有 blocker，说明这个 profile 暂时没有关键卡点。"
+                : "先生成报告才能识别 blocker。"}
+            />
+            <SummaryMetric
+              label="Next Action"
+              value={topRecommendation?.action ?? "先运行分析"}
+              detail={topRecommendation?.whyItMatters ?? "建议动作会在有结果后出现，并尽量给出明确的修复线索。"}
+            />
           </div>
         </section>
 
-        <FitnessAnalysisContent
-          selectedProfile={selectedProfile}
-          viewMode={viewMode}
-          profileState={selectedState}
-          report={selectedReport}
-          peerReport={peerReport}
-        />
+        {selectedReport ? (
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
+            <SurfaceCard title="Why It Is Blocked">
+              {topBlockers.length > 0 ? (
+                <div className="space-y-3">
+                  {topBlockers.map((criterion) => (
+                    <article key={criterion.id} className="rounded-2xl border border-desktop-border bg-white/80 p-4 dark:bg-white/6">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-desktop-text-primary">
+                            {criterionShortLabel(criterion.id)}
+                          </div>
+                          <div className="mt-1 font-mono text-[10px] text-desktop-text-secondary">{criterion.id}</div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {criterion.critical ? (
+                            <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] text-rose-700">
+                              critical
+                            </span>
+                          ) : null}
+                          <span className={`rounded-full border px-2 py-0.5 text-[10px] ${profileStateTone("error")}`}>
+                            fail
+                          </span>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">{criterion.whyItMatters}</p>
+                      <div className="mt-2 rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-3 py-2 text-[11px] text-desktop-text-secondary">
+                        证据线索：{criterion.evidenceHint}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-desktop-border px-4 py-6 text-sm text-desktop-text-secondary">
+                  当前没有 blocker。可以切到能力项或对比变化，确认这次结果的细节。
+                </div>
+              )}
+            </SurfaceCard>
+
+            <SurfaceCard title="Recommended Next Step">
+              <div className="rounded-2xl border border-desktop-border bg-desktop-bg-primary/80 p-4">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">
+                  Suggested Action
+                </div>
+                <div className="mt-2 text-base font-semibold text-desktop-text-primary">
+                  {topRecommendation?.action ?? "先运行当前 Profile"}
+                </div>
+                <p className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">
+                  {topRecommendation?.whyItMatters ?? "还没有建议动作时，优先运行当前 profile 获取新结果。"}
+                </p>
+              </div>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <SummaryMetric
+                  label="Failed Criteria"
+                  value={selectedReport ? String(failedCriteria.length) : "N/A"}
+                  detail="这表示当前报告里失败的 criterion 总数。"
+                />
+                <SummaryMetric
+                  label="Evidence Packs"
+                  value={selectedReport ? String(selectedReport.evidencePacks?.length ?? 0) : "N/A"}
+                  detail="只有 Hybrid / AI 路径准备了额外证据时，这里才会增加。"
+                />
+              </div>
+            </SurfaceCard>
+          </section>
+        ) : null}
+
+        <section className="rounded-3xl border border-desktop-border bg-desktop-bg-secondary/60 p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Result Detail</div>
+              <p className="mt-1 text-[12px] text-desktop-text-secondary">
+                主视图优先看结论和动作；只有在排查执行或序列化问题时，再切到高级调试视图。
+              </p>
+            </div>
+            {viewMode === "console" || viewMode === "raw" ? (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">
+                Advanced Debug
+              </span>
+            ) : null}
+          </div>
+
+          <div className="mt-4">
+            <FitnessAnalysisContent
+              selectedProfile={selectedProfile}
+              viewMode={viewMode}
+              profileState={selectedState}
+              report={selectedReport}
+              peerReport={peerReport}
+            />
+          </div>
+        </section>
       </div>
     </div>
   );

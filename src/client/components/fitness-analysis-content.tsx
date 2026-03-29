@@ -192,27 +192,27 @@ function OverviewView({ report, peerReport }: { report: FitnessReport; peerRepor
     <div className="space-y-4">
       <section className="flex flex-wrap gap-2">
         <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary/60 px-3 py-2 text-[11px] text-desktop-text-secondary">
-          Current level:
+          当前等级:
           <span className="ml-1 font-semibold text-desktop-text-primary">{report.overallLevelName}</span>
         </div>
         <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary/60 px-3 py-2 text-[11px] text-desktop-text-secondary">
-          Next target:
+          下一目标:
           <span className="ml-1 font-semibold text-desktop-text-primary">{report.nextLevelName ?? "Current max"}</span>
         </div>
         <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary/60 px-3 py-2 text-[11px] text-desktop-text-secondary">
-          Blocking:
+          阻塞项:
           <span className="ml-1 font-semibold text-desktop-text-primary">{blockers.length}</span>
         </div>
         <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary/60 px-3 py-2 text-[11px] text-desktop-text-secondary">
-          Failed criteria:
+          失败 criterion:
           <span className="ml-1 font-semibold text-desktop-text-primary">{failedCriteria.length}</span>
         </div>
         <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary/60 px-3 py-2 text-[11px] text-desktop-text-secondary">
-          Evidence packs:
+          证据包:
           <span className="ml-1 font-semibold text-desktop-text-primary">{evidencePackCount}</span>
         </div>
         <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary/60 px-3 py-2 text-[11px] text-desktop-text-secondary">
-          Peer delta:
+          对照差值:
           <span className="ml-1 font-semibold text-desktop-text-primary">
             {peerDelta === null ? "N/A" : `${peerDelta >= 0 ? "+" : ""}${peerDelta}%`}
           </span>
@@ -358,8 +358,10 @@ function RecommendationsView({ report }: { report: FitnessReport }) {
               </span>
             ) : null}
           </div>
-          <p className="mt-2 text-xs text-desktop-text-secondary">{item.whyItMatters}</p>
-          <p className="mt-2 text-[11px] text-desktop-text-secondary">证据线索：{item.evidenceHint}</p>
+          <p className="mt-2 text-xs leading-5 text-desktop-text-secondary">{item.whyItMatters}</p>
+          <div className="mt-2 rounded-xl border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
+            从这里开始：{item.evidenceHint}
+          </div>
         </article>
       ))}
     </div>

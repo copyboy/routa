@@ -177,9 +177,9 @@ export type FitnessAnalysisOptions = {
 
 export const PROFILE_ORDER: FitnessProfile[] = ["generic", "agent_orchestrator"];
 export const FLUENCY_MODES: Array<{ id: FluencyRunMode; label: string; description: string }> = [
-  { id: "deterministic", label: "Deterministic", description: "只跑静态/运行时基线评分" },
-  { id: "hybrid", label: "Hybrid", description: "在基线之上准备证据包，供后续 AI 裁决" },
-  { id: "ai", label: "AI", description: "扩大证据准备范围，面向 AI 评估" },
+  { id: "deterministic", label: "Deterministic", description: "快速读取静态与运行时基线，适合先判断整体成熟度" },
+  { id: "hybrid", label: "Hybrid", description: "在基线之外补充证据包，适合排查 blocker 和准备后续裁决" },
+  { id: "ai", label: "AI", description: "扩大证据准备范围，适合深挖复杂争议项或实验性评估" },
 ];
 
 export const PROFILE_DEFS: Array<{
@@ -192,26 +192,26 @@ export const PROFILE_DEFS: Array<{
   {
     id: "generic",
     name: "Generic",
-    description: "泛化 AI 工程能力体检",
-    focus: "更适合看仓库整体成熟度和治理覆盖面",
+    description: "仓库整体 fluency 体检",
+    focus: "更适合先看成熟度结论、治理覆盖面和默认修复优先级",
     reliability: "相对稳定",
   },
   {
     id: "agent_orchestrator",
     name: "Agent Orchestrator",
-    description: "面向协作编排链路能力体检",
-    focus: "更关注 specialist、team、automation 的协同面",
+    description: "协作编排链路 fluency 体检",
+    focus: "更关注 specialist、team、automation 之间的协同能力",
     reliability: "实验性判断",
   },
 ];
 
 export const VIEW_MODES: Array<{ id: ViewMode; label: string; description: string }> = [
-  { id: "overview", label: "总览", description: "看层级、阻塞项和当前能力热区" },
-  { id: "capabilities", label: "能力项", description: "按维度拆开每个 level cell 和 criterion" },
-  { id: "recommendations", label: "建议", description: "查看推荐动作和证据线索" },
-  { id: "changes", label: "变化", description: "对比上一次快照的层级变化" },
-  { id: "console", label: "Console", description: "查看当前 profile 执行时的命令行输出" },
-  { id: "raw", label: "原始 JSON", description: "直接检查后端返回结构" },
+  { id: "overview", label: "总览", description: "先看当前结论、主要 blocker 和能力热区" },
+  { id: "capabilities", label: "能力项", description: "按维度拆开每个 level cell 和 criterion 明细" },
+  { id: "recommendations", label: "建议动作", description: "查看最值得先做的动作和证据线索" },
+  { id: "changes", label: "对比变化", description: "查看这次结果和上一次快照之间的变化" },
+  { id: "console", label: "Console", description: "检查本次执行的命令行输出和 JSON transcript" },
+  { id: "raw", label: "原始 JSON", description: "直接查看后端返回结构，适合排查序列化问题" },
 ];
 
 export function normalizeApiResponse(payload: unknown): ApiProfileEntry[] {
