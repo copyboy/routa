@@ -131,9 +131,9 @@ describe("FitnessAnalysisPanel", () => {
       expect(screen.getByText("Report Controls")).toBeTruthy();
     });
 
-    expect(screen.getByText("Repository Context")).toBeTruthy();
-    expect(screen.getByText("Repository Fluency Report")).toBeTruthy();
-    expect(screen.getByText("Blockers to clear")).toBeTruthy();
+    expect(screen.getByText("Repository")).toBeTruthy();
+    expect(screen.getAllByText("Generic").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Blockers:/i)).toBeTruthy();
     expect(screen.getByText("Advanced Debug")).toBeTruthy();
     expect(screen.getByTestId("fitness-analysis-content").textContent).toBe("overview");
 

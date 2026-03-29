@@ -164,7 +164,9 @@ function CapabilityCellCard({ cell }: { cell: CellResult }) {
           ) : null}
         </div>
       ) : (
-        <p className="mt-3 text-[11px] text-emerald-700">该 cell 当前没有失败项。</p>
+        <div className="mt-3 rounded-xl border border-dashed border-desktop-border px-3 py-3 text-[11px] text-desktop-text-secondary">
+          No failures
+        </div>
       )}
     </article>
   );
@@ -241,43 +243,10 @@ function OverviewView({
 
   return (
     <div className="space-y-4">
-      <section className="flex flex-wrap gap-2">
-        <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary/60 px-3 py-2 text-[11px] text-desktop-text-secondary">
-          当前等级:
-          <span className="ml-1 font-semibold text-desktop-text-primary">{report.overallLevelName}</span>
-        </div>
-        <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary/60 px-3 py-2 text-[11px] text-desktop-text-secondary">
-          下一目标:
-          <span className="ml-1 font-semibold text-desktop-text-primary">{report.nextLevelName ?? "Current max"}</span>
-        </div>
-        <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary/60 px-3 py-2 text-[11px] text-desktop-text-secondary">
-          阻塞项:
-          <span className="ml-1 font-semibold text-desktop-text-primary">{blockers.length}</span>
-        </div>
-        <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary/60 px-3 py-2 text-[11px] text-desktop-text-secondary">
-          失败 criterion:
-          <span className="ml-1 font-semibold text-desktop-text-primary">{failedCriteria.length}</span>
-        </div>
-        <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary/60 px-3 py-2 text-[11px] text-desktop-text-secondary">
-          证据包:
-          <span className="ml-1 font-semibold text-desktop-text-primary">{evidencePackCount}</span>
-        </div>
-        <div className="rounded-full border border-desktop-border bg-desktop-bg-secondary/60 px-3 py-2 text-[11px] text-desktop-text-secondary">
-          对照差值:
-          <span className="ml-1 font-semibold text-desktop-text-primary">
-            {peerDelta === null ? "N/A" : `${peerDelta >= 0 ? "+" : ""}${peerDelta}%`}
-          </span>
-        </div>
-      </section>
-
       <section className="rounded-2xl border border-desktop-border bg-desktop-bg-secondary/60 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Repair workbench</div>
-            <h3 className="mt-1 text-sm font-semibold text-desktop-text-primary">先理解为什么卡住，再决定先修哪一条</h3>
-            <p className="mt-2 max-w-3xl text-[11px] leading-5 text-desktop-text-secondary">
-              这一区把 blocker、推荐动作和对照信息放在一起，方便你先完成一次高信号排查，而不是在多个视图之间来回切换。
-            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
@@ -286,9 +255,12 @@ function OverviewView({
             <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
               failed {failedCriteria.length}
             </div>
-            <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
-              evidence {evidencePackCount}
-            </div>
+            {peerDelta !== null ? (
+              <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
+                peer {peerDelta >= 0 ? "+" : ""}
+                {peerDelta}%
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -379,9 +351,6 @@ function OverviewView({
                     {peerDelta === null ? "N/A" : `${peerDelta >= 0 ? "+" : ""}${peerDelta}%`}
                   </span>
                 </div>
-                <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-3 py-2">
-                  建议：如果 blocker 已经清楚，再切到“能力项”看受影响最大的 cell。
-                </div>
               </div>
             </div>
           </div>
@@ -392,7 +361,6 @@ function OverviewView({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">How scoring works</div>
-            <h3 className="mt-1 text-sm font-semibold text-desktop-text-primary">先理解这个分数，再决定是否要继续重跑或切模式</h3>
           </div>
           <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
             report interpretation
@@ -412,7 +380,6 @@ function OverviewView({
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Capability hotspots</div>
-            <h3 className="mt-1 text-sm font-semibold text-desktop-text-primary">再看哪些细粒度能力项最值得盯住</h3>
           </div>
           <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
             按 cell 粒度排序

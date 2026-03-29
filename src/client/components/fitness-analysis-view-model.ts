@@ -47,17 +47,17 @@ export type FluencyScoringExplainer = Array<{
 function getCapabilitySummary(levelName: string | undefined) {
   switch (levelName) {
     case "Awareness":
-      return "Agent 只能识别仓库表面结构，仍然需要大量人工指路。";
+      return "需要人工带路";
     case "Assisted-Coding":
-      return "Agent 可以完成局部改动，但验证和上下文仍然容易断裂。";
+      return "可做局部改动";
     case "Structured-AI-Coding":
-      return "Agent 可以在固定流程内稳定完成常规编码任务。";
+      return "可稳定跑固定流程";
     case "Agent-Centric":
-      return "Agent 已能完成仓库内的大多数常规任务，但治理和上下文深度还会限制可靠性。";
+      return "可完成大多数常规任务";
     case "Agent-First":
-      return "仓库已经围绕 agent 协作设计，适合持续自治和高频修复闭环。";
+      return "适合持续自治";
     default:
-      return "当前报告会告诉你 agent 在这个仓库里能稳定做什么、还会在哪里卡住。";
+      return "等待报告";
   }
 }
 
@@ -93,19 +93,19 @@ export function buildHeroModel(
 ): FluencyHeroModel {
   if (!report) {
     return {
-      title: profile === "generic" ? "Repository Fluency Report" : "Agent Orchestrator Fluency Report",
-      subtitle: "Fluency measures how well this repository supports autonomous development and agent collaboration.",
-      currentLevel: "No report yet",
-      targetLevel: "Run first report",
-      capabilitySummary: "先运行一份报告，页面才会告诉你当前 maturity、失败模式和优先修复项。",
-      confidenceSummary: state === "loading" ? "正在生成新的 fluency 报告。" : "当前还没有可用报告。",
+      title: profile === "generic" ? "Generic" : "Orchestrator",
+      subtitle: "",
+      currentLevel: "No report",
+      targetLevel: "Run first",
+      capabilitySummary: "等待报告",
+      confidenceSummary: state === "loading" ? "Running" : "No data",
     };
   }
 
-  const confidence = `${Math.round(report.currentLevelReadiness * 100)}% confidence in current level`;
+  const confidence = `Fit ${Math.round(report.currentLevelReadiness * 100)}%`;
   return {
-    title: profile === "generic" ? "Repository Fluency Report" : "Agent Orchestrator Fluency Report",
-    subtitle: "Fluency measures how well this repository supports autonomous development and agent collaboration.",
+    title: profile === "generic" ? "Generic" : "Orchestrator",
+    subtitle: "",
     currentLevel: report.overallLevelName,
     targetLevel: report.nextLevelName ?? "Current max",
     capabilitySummary: getCapabilitySummary(report.overallLevelName),

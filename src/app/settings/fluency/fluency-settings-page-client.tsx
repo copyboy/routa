@@ -114,11 +114,8 @@ export function FluencySettingsPageClient({ defaultRepoPath }: FluencySettingsPa
       <div className="space-y-4">
         <SettingsPageHeader
           title="Fluency"
-          description="评估仓库当前的 fluency maturity，先给出结论和 blocker，再在需要时下钻到调试数据。"
-          metadata={[
-            { label: "Profiles", value: "Generic / Agent Orchestrator" },
-            { label: "Workflow", value: "Summary first, debug second" },
-          ]}
+          description=""
+          metadata={[]}
           extra={(
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px]">
               <div className="flex min-w-0 items-center gap-2">

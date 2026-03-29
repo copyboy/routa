@@ -31,6 +31,11 @@ import {
   buildHeroModel,
   buildPrimaryActionLabel,
 } from "./fitness-analysis-view-model";
+import {
+  FluencyBlockerBarChart,
+  FluencyLevelLadder,
+  FluencyRadarChart,
+} from "./fitness-analysis-charts";
 
 type FitnessAnalysisPanelProps = {
   workspaceId?: string;
@@ -46,11 +51,11 @@ const EMPTY_STATE: Record<FitnessProfile, ProfilePanelState> = {
 
 function StatusBadge({ state }: { state: FitnessProfileState }) {
   const labels: Record<FitnessProfileState, string> = {
-    idle: "未运行",
-    loading: "运行中",
-    ready: "有结果",
-    empty: "无快照",
-    error: "失败",
+    idle: "Idle",
+    loading: "Running",
+    ready: "Ready",
+    empty: "Empty",
+    error: "Error",
   };
 
   return (
@@ -74,24 +79,6 @@ function SurfaceCard({
       </div>
       <div className="mt-3">{children}</div>
     </section>
-  );
-}
-
-function SummaryMetric({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <article className="rounded-2xl border border-desktop-border bg-white/80 p-4 dark:bg-white/6">
-      <div className="text-[10px] font-semibold tracking-[0.08em] text-desktop-text-secondary">{label}</div>
-      <div className="mt-2 text-lg font-semibold text-desktop-text-primary">{value}</div>
-      <p className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">{detail}</p>
-    </article>
   );
 }
 
@@ -367,6 +354,7 @@ export function FitnessAnalysisPanel({
   const advancedViews = VIEW_MODES.filter((mode) => mode.id === "console" || mode.id === "raw");
   const heroModel = buildHeroModel(selectedReport, selectedProfile, selectedState.state);
   const primaryActionLabel = buildPrimaryActionLabel(selectedReport, selectedState.state);
+  const activeView = VIEW_MODES.find((mode) => mode.id === viewMode);
 
   return (
     <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
@@ -374,12 +362,9 @@ export function FitnessAnalysisPanel({
         <SurfaceCard title="Report Controls">
           <div className="rounded-2xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
             <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">
-              Repository Context
+              Repository
             </div>
             <div className="mt-2 text-sm font-semibold text-desktop-text-primary">{contextLabel ?? "未设置 Repository"}</div>
-            <p className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">
-              先确认 profile 和 mode，再运行分析。首屏会优先显示当前结论、阻塞原因和下一步动作。
-            </p>
           </div>
 
           <div className="mt-3 space-y-3">
@@ -403,7 +388,6 @@ export function FitnessAnalysisPanel({
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="text-sm font-semibold text-desktop-text-primary">{profile.name}</div>
-                      <div className="mt-1 text-[11px] leading-5 text-desktop-text-secondary">{profile.description}</div>
                     </div>
                     <StatusBadge state={state.state} />
                   </div>
@@ -412,9 +396,8 @@ export function FitnessAnalysisPanel({
                   </div>
                   <div className="mt-2 flex items-center justify-between text-[11px] text-desktop-text-secondary">
                     <span>{report?.overallLevelName ?? "尚无结果"}</span>
-                    <span>{report ? `${score}% 置信度` : "等待分析"}</span>
+                    <span>{report ? `${score}%` : "N/A"}</span>
                   </div>
-                  <div className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">{profile.focus}</div>
                 </button>
               );
             })}
@@ -435,7 +418,6 @@ export function FitnessAnalysisPanel({
                   }`}
                 >
                   <div className="text-sm font-semibold text-desktop-text-primary">{mode.label}</div>
-                  <div className="mt-1 text-[11px] leading-5 text-desktop-text-secondary">{mode.description}</div>
                 </button>
               ))}
             </div>
@@ -534,98 +516,42 @@ export function FitnessAnalysisPanel({
 
       <div className="space-y-4">
         <section className="rounded-[28px] border border-desktop-border bg-desktop-bg-secondary/60 p-5 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="max-w-3xl">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
-                {selectedDef.name}
-              </div>
-              <h3 className="mt-1 text-2xl font-semibold text-desktop-text-primary">
-                {heroModel.title}
-              </h3>
-              <p className="mt-2 text-[12px] leading-6 text-desktop-text-secondary">
-                {heroModel.subtitle}
-              </p>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
+              {selectedDef.name}
             </div>
             <StatusBadge state={selectedState.state} />
           </div>
 
-          <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-            <div className="rounded-3xl border border-desktop-border bg-white/80 p-5 dark:bg-white/6">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">
-                    Current Readiness
-                  </div>
-                  <div className="mt-2 text-3xl font-semibold text-desktop-text-primary">
-                    {heroModel.currentLevel}
-                  </div>
-                </div>
-                <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-3 py-1.5 text-[11px] text-desktop-text-secondary">
-                  Target: <span className="font-semibold text-desktop-text-primary">{heroModel.targetLevel}</span>
-                </div>
-              </div>
-              <p className="mt-4 text-[13px] leading-6 text-desktop-text-secondary">
-                {heroModel.capabilitySummary}
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-3 py-2 text-[11px] text-desktop-text-secondary">
-                  {heroModel.confidenceSummary}
-                </div>
-                <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-3 py-2 text-[11px] text-desktop-text-secondary">
-                  {selectedState.source === "analysis" ? "Live analysis" : selectedState.source === "snapshot" ? "Snapshot report" : "No report"}
-                </div>
-                <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-3 py-2 text-[11px] text-desktop-text-secondary">
-                  {selectedState.updatedAt ? `Updated ${formatTime(selectedState.updatedAt)}` : "Not generated yet"}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-              <SummaryMetric
-                label="Blockers to clear"
-                value={selectedReport ? String(blockers.length) : "N/A"}
-                detail={selectedReport
-                  ? blockers.length > 0
-                    ? `当前还差 ${blockers.length} 个 blocker 才能继续往下一个 level 推进。`
-                    : "当前没有 blocker，说明这个 profile 暂时没有关键卡点。"
-                  : "先生成报告才能识别 blocker。"}
-              />
-              <SummaryMetric
-                label="Failed criteria"
-                value={selectedReport ? String(failedCriteria.length) : "N/A"}
-                detail={selectedReport
-                  ? "失败项会决定哪些 remediation 应该先做。"
-                  : "没有报告时不会生成 remediation 清单。"}
-              />
-            </div>
-          </div>
-
           <div className="mt-4 flex flex-wrap gap-2">
             <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              结果来源:
-              <span className="ml-1 font-semibold text-desktop-text-primary">
-                {selectedState.source === "analysis" ? "本次运行" : selectedState.source === "snapshot" ? "已有快照" : "尚无结果"}
-              </span>
+              Level:
+              <span className="ml-1 font-semibold text-desktop-text-primary">{heroModel.currentLevel}</span>
             </div>
             <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              当前模式:
-              <span className="ml-1 font-semibold text-desktop-text-primary">{selectedReport?.mode ?? runMode}</span>
+              Next:
+              <span className="ml-1 font-semibold text-desktop-text-primary">{heroModel.targetLevel}</span>
             </div>
             <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              最近更新时间:
-              <span className="ml-1 font-semibold text-desktop-text-primary">
-                {selectedState.updatedAt ? formatTime(selectedState.updatedAt) : "尚未更新"}
-              </span>
+              Blockers:
+              <span className="ml-1 font-semibold text-desktop-text-primary">{selectedReport ? blockers.length : "N/A"}</span>
             </div>
             <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-              执行耗时:
-              <span className="ml-1 font-semibold text-desktop-text-primary">
-                {selectedState.durationMs === undefined ? "未记录" : formatDuration(selectedState.durationMs)}
-              </span>
+              Failed:
+              <span className="ml-1 font-semibold text-desktop-text-primary">{selectedReport ? failedCriteria.length : "N/A"}</span>
+            </div>
+            <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
+              {heroModel.confidenceSummary}
+            </div>
+            <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
+              {selectedState.source === "analysis" ? "Live" : selectedState.source === "snapshot" ? "Snapshot" : "No data"}
+            </div>
+            <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
+              {selectedState.updatedAt ? formatTime(selectedState.updatedAt) : "No timestamp"}
             </div>
             {peerDelta !== null ? (
               <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
-                相对另一 profile:
+                Peer:
                 <span className="ml-1 font-semibold text-desktop-text-primary">
                   {peerDelta >= 0 ? "+" : ""}
                   {peerDelta}%
@@ -633,15 +559,36 @@ export function FitnessAnalysisPanel({
               </div>
             ) : null}
           </div>
+
+          {selectedReport && viewMode === "overview" ? (
+            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+              <FluencyRadarChart report={selectedReport} compact />
+              <div className="space-y-4">
+                <FluencyLevelLadder report={selectedReport} compact />
+                <FluencyBlockerBarChart blockers={blockers} compact />
+              </div>
+            </div>
+          ) : null}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
+              Mode:
+              <span className="ml-1 font-semibold text-desktop-text-primary">{selectedReport?.mode ?? runMode}</span>
+            </div>
+            <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-2 text-[11px] text-desktop-text-secondary dark:bg-white/6">
+              Duration:
+              <span className="ml-1 font-semibold text-desktop-text-primary">
+                {selectedState.durationMs === undefined ? "N/A" : formatDuration(selectedState.durationMs)}
+              </span>
+            </div>
+          </div>
         </section>
 
         <section className="rounded-3xl border border-desktop-border bg-desktop-bg-secondary/60 p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Result Detail</div>
-              <p className="mt-1 text-[12px] text-desktop-text-secondary">
-                主视图优先看结论和动作；只有在排查执行或序列化问题时，再切到高级调试视图。
-              </p>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">
+                {activeView?.label ?? "总览"}
+              </div>
             </div>
             {viewMode === "console" || viewMode === "raw" ? (
               <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">
