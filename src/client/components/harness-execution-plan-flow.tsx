@@ -542,6 +542,8 @@ export function HarnessExecutionPlanFlow({
     });
   }, [expandedDimensions, plan, planKey, variant]);
 
+  const compactMode = variant === "compact";
+
   return (
     <section className={variant === "compact"
       ? "rounded-2xl border border-desktop-border bg-desktop-bg-primary/60 p-4"
@@ -624,19 +626,23 @@ export function HarnessExecutionPlanFlow({
                 nodes={graph.nodes}
                 edges={graph.edges}
                 nodeTypes={nodeTypes}
-                nodesDraggable
+                nodesDraggable={!compactMode}
                 nodesConnectable={false}
-                elementsSelectable
+                elementsSelectable={!compactMode}
                 zoomOnScroll
                 panOnDrag
-                minZoom={0.58}
+                minZoom={compactMode ? 0.42 : 0.58}
                 maxZoom={1.2}
                 fitView
-                fitViewOptions={{ padding: variant === "compact" ? 0.03 : 0.055, minZoom: 0.58, maxZoom: 0.94 }}
+                fitViewOptions={{
+                  padding: compactMode ? 0.08 : 0.055,
+                  minZoom: compactMode ? 0.42 : 0.58,
+                  maxZoom: compactMode ? 0.82 : 0.94,
+                }}
                 proOptions={{ hideAttribution: true }}
               >
                 <Background color="#d7dee7" gap={20} size={1} />
-                <Controls showInteractive={false} position="bottom-right" />
+                {!compactMode ? <Controls showInteractive={false} position="bottom-right" /> : null}
               </ReactFlow>
             </div>
           </div>

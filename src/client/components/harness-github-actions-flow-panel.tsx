@@ -280,6 +280,7 @@ export function HarnessGitHubActionsFlowPanel({
 
   const groupedFlows = useMemo(() => groupFlowsByTrigger(visibleFlows), [visibleFlows]);
   const activeFlowGroup = activeFlow ? resolveWorkflowGroup(activeFlow) : null;
+  const compactMode = variant === "compact";
   const dependencyLanes = useMemo(() => {
     if (!activeFlow) {
       return [];
@@ -289,6 +290,188 @@ export function HarnessGitHubActionsFlowPanel({
 
   const totalJobs = activeFlow?.jobs.length ?? 0;
   const dependencyCount = activeFlow?.jobs.reduce((sum, job) => sum + job.needs.length, 0) ?? 0;
+  const workflowTimingGroupsSection = (
+    <div className={`rounded-2xl border border-desktop-border bg-desktop-bg-primary/60 ${compactMode ? "p-2.5" : "p-3"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Workflow timing groups</div>
+          <h4 className="mt-1 text-sm font-semibold text-desktop-text-primary">按触发时机分组</h4>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[10px]">
+          <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">
+            {visibleFlows.length} flows
+          </span>
+          {activeFlowGroup ? (
+            <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">
+              当前：{activeFlowGroup}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-3">
+        {groupedFlows
+          .filter((entry) => entry.flows.length > 0)
+          .map((entry) => (
+            <div
+              key={entry.group}
+              className={`rounded-xl border border-desktop-border bg-desktop-bg-secondary/60 ${compactMode ? "p-2.5" : "p-3"}`}
+            >
+              <div className="mb-2 flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.12em] text-desktop-text-secondary">
+                <span className="font-semibold">{entry.group}</span>
+                <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2 py-0.5 text-[10px] text-desktop-text-secondary">
+                  {entry.flows.length}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {entry.flows.map((flow) => (
+                  <button
+                    key={flow.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedFlowId(flow.id);
+                      setSelectedJobId("");
+                    }}
+                    className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                      compactMode ? "min-w-0 flex-1 basis-[calc(50%-0.25rem)]" : "min-w-40 max-w-52"
+                    } ${
+                      activeFlow?.id === flow.id
+                        ? "border-desktop-accent bg-desktop-bg-secondary text-desktop-text-primary"
+                        : "border-desktop-border bg-desktop-bg-primary/70 text-desktop-text-secondary hover:bg-desktop-bg-secondary"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-[12px] font-semibold">{flow.name}</div>
+                        <div className="mt-1 truncate text-[10px] uppercase tracking-[0.12em] text-desktop-text-secondary">{flow.event}</div>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-desktop-border bg-desktop-bg-primary px-2 py-0.5 text-[10px] text-desktop-text-secondary">
+                        {flow.jobs.length}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+  const flowGraphSection = (
+    <div className="rounded-2xl border border-desktop-border bg-desktop-bg-primary/60 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Flow graph</div>
+          <h4 className="mt-1 text-sm font-semibold text-desktop-text-primary">{activeFlow?.name}</h4>
+          <p className="mt-1 text-[11px] text-desktop-text-secondary">
+            Event source: <span className="font-medium text-desktop-text-primary">{activeFlow?.event}</span>
+            {activeFlow?.relativePath ? (
+              <>
+                {" · "}
+                <span className="font-mono text-desktop-text-primary">{activeFlow.relativePath}</span>
+              </>
+            ) : null}
+          </p>
+          <p className="mt-1 text-[11px] text-desktop-text-secondary">
+            触发时机：<span className="font-medium text-desktop-text-primary">{activeFlowGroup ?? "其他"}</span>
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 text-[10px]">
+          <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">
+            {totalJobs} jobs
+          </span>
+          <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">
+            {dependencyCount} dependencies
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 overflow-x-auto pb-1">
+        <div className="flex min-w-max items-start gap-3">
+          <div className="w-56 shrink-0 rounded-2xl border border-desktop-border bg-[linear-gradient(135deg,rgba(59,130,246,0.15),transparent_55%)] p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Event</div>
+            <div className="mt-2 text-sm font-semibold text-desktop-text-primary">{toTitleCase(activeFlow?.event ?? "")}</div>
+            <div className="mt-2 text-[11px] text-desktop-text-secondary">
+              Webhook or manual dispatch fans out by declared `needs`.
+            </div>
+          </div>
+
+          {dependencyLanes.map((laneJobs, laneIndex) => (
+            <div key={`lane-${laneIndex}`} className="flex items-start gap-3">
+              <div className="flex h-11 items-center text-desktop-text-secondary">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m0 0-4-4m4 4-4 4" />
+                </svg>
+              </div>
+              <div className={`${compactMode ? "w-72" : "w-80"} shrink-0 space-y-3`}>
+                {laneJobs.map((job) => {
+                  const isActive = selectedJobId === job.id;
+                  return (
+                    <button
+                      key={job.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedJobId(job.id);
+                      }}
+                      className={`w-full rounded-xl border px-3 py-3 text-left transition-all ${
+                        isActive
+                          ? "border-desktop-accent bg-desktop-bg-secondary shadow-sm"
+                          : "border-desktop-border bg-desktop-bg-primary/85 hover:bg-desktop-bg-secondary"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-[12px] font-semibold text-desktop-text-primary">{job.name}</div>
+                          <div className="mt-1 text-[10px] font-mono text-desktop-text-secondary">{job.runner}</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-[10px]">
+                        <span className={`rounded-full border px-2 py-0.5 ${KIND_STYLES[job.kind]}`}>
+                          {job.kind}
+                        </span>
+                        {job.stepCount !== null ? (
+                          <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5 text-desktop-text-secondary">
+                            {job.stepCount} declared steps
+                          </span>
+                        ) : null}
+                        {job.needs.length > 0 ? job.needs.map((need) => (
+                          <span key={need} className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5 text-desktop-text-secondary">
+                            {need}
+                          </span>
+                        )) : (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                            root
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {!compactMode ? (
+        <details className="mt-4 rounded-xl border border-desktop-border bg-desktop-bg-secondary/55 p-3">
+          <summary className="cursor-pointer list-none text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
+            Workflow YAML
+          </summary>
+          <div className="mt-3">
+            <CodeViewer
+              code={activeFlow?.yaml ?? ""}
+              filename={`${activeFlow?.id ?? "workflow"}.github-actions.yml`}
+              language="yaml"
+              maxHeight="280px"
+              showHeader={false}
+              wordWrap
+            />
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
 
   return (
     <section className={variant === "compact"
@@ -333,181 +516,17 @@ export function HarnessGitHubActionsFlowPanel({
 
       {!unsupportedMessage && visibleFlows.length > 0 && activeFlow ? (
         <div className="mt-4 space-y-4">
-          <div className="rounded-2xl border border-desktop-border bg-desktop-bg-primary/60 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Workflow timing groups</div>
-                <h4 className="mt-1 text-sm font-semibold text-desktop-text-primary">按触发时机分组</h4>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-[10px]">
-                <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">
-                  {visibleFlows.length} flows
-                </span>
-                {activeFlowGroup ? (
-                  <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">
-                    当前：{activeFlowGroup}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="mt-3 space-y-3">
-              {groupedFlows
-                .filter((entry) => entry.flows.length > 0)
-                .map((entry) => (
-                  <div
-                    key={entry.group}
-                    className="rounded-xl border border-desktop-border bg-desktop-bg-secondary/60 p-3"
-                  >
-                    <div className="mb-2 flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.12em] text-desktop-text-secondary">
-                      <span className="font-semibold">{entry.group}</span>
-                      <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2 py-0.5 text-[10px] text-desktop-text-secondary">
-                        {entry.flows.length}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {entry.flows.map((flow) => (
-                        <button
-                          key={flow.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedFlowId(flow.id);
-                            setSelectedJobId("");
-                          }}
-                          className={`min-w-40 max-w-52 rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                            activeFlow.id === flow.id
-                              ? "border-desktop-accent bg-desktop-bg-secondary text-desktop-text-primary"
-                              : "border-desktop-border bg-desktop-bg-primary/70 text-desktop-text-secondary hover:bg-desktop-bg-secondary"
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="truncate text-[12px] font-semibold">{flow.name}</div>
-                              <div className="mt-1 truncate text-[10px] uppercase tracking-[0.12em] text-desktop-text-secondary">{flow.event}</div>
-                            </div>
-                            <span className="shrink-0 rounded-full border border-desktop-border bg-desktop-bg-primary px-2 py-0.5 text-[10px] text-desktop-text-secondary">
-                              {flow.jobs.length}
-                            </span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-desktop-border bg-desktop-bg-primary/60 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Flow graph</div>
-                <h4 className="mt-1 text-sm font-semibold text-desktop-text-primary">{activeFlow.name}</h4>
-                <p className="mt-1 text-[11px] text-desktop-text-secondary">
-                  Event source: <span className="font-medium text-desktop-text-primary">{activeFlow.event}</span>
-                  {activeFlow.relativePath ? (
-                    <>
-                      {" · "}
-                      <span className="font-mono text-desktop-text-primary">{activeFlow.relativePath}</span>
-                    </>
-                  ) : null}
-                </p>
-                <p className="mt-1 text-[11px] text-desktop-text-secondary">
-                  触发时机：<span className="font-medium text-desktop-text-primary">{activeFlowGroup ?? "其他"}</span>
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2 text-[10px]">
-                <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">
-                  {totalJobs} jobs
-                </span>
-                <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">
-                  {dependencyCount} dependencies
-                </span>
-                      </div>
-            </div>
-
-            <div className="mt-4 overflow-x-auto pb-1">
-              <div className="flex min-w-max items-start gap-3">
-                <div className="w-56 shrink-0 rounded-2xl border border-desktop-border bg-[linear-gradient(135deg,rgba(59,130,246,0.15),transparent_55%)] p-4">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Event</div>
-                  <div className="mt-2 text-sm font-semibold text-desktop-text-primary">{toTitleCase(activeFlow.event)}</div>
-                  <div className="mt-2 text-[11px] text-desktop-text-secondary">
-                    Webhook or manual dispatch fans out by declared `needs`.
-                  </div>
-                </div>
-
-                {dependencyLanes.map((laneJobs, laneIndex) => (
-                  <div key={`lane-${laneIndex}`} className="flex items-start gap-3">
-                    <div className="flex h-11 items-center text-desktop-text-secondary">
-                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m0 0-4-4m4 4-4 4" />
-                      </svg>
-                    </div>
-                    <div className="w-80 shrink-0 space-y-3">
-                      {laneJobs.map((job) => {
-                        const isActive = selectedJobId === job.id;
-                        return (
-                          <button
-                            key={job.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedJobId(job.id);
-                            }}
-                            className={`w-full rounded-xl border px-3 py-3 text-left transition-all ${
-                              isActive
-                                ? "border-desktop-accent bg-desktop-bg-secondary shadow-sm"
-                                : "border-desktop-border bg-desktop-bg-primary/85 hover:bg-desktop-bg-secondary"
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="text-[12px] font-semibold text-desktop-text-primary">{job.name}</div>
-                                <div className="mt-1 text-[10px] font-mono text-desktop-text-secondary">{job.runner}</div>
-                              </div>
-                            </div>
-                            <div className="mt-3 flex flex-wrap gap-2 text-[10px]">
-                              <span className={`rounded-full border px-2 py-0.5 ${KIND_STYLES[job.kind]}`}>
-                                {job.kind}
-                              </span>
-                              {job.stepCount !== null ? (
-                                <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5 text-desktop-text-secondary">
-                                  {job.stepCount} declared steps
-                                </span>
-                              ) : null}
-                              {job.needs.length > 0 ? job.needs.map((need) => (
-                                <span key={need} className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5 text-desktop-text-secondary">
-                                  {need}
-                                </span>
-                              )) : (
-                                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
-                                  root
-                                </span>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <details className="mt-4 rounded-xl border border-desktop-border bg-desktop-bg-secondary/55 p-3">
-              <summary className="cursor-pointer list-none text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
-                Workflow YAML
-              </summary>
-              <div className="mt-3">
-                <CodeViewer
-                  code={activeFlow.yaml}
-                  filename={`${activeFlow.id}.github-actions.yml`}
-                  language="yaml"
-                  maxHeight="280px"
-                  showHeader={false}
-                  wordWrap
-                />
-              </div>
-            </details>
-          </div>
+          {compactMode ? (
+            <>
+              {flowGraphSection}
+              {workflowTimingGroupsSection}
+            </>
+          ) : (
+            <>
+              {workflowTimingGroupsSection}
+              {flowGraphSection}
+            </>
+          )}
         </div>
       ) : null}
     </section>

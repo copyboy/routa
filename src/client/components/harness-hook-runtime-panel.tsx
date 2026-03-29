@@ -211,6 +211,7 @@ export function HarnessHookRuntimePanel({
   const runtimeProfile = activeHookEntry?.runtimeProfile ?? null;
   const reviewTriggerFile = resolvedHooksState.data?.reviewTriggerFile ?? null;
   const hasReviewPhase = Boolean(runtimeProfile?.phases.includes("review"));
+  const compactMode = variant === "compact";
 
   const hookCount = resolvedHooksState.data?.hookFiles.length ?? 0;
   const profileCount = resolvedHooksState.data?.profiles.length ?? 0;
@@ -274,7 +275,7 @@ export function HarnessHookRuntimePanel({
       ) : null}
 
       {!unsupportedMessage && resolvedHooksState.data ? (
-        <div className="mt-4 grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
+        <div className={`mt-4 grid gap-4 ${compactMode ? "grid-cols-1" : "xl:grid-cols-[300px_minmax(0,1fr)]"}`}>
           <div className="rounded-2xl border border-desktop-border bg-desktop-bg-primary/60 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>

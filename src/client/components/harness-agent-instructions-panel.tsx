@@ -255,6 +255,8 @@ export function HarnessAgentInstructionsPanel({
     [treeItems],
   );
 
+  const compactMode = variant === "compact";
+
   return (
     <section className={variant === "compact"
       ? "rounded-2xl border border-desktop-border bg-desktop-bg-primary/60 p-4"
@@ -300,8 +302,8 @@ export function HarnessAgentInstructionsPanel({
       ) : null}
 
       {!resolvedInstructionsState.loading && !resolvedInstructionsState.error && !unsupportedMessage && resolvedInstructionsState.data ? (
-        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-          <div className={`flex ${variant === "compact" ? "h-[280px]" : "h-[380px]"} min-h-0 flex-col`}>
+        <div className={`mt-4 grid gap-4 ${compactMode ? "grid-cols-1" : "xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"}`}>
+          <div className={`flex ${compactMode ? "h-[232px]" : "h-[380px]"} min-h-0 flex-col`}>
             <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-2 py-2 harness-instructions-tree">
               <UncontrolledTreeEnvironment
                 dataProvider={treeDataProvider}
@@ -342,7 +344,7 @@ export function HarnessAgentInstructionsPanel({
             </div>
           </div>
 
-          <div className={`flex ${variant === "compact" ? "h-[280px]" : "h-[380px]"} min-h-0 flex-col`}>
+          <div className={`flex ${compactMode ? "h-[232px]" : "h-[380px]"} min-h-0 flex-col`}>
             <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-4 py-3">
               <MarkdownViewer
                 content={selectedSection?.content ?? resolvedInstructionsState.data.source}
