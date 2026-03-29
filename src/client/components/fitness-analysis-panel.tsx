@@ -14,7 +14,6 @@ import {
   buildAnalysisPayload,
   buildAnalysisQuery,
   clampPercent,
-  criterionShortLabel,
   formatDuration,
   formatTime,
   normalizeApiResponse,
@@ -28,6 +27,10 @@ import {
   type ViewMode,
   toMessage,
 } from "./fitness-analysis-types";
+import {
+  buildHeroModel,
+  buildPrimaryActionLabel,
+} from "./fitness-analysis-view-model";
 
 type FitnessAnalysisPanelProps = {
   workspaceId?: string;
@@ -352,12 +355,6 @@ export function FitnessAnalysisPanel({
   const peerReport = peerState.report;
   const blockers = selectedReport?.blockingCriteria ?? [];
   const failedCriteria = selectedReport?.criteria.filter((criterion) => criterion.status === "fail") ?? [];
-  const topRecommendation = selectedReport?.recommendations[0] ?? null;
-  const summarizedAction = topRecommendation
-    ? topRecommendation.action.length > 56
-      ? `${topRecommendation.action.slice(0, 53)}...`
-      : topRecommendation.action
-    : "先运行分析";
   const peerDelta = useMemo(() => {
     if (!selectedReport || !peerReport) {
       return null;
@@ -368,12 +365,13 @@ export function FitnessAnalysisPanel({
 
   const primaryViews = VIEW_MODES.filter((mode) => mode.id !== "console" && mode.id !== "raw");
   const advancedViews = VIEW_MODES.filter((mode) => mode.id === "console" || mode.id === "raw");
-  const topBlockers = blockers.slice(0, 3);
+  const heroModel = buildHeroModel(selectedReport, selectedProfile, selectedState.state);
+  const primaryActionLabel = buildPrimaryActionLabel(selectedReport, selectedState.state);
 
   return (
     <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
       <aside className="space-y-4">
-        <SurfaceCard title="Run Setup">
+        <SurfaceCard title="Report Controls">
           <div className="rounded-2xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
             <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">
               Repository Context
@@ -450,7 +448,7 @@ export function FitnessAnalysisPanel({
               disabled={!hasContext || selectedState.state === "loading"}
               className="w-full rounded-full bg-desktop-accent px-4 py-2 text-sm font-semibold text-desktop-text-on-accent disabled:opacity-60"
             >
-              运行当前 Profile
+              {primaryActionLabel}
             </button>
             <button
               type="button"
@@ -458,7 +456,7 @@ export function FitnessAnalysisPanel({
               disabled={!hasContext || profiles.generic.state === "loading" || profiles.agent_orchestrator.state === "loading"}
               className="w-full rounded-full border border-desktop-border px-4 py-2 text-sm font-semibold text-desktop-text-primary hover:bg-desktop-bg-primary/80 disabled:opacity-60"
             >
-              同时运行两套
+              Run both profiles
             </button>
             <button
               type="button"
@@ -466,7 +464,7 @@ export function FitnessAnalysisPanel({
               disabled={!hasContext}
               className="w-full rounded-full border border-desktop-border px-4 py-2 text-sm font-semibold text-desktop-text-primary hover:bg-desktop-bg-primary/80 disabled:opacity-60"
             >
-              读取最新快照
+              Refresh latest report
             </button>
           </div>
 
@@ -542,13 +540,64 @@ export function FitnessAnalysisPanel({
                 {selectedDef.name}
               </div>
               <h3 className="mt-1 text-2xl font-semibold text-desktop-text-primary">
-                {selectedReport?.overallLevelName ?? "等待 fluency 结果"}
+                {heroModel.title}
               </h3>
               <p className="mt-2 text-[12px] leading-6 text-desktop-text-secondary">
-                {selectedDef.focus}。当前结果会优先告诉你仓库现在处于哪个 maturity level、卡在什么 blocker、以及下一步最值得做什么。
+                {heroModel.subtitle}
               </p>
             </div>
             <StatusBadge state={selectedState.state} />
+          </div>
+
+          <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+            <div className="rounded-3xl border border-desktop-border bg-white/80 p-5 dark:bg-white/6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">
+                    Current Readiness
+                  </div>
+                  <div className="mt-2 text-3xl font-semibold text-desktop-text-primary">
+                    {heroModel.currentLevel}
+                  </div>
+                </div>
+                <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-3 py-1.5 text-[11px] text-desktop-text-secondary">
+                  Target: <span className="font-semibold text-desktop-text-primary">{heroModel.targetLevel}</span>
+                </div>
+              </div>
+              <p className="mt-4 text-[13px] leading-6 text-desktop-text-secondary">
+                {heroModel.capabilitySummary}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-3 py-2 text-[11px] text-desktop-text-secondary">
+                  {heroModel.confidenceSummary}
+                </div>
+                <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-3 py-2 text-[11px] text-desktop-text-secondary">
+                  {selectedState.source === "analysis" ? "Live analysis" : selectedState.source === "snapshot" ? "Snapshot report" : "No report"}
+                </div>
+                <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-3 py-2 text-[11px] text-desktop-text-secondary">
+                  {selectedState.updatedAt ? `Updated ${formatTime(selectedState.updatedAt)}` : "Not generated yet"}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              <SummaryMetric
+                label="Blockers to clear"
+                value={selectedReport ? String(blockers.length) : "N/A"}
+                detail={selectedReport
+                  ? blockers.length > 0
+                    ? `当前还差 ${blockers.length} 个 blocker 才能继续往下一个 level 推进。`
+                    : "当前没有 blocker，说明这个 profile 暂时没有关键卡点。"
+                  : "先生成报告才能识别 blocker。"}
+              />
+              <SummaryMetric
+                label="Failed criteria"
+                value={selectedReport ? String(failedCriteria.length) : "N/A"}
+                detail={selectedReport
+                  ? "失败项会决定哪些 remediation 应该先做。"
+                  : "没有报告时不会生成 remediation 清单。"}
+              />
+            </div>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
@@ -584,106 +633,7 @@ export function FitnessAnalysisPanel({
               </div>
             ) : null}
           </div>
-
-          <div className="mt-5 grid gap-3 xl:grid-cols-4">
-            <SummaryMetric
-              label="当前成熟度"
-              value={selectedReport?.overallLevelName ?? "未生成"}
-              detail={selectedReport
-                ? `当前结论来自 ${selectedState.source === "analysis" ? "本次运行" : "最近快照"}。`
-                : "先运行一次分析，页面才会给出当前 maturity level。"}
-            />
-            <SummaryMetric
-              label="当前 level 置信度"
-              value={selectedReport ? `${clampPercent(selectedReport.currentLevelReadiness)}%` : "N/A"}
-              detail={selectedReport
-                ? "这里表示当前 level 的命中程度，不等于整个功能或仓库已经“完全可用”。"
-                : "没有报告时不显示置信度。"}
-            />
-            <SummaryMetric
-              label="主要阻塞项"
-              value={selectedReport ? String(blockers.length) : "N/A"}
-              detail={selectedReport
-                ? blockers.length > 0
-                  ? `当前还差 ${blockers.length} 个 blocker 才能继续往下一个 level 推进。`
-                  : "当前没有 blocker，说明这个 profile 暂时没有关键卡点。"
-                : "先生成报告才能识别 blocker。"}
-            />
-            <SummaryMetric
-              label="推荐下一步"
-              value={summarizedAction}
-              detail={topRecommendation?.whyItMatters ?? "建议动作会在有结果后出现，并尽量给出明确的修复线索。"}
-            />
-          </div>
         </section>
-
-        {selectedReport ? (
-          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
-            <SurfaceCard title="Why It Is Blocked">
-              {topBlockers.length > 0 ? (
-                <div className="space-y-3">
-                  {topBlockers.map((criterion) => (
-                    <article key={criterion.id} className="rounded-2xl border border-desktop-border bg-white/80 p-4 dark:bg-white/6">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-desktop-text-primary">
-                            {criterionShortLabel(criterion.id)}
-                          </div>
-                          <div className="mt-1 font-mono text-[10px] text-desktop-text-secondary">{criterion.id}</div>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {criterion.critical ? (
-                            <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] text-rose-700">
-                              critical
-                            </span>
-                          ) : null}
-                          <span className={`rounded-full border px-2 py-0.5 text-[10px] ${profileStateTone("error")}`}>
-                            fail
-                          </span>
-                        </div>
-                      </div>
-                      <p className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">{criterion.whyItMatters}</p>
-                      <div className="mt-2 rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-3 py-2 text-[11px] text-desktop-text-secondary">
-                        证据线索：{criterion.evidenceHint}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed border-desktop-border px-4 py-6 text-sm text-desktop-text-secondary">
-                  当前没有 blocker。可以切到能力项或对比变化，确认这次结果的细节。
-                </div>
-              )}
-            </SurfaceCard>
-
-            <SurfaceCard title="Recommended Next Step">
-              <div className="rounded-2xl border border-desktop-border bg-desktop-bg-primary/80 p-4">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">
-                  Suggested Action
-                </div>
-                <div className="mt-2 text-base font-semibold text-desktop-text-primary">
-                  {topRecommendation?.action ?? "先运行当前 Profile"}
-                </div>
-                <p className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">
-                  {topRecommendation?.whyItMatters ?? "还没有建议动作时，优先运行当前 profile 获取新结果。"}
-                </p>
-              </div>
-
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <SummaryMetric
-                  label="失败 criterion"
-                  value={selectedReport ? String(failedCriteria.length) : "N/A"}
-                  detail="这表示当前报告里失败的 criterion 总数。"
-                />
-                <SummaryMetric
-                  label="证据包数量"
-                  value={selectedReport ? String(selectedReport.evidencePacks?.length ?? 0) : "N/A"}
-                  detail="只有 Hybrid / AI 路径准备了额外证据时，这里才会增加。"
-                />
-              </div>
-            </SurfaceCard>
-          </section>
-        ) : null}
 
         <section className="rounded-3xl border border-desktop-border bg-desktop-bg-secondary/60 p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">

@@ -19,6 +19,11 @@ import {
   type ProfilePanelState,
   type ViewMode,
 } from "./fitness-analysis-types";
+import {
+  buildBlockerCards,
+  buildRemediationChecklist,
+  buildScoringExplainer,
+} from "./fitness-analysis-view-model";
 
 type FitnessAnalysisContentProps = {
   selectedProfile: FitnessProfile;
@@ -211,11 +216,21 @@ function CriterionList({ criteria }: { criteria: CriterionResult[] }) {
   );
 }
 
-function OverviewView({ report, peerReport }: { report: FitnessReport; peerReport?: FitnessReport }) {
+function OverviewView({
+  report,
+  peerReport,
+  profileState,
+}: {
+  report: FitnessReport;
+  peerReport?: FitnessReport;
+  profileState: ProfilePanelState;
+}) {
   const blockers = report.blockingCriteria ?? [];
   const failedCriteria = report.criteria.filter((criterion) => criterion.status === "fail");
   const evidencePackCount = report.evidencePacks?.length ?? 0;
-  const topRecommendations = report.recommendations.slice(0, 4);
+  const blockerCards = buildBlockerCards(report);
+  const remediationItems = buildRemediationChecklist(report);
+  const scoringExplainer = buildScoringExplainer(report, (report.mode as "deterministic" | "hybrid" | "ai") ?? "deterministic", Boolean(report.comparison), profileState.state);
   const capabilityHighlights = buildDimensionGroups(report)
     .map((group) => group.cells[0])
     .filter((cell): cell is CellResult => Boolean(cell))
@@ -280,22 +295,71 @@ function OverviewView({ report, peerReport }: { report: FitnessReport; peerRepor
         <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
           <div className="space-y-3">
             <div className="text-xs font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Why blocked</div>
-            <CriterionList criteria={blockers.slice(0, 4)} />
+            {blockerCards.length > 0 ? (
+              <div className="space-y-3">
+                {blockerCards.map((card) => (
+                  <article key={card.id} className="rounded-2xl border border-desktop-border bg-desktop-bg-secondary/60 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-desktop-text-primary">{card.title}</div>
+                        <div className="mt-1 font-mono text-[10px] text-desktop-text-secondary">{card.id}</div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] ${card.critical ? "border-rose-200 bg-rose-50 text-rose-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+                          {card.severityLabel}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">{card.impactSummary}</p>
+                    <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                      <div className="rounded-xl border border-desktop-border bg-white/75 px-3 py-2 text-[11px] leading-5 text-desktop-text-secondary dark:bg-white/6">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">Why it matters</div>
+                        <div className="mt-1">{card.whyItMatters}</div>
+                      </div>
+                      <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-3 py-2 text-[11px] leading-5 text-desktop-text-secondary">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">Start here</div>
+                        <div className="mt-1">{card.evidenceHint}</div>
+                      </div>
+                    </div>
+                    <div className="mt-2 rounded-xl border border-desktop-border bg-white/75 px-3 py-2 text-[11px] leading-5 text-desktop-text-secondary dark:bg-white/6">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">Fix next</div>
+                      <div className="mt-1">{card.recommendedAction}</div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <CriterionList criteria={blockers.slice(0, 4)} />
+            )}
           </div>
 
           <div className="space-y-4">
             <div className="rounded-2xl border border-desktop-border bg-white/80 p-4 dark:bg-white/6">
               <div className="text-xs font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Do next</div>
-              {topRecommendations.length > 0 ? (
+              {remediationItems.length > 0 ? (
                 <div className="mt-3 space-y-2">
-                  {topRecommendations.map((item) => (
-                    <RecommendationCard
-                      key={item.criterionId}
-                      action={item.action}
-                      whyItMatters={item.whyItMatters}
-                      evidenceHint={item.evidenceHint}
-                      critical={item.critical}
-                    />
+                  {remediationItems.map((item) => (
+                    <article key={item.id} className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="text-sm font-semibold text-desktop-text-primary">{item.title}</div>
+                        {item.critical ? (
+                          <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] text-rose-700">
+                            critical
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">{item.impactSummary}</div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-xl border border-desktop-border bg-white/80 px-3 py-2 text-[11px] leading-5 text-desktop-text-secondary dark:bg-white/6">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">Starting point</div>
+                          <div className="mt-1">{item.startingPoint}</div>
+                        </div>
+                        <div className="rounded-xl border border-desktop-border bg-white/80 px-3 py-2 text-[11px] leading-5 text-desktop-text-secondary dark:bg-white/6">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">Unlocks toward</div>
+                          <div className="mt-1">{item.targetLevel}</div>
+                        </div>
+                      </div>
+                    </article>
                   ))}
                 </div>
               ) : (
@@ -321,6 +385,26 @@ function OverviewView({ report, peerReport }: { report: FitnessReport; peerRepor
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-desktop-border bg-desktop-bg-secondary/60 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">How scoring works</div>
+            <h3 className="mt-1 text-sm font-semibold text-desktop-text-primary">先理解这个分数，再决定是否要继续重跑或切模式</h3>
+          </div>
+          <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
+            report interpretation
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 xl:grid-cols-2">
+          {scoringExplainer.map((item) => (
+            <article key={item.title} className="rounded-xl border border-desktop-border bg-white/80 p-4 dark:bg-white/6">
+              <div className="text-sm font-semibold text-desktop-text-primary">{item.title}</div>
+              <p className="mt-2 text-[11px] leading-5 text-desktop-text-secondary">{item.description}</p>
+            </article>
+          ))}
         </div>
       </section>
 
@@ -641,5 +725,5 @@ export function FitnessAnalysisContent({
     return <RawView report={report} />;
   }
 
-  return <OverviewView report={report} peerReport={peerReport} />;
+  return <OverviewView report={report} peerReport={peerReport} profileState={profileState} />;
 }

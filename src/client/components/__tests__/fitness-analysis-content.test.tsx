@@ -121,8 +121,10 @@ describe("FitnessAnalysisContent overview", () => {
     expect(screen.getByText("Why blocked")).toBeTruthy();
     expect(screen.getByText("Do next")).toBeTruthy();
     expect(screen.getByText("Cross-check")).toBeTruthy();
+    expect(screen.getByText("How scoring works")).toBeTruthy();
     expect(screen.getByText("Pair review-trigger rules with CODEOWNERS or Renovate")).toBeTruthy();
-    expect(screen.getByText("建议动作")).toBeTruthy();
-    expect(screen.getByText("查看线索")).toBeTruthy();
+    expect(screen.getByText("Start here")).toBeTruthy();
+    expect(screen.getByText("Fix next")).toBeTruthy();
+    expect(screen.getByText("What the score means")).toBeTruthy();
   });
 });

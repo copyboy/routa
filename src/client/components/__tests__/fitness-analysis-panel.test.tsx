@@ -128,13 +128,13 @@ describe("FitnessAnalysisPanel", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Run Setup")).toBeTruthy();
+      expect(screen.getByText("Report Controls")).toBeTruthy();
     });
 
     expect(screen.getByText("Repository Context")).toBeTruthy();
-    expect(screen.getByText("Recommended Next Step")).toBeTruthy();
+    expect(screen.getByText("Repository Fluency Report")).toBeTruthy();
+    expect(screen.getByText("Blockers to clear")).toBeTruthy();
     expect(screen.getByText("Advanced Debug")).toBeTruthy();
-    expect(screen.getAllByText("Pair review-trigger rules with CODEOWNERS or Renovate").length).toBeGreaterThan(0);
     expect(screen.getByTestId("fitness-analysis-content").textContent).toBe("overview");
 
     fireEvent.click(screen.getByRole("button", { name: /原始 JSON/i }));
