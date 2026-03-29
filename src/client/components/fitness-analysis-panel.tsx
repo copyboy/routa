@@ -10,7 +10,6 @@ import {
   buildAnalysisPayload,
   buildAnalysisQuery,
   clampPercent,
-  formatTime,
   normalizeApiResponse,
   profileStateTone,
   readinessBarTone,
@@ -58,8 +57,6 @@ export function FitnessAnalysisPanel({
 }: FitnessAnalysisPanelProps) {
   const [profiles, setProfiles] = useState<Record<FitnessProfile, ProfilePanelState>>(EMPTY_STATE);
   const [globalError, setGlobalError] = useState<string | null>(null);
-  const [lastSnapshotAt, setLastSnapshotAt] = useState<string | null>(null);
-
   const hasContext = Boolean(workspaceId?.trim() || codebaseId?.trim() || repoPath?.trim());
   const contextQuery = buildAnalysisQuery({ workspaceId, codebaseId, repoPath });
   const contextPayload = buildAnalysisPayload(
@@ -126,7 +123,6 @@ export function FitnessAnalysisPanel({
   const syncProfiles = useCallback(async () => {
     if (!hasContext) {
       setProfiles(EMPTY_STATE);
-      setLastSnapshotAt(null);
       setGlobalError("请先选择要分析的 Workspace 与 Repository");
       return;
     }
@@ -144,12 +140,6 @@ export function FitnessAnalysisPanel({
       }
 
       const raw = await response.json().catch(() => null);
-      if (raw && typeof raw === "object" && typeof (raw as { generatedAt?: unknown }).generatedAt === "string") {
-        setLastSnapshotAt((raw as { generatedAt: string }).generatedAt);
-      } else {
-        setLastSnapshotAt(new Date().toLocaleString());
-      }
-
       applyProfiles(normalizeApiResponse(raw));
     } catch (error) {
       setGlobalError(`获取快照失败: ${toMessage(error)}`);
@@ -238,7 +228,6 @@ export function FitnessAnalysisPanel({
       }));
 
       applyProfiles(normalizeApiResponse(payload));
-      setLastSnapshotAt(payload.generatedAt);
     } catch (error) {
       const message = `执行失败: ${toMessage(error)}`;
       setGlobalError(message);
@@ -278,38 +267,24 @@ export function FitnessAnalysisPanel({
           <StatusBadge state={selectedState.state} />
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-desktop-text-secondary">
-          <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-1.5 dark:bg-white/6">Profile: Generic</div>
-          <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-1.5 dark:bg-white/6">
-            Level: <span className="font-semibold text-desktop-text-primary">{heroModel.currentLevel}</span>
-          </div>
-          <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-1.5 dark:bg-white/6">
-            Next: <span className="font-semibold text-desktop-text-primary">{heroModel.targetLevel}</span>
-          </div>
-          <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-1.5 dark:bg-white/6">
-            Blockers: <span className="font-semibold text-desktop-text-primary">{selectedReport ? blockers.length : "N/A"}</span>
-          </div>
-          <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-1.5 dark:bg-white/6">
-            Failed: <span className="font-semibold text-desktop-text-primary">{selectedReport ? failedCriteria.length : "N/A"}</span>
-          </div>
-          <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-1.5 dark:bg-white/6">
-            {heroModel.confidenceSummary}
-          </div>
-          <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-1.5 dark:bg-white/6">
-            Source: <span className="font-semibold text-desktop-text-primary">
+        <div className="mt-3 space-y-1.5 text-[11px] text-desktop-text-secondary">
+          <div className="rounded-xl border border-desktop-border bg-white/80 px-3 py-2 dark:bg-white/6">
+            <span className="text-desktop-text-secondary">Level:</span>
+            <span className="ml-1 font-semibold text-desktop-text-primary">{heroModel.currentLevel}</span>
+            <span className="text-desktop-text-secondary"> · Next:</span>
+            <span className="ml-1 font-semibold text-desktop-text-primary">{heroModel.targetLevel}</span>
+            <span className="text-desktop-text-secondary"> · Source:</span>
+            <span className="ml-1 font-semibold text-desktop-text-primary">
               {selectedState.source === "analysis" ? "Live" : selectedState.source === "snapshot" ? "Snapshot" : "No data"}
             </span>
           </div>
-          <div className="rounded-full border border-desktop-border bg-white/80 px-3 py-1.5 dark:bg-white/6">
-            Updated: <span className="font-semibold text-desktop-text-primary">{selectedState.updatedAt ? formatTime(selectedState.updatedAt) : "No timestamp"}</span>
+          <div className="rounded-xl border border-desktop-border bg-white/80 px-3 py-2 dark:bg-white/6">
+            <span className="text-desktop-text-secondary">Blockers:</span>
+            <span className="ml-1 font-semibold text-desktop-text-primary">{selectedReport ? blockers.length : "N/A"}</span>
+            <span className="text-desktop-text-secondary"> · Failed:</span>
+            <span className="ml-1 font-semibold text-desktop-text-primary">{selectedReport ? failedCriteria.length : "N/A"}</span>
+            <span className="text-desktop-text-secondary"> · {heroModel.confidenceSummary}</span>
           </div>
-        </div>
-
-        <div className="mt-4 h-2 overflow-hidden rounded-full bg-desktop-bg-secondary">
-          <div
-            className={`h-full rounded-full ${readinessBarTone(selectedReport?.currentLevelReadiness ?? 0)}`}
-            style={{ width: `${clampPercent(selectedReport?.currentLevelReadiness ?? 0)}%` }}
-          />
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -331,8 +306,11 @@ export function FitnessAnalysisPanel({
           </button>
         </div>
 
-        <div className="mt-3 rounded-xl border border-dashed border-desktop-border px-3 py-2 text-[11px] text-desktop-text-secondary">
-          {lastSnapshotAt ? `Latest snapshot: ${formatTime(lastSnapshotAt)}` : "No snapshot yet"}
+        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-desktop-bg-secondary">
+          <div
+            className={`h-full rounded-full ${readinessBarTone(selectedReport?.currentLevelReadiness ?? 0)}`}
+            style={{ width: `${clampPercent(selectedReport?.currentLevelReadiness ?? 0)}%` }}
+          />
         </div>
 
         {globalError ? (
