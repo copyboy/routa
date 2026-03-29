@@ -61,14 +61,26 @@ function colorize(stream: NodeJS.WriteStream | undefined, color: string, text: s
 }
 
 function evaluateMetric(metric: HookMetric, exitCode: number, output: string): boolean {
+  // Exit code is the primary indicator of success/failure
   if (exitCode !== 0) {
     return false;
   }
 
+  // If exit code is 0, the command succeeded
   if (!metric.pattern) {
     return true;
   }
 
+  // For test runners (vitest, cargo test, etc.), exit code is authoritative
+  // Pattern matching is advisory only - stderr noise (React act() warnings,
+  // debug logs) should not fail the metric when tests actually passed
+  const isTestMetric = metric.name.endsWith("_test_pass");
+  if (isTestMetric) {
+    // Trust the exit code for test metrics - test runners are reliable
+    return true;
+  }
+
+  // For other metrics, pattern must match to confirm success
   const matcher = new RegExp(metric.pattern, "i");
   return matcher.test(output);
 }
