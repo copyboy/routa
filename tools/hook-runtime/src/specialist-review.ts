@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
-import { runCommand } from "./process.js";
+import { runCommand, tailOutput } from "./process.js";
 
 const DEFAULT_SPECIALIST_ID = "harness-review-trigger";
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
@@ -13,6 +13,7 @@ type SpecialistFile = {
   system_prompt?: string;
   role_reminder?: string;
   model?: string;
+  default_adapter?: string;
 };
 
 export type ReviewTrigger = {
@@ -85,7 +86,12 @@ function parseJsonLoose(value: string): SpecialistResponse {
   }
 }
 
-function loadSpecialistDefinition(specialistId: string): { systemPrompt: string; roleReminder?: string; model?: string } {
+function loadSpecialistDefinition(specialistId: string): {
+  systemPrompt: string;
+  roleReminder?: string;
+  model?: string;
+  defaultAdapter?: string;
+} {
   const filePath = path.join(process.cwd(), "resources", "specialists", "harness", "review-trigger-guard.yaml");
   if (!fs.existsSync(filePath)) {
     throw new Error(`Missing specialist file for ${specialistId}: ${filePath}`);
@@ -103,6 +109,7 @@ function loadSpecialistDefinition(specialistId: string): { systemPrompt: string;
     systemPrompt: parsed.system_prompt,
     roleReminder: parsed.role_reminder,
     model: parsed.model,
+    defaultAdapter: parsed.default_adapter,
   };
 }
 
@@ -140,6 +147,44 @@ async function callAnthropicCompatible(prompt: string, model: string): Promise<s
     .map((block) => block.text ?? "")
     .join("\n")
     .trim() ?? "";
+}
+
+function resolveReviewProvider(defaultAdapter?: string): string {
+  const provider = process.env.ROUTA_REVIEW_PROVIDER?.trim() || defaultAdapter?.trim() || "claude";
+  return provider.toLowerCase();
+}
+
+async function callClaudeCli(prompt: string): Promise<string> {
+  const command = `printf '%s' ${shellQuote(prompt)} | claude -p --permission-mode bypassPermissions`;
+  const result = await runCommand(command, { stream: false });
+  if (result.exitCode !== 0) {
+    throw new Error(`Automatic review specialist failed via claude CLI: ${tailOutput(result.output) || `exit ${result.exitCode}`}`);
+  }
+
+  return result.output.trim();
+}
+
+async function callReviewProvider(params: {
+  prompt: string;
+  model: string;
+  defaultAdapter?: string;
+}): Promise<string> {
+  const provider = resolveReviewProvider(params.defaultAdapter);
+  switch (provider) {
+    case "claude":
+    case "claude-code":
+    case "claude-code-sdk":
+    case "claudecode":
+      return callClaudeCli(params.prompt);
+    case "anthropic":
+    case "anthropic-api":
+    case "anthropic-compatible":
+      return callAnthropicCompatible(params.prompt, params.model);
+    default:
+      throw new Error(
+        `Unsupported review provider "${provider}". Use --provider claude for Claude CLI or --provider anthropic for direct API calls.`,
+      );
+  }
 }
 
 async function buildReviewPayload(reviewRoot: string, base: string, report: ReviewReportPayload): Promise<string> {
@@ -186,7 +231,11 @@ export async function runReviewTriggerSpecialist(params: {
   ].join("\n\n")}`;
 
   const model = specialist.model ?? process.env.ANTHROPIC_MODEL ?? DEFAULT_ANTHROPIC_MODEL;
-  const raw = await callAnthropicCompatible(prompt, model);
+  const raw = await callReviewProvider({
+    prompt,
+    model,
+    defaultAdapter: specialist.defaultAdapter,
+  });
   const parsed = parseJsonLoose(raw);
   const verdict = parsed.verdict?.toLowerCase();
 
