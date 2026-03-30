@@ -149,6 +149,21 @@ export default function HarnessSettingsPage() {
             variant="compact"
           />
         );
+      case "release":
+        return (
+          <HarnessGitHubActionsFlowPanel
+            workspaceId={workspaceId}
+            codebaseId={activeRepoCodebaseId}
+            repoPath={activeRepoPath}
+            repoLabel={selectedRepoLabel}
+            unsupportedMessage={unsupportedRepoMessage}
+            data={githubActionsState.data}
+            loading={githubActionsState.loading}
+            error={githubActionsState.error}
+            variant="compact"
+            initialCategory="Release"
+          />
+        );
       case "review":
         return (
           <HarnessReviewTriggersPanel

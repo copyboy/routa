@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import HarnessSettingsPage from "../page";
@@ -44,20 +44,25 @@ vi.mock("@/client/components/harness-governance-loop-graph", () => ({
   HarnessGovernanceLoopGraph: ({
     contextPanel,
     selectedNodeId,
+    onSelectedNodeChange,
   }: {
     contextPanel?: ReactNode;
     selectedNodeId?: string;
+    onSelectedNodeChange?: (nodeId: string) => void;
   }) => (
     <div data-testid="governance-loop-graph">
       <div data-testid="selected-node-id">{selectedNodeId}</div>
       <div data-testid="context-panel-state">{contextPanel ? "present" : "absent"}</div>
+      <button type="button" onClick={() => onSelectedNodeChange?.("release")}>select-release</button>
       {contextPanel}
     </div>
   ),
 }));
 
 vi.mock("@/client/components/harness-github-actions-flow-panel", () => ({
-  HarnessGitHubActionsFlowPanel: () => <div data-testid="github-actions-flow-panel" />,
+  HarnessGitHubActionsFlowPanel: ({ initialCategory }: { initialCategory?: "Validation" | "Release" | "Automation" | "Maintenance" }) => (
+    <div data-testid="github-actions-flow-panel">{initialCategory ?? "default"}</div>
+  ),
 }));
 
 vi.mock("@/client/components/harness-hook-runtime-panel", () => ({
@@ -177,5 +182,15 @@ describe("HarnessSettingsPage", () => {
     expect(screen.getAllByText("Instruction file")).toHaveLength(1);
     expect(screen.getByTestId("instruction-panel-full")).not.toBeNull();
     expect(screen.queryByTestId("instruction-panel-compact")).toBeNull();
+  });
+
+  it("switches the governance context to the release GitHub Actions view", () => {
+    render(<HarnessSettingsPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "select-release" }));
+
+    expect(screen.getByTestId("selected-node-id").textContent).toBe("release");
+    expect(screen.getByTestId("context-panel-state").textContent).toBe("present");
+    expect(within(screen.getByTestId("governance-loop-graph")).getByTestId("github-actions-flow-panel").textContent).toBe("Release");
   });
 });

@@ -7,6 +7,7 @@ import type {
   GitHubActionsFlow,
   GitHubActionsFlowsResponse,
 } from "@/client/hooks/use-harness-settings-data";
+import type { WorkflowCategoryKey } from "@/client/components/harness-github-actions-flow-gallery";
 
 type FlowState = {
   error: string | null;
@@ -24,6 +25,7 @@ type HarnessGitHubActionsFlowPanelProps = {
   loading?: boolean;
   error?: string | null;
   variant?: "full" | "compact";
+  initialCategory?: WorkflowCategoryKey;
 };
 
 function panelClassName(variant: "full" | "compact") {
@@ -62,6 +64,7 @@ export function HarnessGitHubActionsFlowPanel({
   loading,
   error,
   variant = "full",
+  initialCategory,
 }: HarnessGitHubActionsFlowPanelProps) {
   const hasExternalState = loading !== undefined || error !== undefined || data !== undefined;
   const hasContext = Boolean(workspaceId && repoPath);
@@ -185,9 +188,11 @@ export function HarnessGitHubActionsFlowPanel({
   return (
     <section className={panelClassName(variant)}>
       <HarnessGitHubActionsFlowGallery
+        key={initialCategory ?? "Validation"}
         flows={visibleFlows}
         repoLabel={repoLabel}
         variant={variant}
+        initialCategory={initialCategory}
       />
     </section>
   );

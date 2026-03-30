@@ -119,4 +119,21 @@ describe("HarnessGitHubActionsFlowPanel", () => {
       expect(screen.getAllByText(".github/workflows/release.yaml").length).toBeGreaterThan(0);
     });
   });
+
+  it("can default the gallery to the release category", async () => {
+    render(
+      <HarnessGitHubActionsFlowPanel
+        workspaceId="workspace-1"
+        codebaseId="codebase-1"
+        repoPath="/tmp/repo"
+        repoLabel="routa-js"
+        initialCategory="Release"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("1 flows in Release")).not.toBeNull();
+      expect(screen.getByRole("button", { name: /Routa Release/i })).not.toBeNull();
+    });
+  });
 });

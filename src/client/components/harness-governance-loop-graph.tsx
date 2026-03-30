@@ -307,14 +307,15 @@ function buildGraph(args: {
     onSelectNode,
   } = args;
 
-  const selectableNodeIds = new Set(["build", "test", "precommit", "review", "post-commit"]);
+  const selectableNodeIds = new Set(["build", "test", "precommit", "review", "post-commit", "release"]);
 
   const navigationGraph: Record<string, Partial<Record<"up" | "down" | "left" | "right", string>>> = {
     build: { right: "test", down: "review" },
     test: { left: "build", down: "precommit" },
     precommit: { up: "test", left: "review" },
     review: { up: "build", right: "precommit", left: "post-commit" },
-    "post-commit": { right: "review" },
+    "post-commit": { right: "review", down: "release" },
+    release: { up: "post-commit" },
   };
   const handleNavigate = (currentNodeId: string, direction: "up" | "down" | "left" | "right") => {
     const nextNodeId = navigationGraph[currentNodeId]?.[direction];
@@ -442,7 +443,7 @@ function buildGraph(args: {
       tone: "amber",
       note: "artifact / release",
       active: false,
-      ...buildSelectionState("release", false),
+      ...buildSelectionState("release", true),
     }),
     buildNode("staging", col2X, externalRowY, {
       nodeId: "staging",
@@ -591,6 +592,12 @@ function buildDetailSections(args: {
         { title: "Jobs", items: workflowJobs.length ? workflowJobs.slice(0, 8) : ["当前页未发现 job"] },
         { title: "Related surface", items: ["GitHub Actions flow panel", "External feedback loop"] },
       ] satisfies LoopDetailSection[];
+    case "release":
+      return [
+        { title: "Release handoff", items: workflowNames.length ? workflowNames.slice(0, 6) : ["当前页未发现 release workflow"] },
+        { title: "Evidence", items: ["GitHub Actions release flows", "artifact / bundle / publish", "workflow_dispatch / tags"] },
+        { title: "Related surface", items: ["GitHub Actions flow panel", "Release category"] },
+      ] satisfies LoopDetailSection[];
     case "review":
     case "test":
       return [
@@ -606,7 +613,7 @@ function buildDetailSections(args: {
       ] satisfies LoopDetailSection[];
     default:
       return [
-        { title: "Current page signals", items: ["亮色节点可点击，灰色节点表示当前没有对应 panel", "点击 `编码实现`、`变更门禁`、`代码评审` 或 `持续交付` 查看上下文"] },
+        { title: "Current page signals", items: ["亮色节点可点击，灰色节点表示当前没有对应 panel", "点击 `编码实现`、`本地验证`、`变更门禁`、`代码评审`、`持续交付` 或 `制品发布` 查看上下文"] },
         { title: "Connected panels", items: ["Instruction file", "Execution plan", "Review triggers", "GitHub Actions flow", "Repo signals"] },
       ] satisfies LoopDetailSection[];
   }

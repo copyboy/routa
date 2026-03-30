@@ -8,9 +8,10 @@ type HarnessGitHubActionsFlowGalleryProps = {
   flows: GitHubActionsFlow[];
   repoLabel: string;
   variant?: "full" | "compact";
+  initialCategory?: WorkflowCategoryKey;
 };
 
-type WorkflowCategoryKey = "Validation" | "Release" | "Automation" | "Maintenance";
+export type WorkflowCategoryKey = "Validation" | "Release" | "Automation" | "Maintenance";
 type WorkflowJobKind = GitHubActionsJob["kind"];
 
 type WorkflowCategoryDefinition = {
@@ -735,6 +736,7 @@ export function HarnessGitHubActionsFlowGallery({
   flows,
   repoLabel,
   variant = "full",
+  initialCategory,
 }: HarnessGitHubActionsFlowGalleryProps) {
   const compactMode = variant === "compact";
   const summary = useMemo(() => summarizeFlows(flows), [flows]);
@@ -744,7 +746,7 @@ export function HarnessGitHubActionsFlowGallery({
     [categories],
   );
 
-  const [selectedCategory, setSelectedCategory] = useState<WorkflowCategoryKey>("Validation");
+  const [selectedCategory, setSelectedCategory] = useState<WorkflowCategoryKey>(initialCategory ?? "Validation");
   const [selectedFlowId, setSelectedFlowId] = useState("");
   const [selectedJobId, setSelectedJobId] = useState("");
   const [isDetailOpen, setIsDetailOpen] = useState(false);
