@@ -301,7 +301,7 @@ export function HarnessAgentInstructionsPanel({
         </div>
       </div>
 
-      {!compactMode && auditSummary ? (
+      {auditSummary ? (
         <div className="mt-3 rounded-xl border border-desktop-border bg-desktop-bg-secondary/50 px-3 py-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
@@ -324,6 +324,11 @@ export function HarnessAgentInstructionsPanel({
           {auditSummary.status === "error" ? (
             <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-[11px] text-red-700">
               {auditSummary.error ?? "Audit execution failed."}
+            </div>
+          ) : compactMode ? (
+            <div className="mt-2 text-[11px] text-desktop-text-secondary">
+              {auditSummary.totalScore == null ? "总分：—" : `总分：${auditSummary.totalScore}/20`}
+              {auditSummary.overall ? ` · 结论：${auditSummary.overall}` : ""}
             </div>
           ) : (
             <>
