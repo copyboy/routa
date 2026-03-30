@@ -51,6 +51,7 @@ pub struct RunArgs<'a> {
     pub prompt: Option<&'a str>,
     pub workspace_id: &'a str,
     pub provider: Option<&'a str>,
+    pub output_json: bool,
     pub specialist_dir: Option<&'a str>,
     pub provider_timeout_ms: Option<u64>,
     pub provider_retries: u8,
@@ -62,6 +63,7 @@ struct SelectedSpecialistRunArgs<'a> {
     user_prompt: String,
     workspace_id: &'a str,
     provider: Option<&'a str>,
+    output_json: bool,
     provider_timeout_ms: Option<u64>,
     provider_retries: u8,
     repeat_count: u8,
@@ -72,6 +74,7 @@ struct ExecuteSpecialistRunArgs<'a> {
     user_prompt: String,
     workspace_id: &'a str,
     effective_provider: &'a str,
+    output_json: bool,
     provider_timeout_ms: Option<u64>,
     provider_retries: u8,
     journey_context_override: Option<UiJourneyRunContext>,
@@ -201,6 +204,7 @@ pub async fn run(state: &AppState, args: RunArgs<'_>) -> Result<(), String> {
         prompt,
         workspace_id,
         provider,
+        output_json,
         specialist_dir,
         provider_timeout_ms,
         provider_retries,
@@ -240,6 +244,7 @@ pub async fn run(state: &AppState, args: RunArgs<'_>) -> Result<(), String> {
                 user_prompt,
                 workspace_id,
                 provider,
+                output_json,
                 provider_timeout_ms,
                 provider_retries,
                 repeat_count,
@@ -261,6 +266,7 @@ pub async fn run(state: &AppState, args: RunArgs<'_>) -> Result<(), String> {
             user_prompt,
             workspace_id,
             provider,
+            output_json,
             provider_timeout_ms,
             provider_retries,
             repeat_count,
@@ -279,6 +285,7 @@ async fn run_selected_specialist(
         user_prompt,
         workspace_id,
         provider,
+        output_json,
         provider_timeout_ms,
         provider_retries,
         repeat_count,
@@ -304,6 +311,7 @@ async fn run_selected_specialist(
                 user_prompt,
                 workspace_id,
                 effective_provider: &effective_provider,
+                output_json,
                 provider_timeout_ms,
                 provider_retries,
                 journey_context_override: None,
@@ -333,6 +341,7 @@ async fn run_selected_specialist(
                 user_prompt: user_prompt.clone(),
                 workspace_id,
                 effective_provider: &effective_provider,
+                output_json,
                 provider_timeout_ms,
                 provider_retries,
                 journey_context_override: Some(context.clone()),
@@ -383,6 +392,7 @@ async fn execute_specialist_run(
         user_prompt,
         workspace_id,
         effective_provider,
+        output_json,
         provider_timeout_ms,
         provider_retries,
         journey_context_override,
@@ -470,21 +480,23 @@ async fn execute_specialist_run(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| ".".to_string());
 
-    println!("╔══════════════════════════════════════════════════════════╗");
-    println!("║  Routa CLI — Specialist Run                            ║");
-    println!("╠══════════════════════════════════════════════════════════╣");
-    println!("║  Specialist: {:<42} ║", selected_specialist.id);
-    println!("║  Role      : {:<42} ║", agent_role);
-    println!("║  Workspace : {:<42} ║", &workspace_id);
-    println!("║  Provider  : {:<42} ║", effective_provider);
-    println!(
-        "║  CWD       : {:<42} ║",
-        super::prompt::truncate_path(&cwd, 42)
-    );
-    println!("╚══════════════════════════════════════════════════════════╝");
-    println!();
-    println!("📋 Prompt: {}", user_prompt);
-    println!();
+    if !output_json {
+        println!("╔══════════════════════════════════════════════════════════╗");
+        println!("║  Routa CLI — Specialist Run                            ║");
+        println!("╠══════════════════════════════════════════════════════════╣");
+        println!("║  Specialist: {:<42} ║", selected_specialist.id);
+        println!("║  Role      : {:<42} ║", agent_role);
+        println!("║  Workspace : {:<42} ║", &workspace_id);
+        println!("║  Provider  : {:<42} ║", effective_provider);
+        println!(
+            "║  CWD       : {:<42} ║",
+            super::prompt::truncate_path(&cwd, 42)
+        );
+        println!("╚══════════════════════════════════════════════════════════╝");
+        println!();
+        println!("📋 Prompt: {}", user_prompt);
+        println!();
+    }
 
     let launch_options = SessionLaunchOptions {
         initialize_timeout_ms: provider_timeout_ms,
@@ -527,7 +539,9 @@ async fn execute_specialist_run(
                 last_session_error = reason.clone();
 
                 if attempt < max_attempts {
-                    println!("⚠️  {}. Retrying in 1 second...", reason);
+                    if !output_json {
+                        println!("⚠️  {}. Retrying in 1 second...", reason);
+                    }
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     continue;
                 }
@@ -596,8 +610,10 @@ async fn execute_specialist_run(
         &effective_user_prompt,
     );
 
-    println!("🚀 Sending prompt to specialist...");
-    println!();
+    if !output_json {
+        println!("🚀 Sending prompt to specialist...");
+        println!();
+    }
 
     if let Some(budget) = execution_budget {
         if run_start.elapsed() >= budget {
@@ -618,7 +634,7 @@ async fn execute_specialist_run(
         }
     }
 
-    let mut renderer = TuiRenderer::new();
+    let mut renderer = (!output_json).then(TuiRenderer::new);
     let mut idle_count = 0u32;
     let max_idle = 600;
     let mut failure_reason: Option<String> = None;
@@ -633,11 +649,15 @@ async fn execute_specialist_run(
     loop {
         if let Some(budget) = execution_budget {
             if run_start.elapsed() >= budget {
-                renderer.finish();
-                println!(
-                    "⏰ UI journey exceeded max runtime budget of {} seconds",
-                    budget.as_secs()
-                );
+                if let Some(renderer) = renderer.as_mut() {
+                    renderer.finish();
+                }
+                if !output_json {
+                    println!(
+                        "⏰ UI journey exceeded max runtime budget of {} seconds",
+                        budget.as_secs()
+                    );
+                }
                 failure_reason = Some("execution_timeout".to_string());
                 break;
             }
@@ -661,9 +681,15 @@ async fn execute_specialist_run(
                                 .contains("Timeout waiting for session/prompt") =>
                     {
                         metrics.prompt_status = Some("rpc_timeout".to_string());
-                        println!(
-                            "⚠️  Prompt submission timed out waiting for RPC response; continuing to monitor session output..."
-                        );
+                        if output_json {
+                            eprintln!(
+                                "⚠️  Prompt submission timed out waiting for RPC response; continuing to monitor session output..."
+                            );
+                        } else {
+                            println!(
+                                "⚠️  Prompt submission timed out waiting for RPC response; continuing to monitor session output..."
+                            );
+                        }
                     }
                     Err(err) => {
                         metrics.prompt_status = Some("error".to_string());
@@ -694,7 +720,9 @@ async fn execute_specialist_run(
                                 collected_output.push_str(&text);
                             }
                         }
-                        renderer.handle_update(&normalized_update);
+                        if let Some(renderer) = renderer.as_mut() {
+                            renderer.handle_update(&normalized_update);
+                        }
                         let payload_complete = journey_context.is_some()
                             && ui_journey_output_contains_artifact_payload(&collected_output);
                         let turn_complete = normalized_update
@@ -704,18 +732,26 @@ async fn execute_specialist_run(
                             .and_then(|value| value.as_str())
                             == Some("turn_complete");
                         if payload_complete || turn_complete {
-                            renderer.finish();
-                            if payload_complete {
-                                println!("═══ Specialist artifact payload received ═══");
-                            } else {
-                                println!("═══ Specialist turn complete ═══");
+                            if let Some(renderer) = renderer.as_mut() {
+                                renderer.finish();
+                            }
+                            if !output_json {
+                                if payload_complete {
+                                    println!("═══ Specialist artifact payload received ═══");
+                                } else {
+                                    println!("═══ Specialist turn complete ═══");
+                                }
                             }
                             break;
                         }
                     }
                     Err(_) => {
-                        renderer.finish();
-                        println!("═══ Specialist session ended ═══");
+                        if let Some(renderer) = renderer.as_mut() {
+                            renderer.finish();
+                        }
+                        if !output_json {
+                            println!("═══ Specialist session ended ═══");
+                        }
                         break;
                     }
                 }
@@ -723,15 +759,23 @@ async fn execute_specialist_run(
             _ = &mut tick => {
                 idle_count += 1;
                 if idle_count >= max_idle {
-                    renderer.finish();
-                    println!("⏰ Timeout: no activity for {} seconds", max_idle);
+                    if let Some(renderer) = renderer.as_mut() {
+                        renderer.finish();
+                    }
+                    if !output_json {
+                        println!("⏰ Timeout: no activity for {} seconds", max_idle);
+                    }
                     failure_reason = Some("session_idle_timeout".to_string());
                     break;
                 }
 
                 if !state.acp_manager.is_alive(&session_id).await {
-                    renderer.finish();
-                    println!("═══ Specialist process exited ═══");
+                    if let Some(renderer) = renderer.as_mut() {
+                        renderer.finish();
+                    }
+                    if !output_json {
+                        println!("═══ Specialist process exited ═══");
+                    }
                     failure_reason = Some("provider_process_exited".to_string());
                     break;
                 }
@@ -796,7 +840,7 @@ async fn execute_specialist_run(
             metrics.elapsed_ms = run_start.elapsed().as_millis();
             write_ui_journey_failure_artifacts(context, failure_stage, &error, &metrics);
         }
-        if journey_context.is_none() {
+        if journey_context.is_none() && !output_json {
             if let Err(status_err) = update_agent_status(router, &agent_id, "ERROR").await {
                 eprintln!("Failed to mark agent {} ERROR: {}", agent_id, status_err);
             }
@@ -826,7 +870,7 @@ async fn execute_specialist_run(
         );
     }
 
-    if journey_context.is_none() {
+    if journey_context.is_none() && !output_json {
         println!();
         super::prompt::print_session_summary(
             router,
@@ -893,7 +937,53 @@ async fn execute_specialist_run(
         }
     }
 
+    if journey_context.is_none() && output_json {
+        let parsed = parse_specialist_json_output(&specialist_output)?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&parsed)
+                .map_err(|err| format!("Failed to format specialist JSON output: {}", err))?
+        );
+    }
+
     Ok(())
+}
+
+fn parse_specialist_json_output(output: &str) -> Result<serde_json::Value, String> {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return Err("Specialist output is empty; expected JSON object".to_string());
+    }
+
+    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        return Ok(parsed);
+    }
+
+    let normalized_lines = trimmed
+        .lines()
+        .map(|line| line.trim_start_matches(|char: char| char.is_whitespace() || char == '▶'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let stripped_controls = normalized_lines
+        .chars()
+        .filter(|char| matches!(char, '\n' | '\r' | '\t') || !char.is_control())
+        .collect::<String>();
+    let candidate =
+        extract_json_object_slice(&stripped_controls).unwrap_or(stripped_controls.as_str());
+
+    serde_json::from_str::<serde_json::Value>(candidate).map_err(|err| {
+        format!(
+            "Specialist output is not valid JSON (raw_len={}): {}",
+            output.chars().count(),
+            err
+        )
+    })
+}
+
+fn extract_json_object_slice(value: &str) -> Option<&str> {
+    let first = value.find('{')?;
+    let last = value.rfind('}')?;
+    (first <= last).then_some(&value[first..=last])
 }
 
 fn extract_last_process_output_line(history: &[serde_json::Value]) -> Option<String> {
@@ -1085,7 +1175,7 @@ async fn ensure_workspace(router: &RpcRouter, workspace_id: &str) -> Result<Stri
 
 #[cfg(test)]
 mod tests {
-    use super::parse_prompt_mention;
+    use super::{parse_prompt_mention, parse_specialist_json_output};
     use routa_core::orchestration::SpecialistConfig;
 
     #[test]
@@ -1125,5 +1215,31 @@ mod tests {
 
         assert_eq!(effective_provider, "claude");
         assert_eq!(specialist.default_model.as_deref(), Some("sonnet-4.5"));
+    }
+
+    #[test]
+    fn parses_specialist_json_output_with_stream_prefixes() {
+        let output = "▶ {\"audit_conclusion\":{\"overall\":\"通过\",\"total_score\":16,\"one_sentence\":\"ok\"}}";
+        let parsed = parse_specialist_json_output(output).expect("should parse prefixed JSON");
+        assert_eq!(
+            parsed
+                .get("audit_conclusion")
+                .and_then(|v| v.get("total_score"))
+                .and_then(|v| v.as_i64()),
+            Some(16)
+        );
+    }
+
+    #[test]
+    fn parses_specialist_json_output_with_text_wrapper() {
+        let output = "thinking...\n{\"audit_conclusion\":{\"overall\":\"有条件通过\",\"total_score\":13,\"one_sentence\":\"gap\"}}\n";
+        let parsed = parse_specialist_json_output(output).expect("should extract JSON object");
+        assert_eq!(
+            parsed
+                .get("audit_conclusion")
+                .and_then(|v| v.get("overall"))
+                .and_then(|v| v.as_str()),
+            Some("有条件通过")
+        );
     }
 }

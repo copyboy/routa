@@ -281,6 +281,9 @@ enum SpecialistAction {
         /// ACP provider override. If omitted, uses specialist execution.provider.
         #[arg(long)]
         provider: Option<String>,
+        /// Print only specialist result JSON (machine-readable mode).
+        #[arg(long, default_value_t = false)]
+        json: bool,
         /// Timeout in milliseconds for provider initialize call.
         #[arg(long)]
         provider_timeout_ms: Option<u64>,
@@ -852,6 +855,7 @@ async fn main() {
                                 prompt: prompt.as_deref(),
                                 workspace_id: &workspace_id,
                                 provider: provider.as_deref(),
+                                output_json: false,
                                 specialist_dir: specialist_dir.as_deref(),
                                 provider_timeout_ms: None,
                                 provider_retries: 0,
@@ -873,6 +877,7 @@ async fn main() {
                         prompt,
                         workspace_id,
                         provider,
+                        json,
                         provider_timeout_ms,
                         provider_retries,
                         repeat,
@@ -884,6 +889,7 @@ async fn main() {
                                 prompt: prompt.as_deref(),
                                 workspace_id: &workspace_id,
                                 provider: provider.as_deref(),
+                                output_json: json,
                                 provider_timeout_ms,
                                 provider_retries,
                                 repeat_count: repeat,
