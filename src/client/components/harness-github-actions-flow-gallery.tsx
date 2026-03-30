@@ -249,80 +249,10 @@ function CategoryIcon({ category }: { category: WorkflowCategoryKey }) {
 
 function MetricCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-[10px] shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+    <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-[10px] shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
       <span className="font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
-      <span className="text-[13px] font-semibold text-slate-900">{value}</span>
+      <span className="text-[12px] font-semibold text-slate-900">{value}</span>
     </div>
-  );
-}
-
-function CategoryRail({
-  categories,
-  selectedCategory,
-  onSelect,
-}: {
-  categories: WorkflowCategoryEntry[];
-  selectedCategory: WorkflowCategoryKey;
-  onSelect: (category: WorkflowCategoryKey) => void;
-}) {
-  return (
-    <aside className="rounded-[24px] border border-slate-200/80 bg-[radial-gradient(circle_at_top,#ffffff,rgba(255,255,255,0.9)_22%,rgba(242,247,252,0.92)_100%)] p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Categories</div>
-          <h3 className="mt-1 text-[13px] font-semibold text-slate-900">Workflow taxonomy</h3>
-        </div>
-        <div className="rounded-full border border-slate-200 bg-white/85 px-2.5 py-1 text-[10px] text-slate-500">
-          {categories.reduce((sum, category) => sum + category.flows.length, 0)} flows
-        </div>
-      </div>
-
-      <div className="mt-3 space-y-1.5">
-        {categories.map((category) => {
-          const selected = selectedCategory === category.key;
-          const disabled = category.flows.length === 0;
-
-          return (
-            <button
-              key={category.key}
-              type="button"
-              disabled={disabled}
-              onClick={() => onSelect(category.key)}
-              className={cx(
-                "w-full rounded-[18px] border px-2.5 py-2 text-left transition-all",
-                disabled
-                  ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
-                  : selected
-                  ? "border-sky-300 bg-sky-50/90 shadow-[0_12px_32px_rgba(59,130,246,0.08)]"
-                  : "border-slate-200/80 bg-white/85 hover:border-slate-300 hover:bg-white",
-              )}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <span className={cx(
-                    "inline-flex h-7 w-7 items-center justify-center rounded-[10px] border",
-                    selected ? "border-sky-200 bg-white text-sky-600" : "border-slate-200 bg-slate-50 text-slate-500",
-                  )}>
-                    <CategoryIcon category={category.key} />
-                  </span>
-                  <div className="min-w-0">
-                    <div className={cx("text-[13px] font-semibold", disabled ? "text-slate-400" : "text-slate-900")}>
-                      {category.key}
-                    </div>
-                  </div>
-                </div>
-                <span className={cx(
-                  "shrink-0 rounded-full border px-2.5 py-1 text-[10px]",
-                  selected ? "border-sky-200 bg-white text-sky-700" : "border-slate-200 bg-slate-50 text-slate-500",
-                )}>
-                  {category.flows.length}
-                </span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </aside>
   );
 }
 
@@ -336,7 +266,7 @@ function CategoryTabs({
   onSelect: (category: WorkflowCategoryKey) => void;
 }) {
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1">
+    <div className="flex gap-1.5 overflow-x-auto pb-1">
       {categories.map((category) => {
         const selected = selectedCategory === category.key;
         const disabled = category.flows.length === 0;
@@ -348,7 +278,7 @@ function CategoryTabs({
             disabled={disabled}
             onClick={() => onSelect(category.key)}
             className={cx(
-              "inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-medium transition-colors",
+              "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] font-medium transition-colors",
               disabled
                 ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
                 : selected
@@ -368,27 +298,27 @@ function CategoryTabs({
 
 function MiniDagPreview({ flow }: { flow: GitHubActionsFlow }) {
   const lanes = buildDependencyLanes(flow.jobs);
-  const visibleLanes = lanes.slice(0, 4);
+  const visibleLanes = lanes.slice(0, 3);
   const hiddenLaneCount = Math.max(lanes.length - visibleLanes.length, 0);
 
   return (
-    <div className="rounded-[20px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(243,247,252,0.96))] px-2.5 py-2.5">
-      <div className="flex min-w-max items-start gap-2.5 overflow-x-auto pb-1">
-        <div className="w-28 shrink-0 rounded-[18px] border border-sky-200/80 bg-[linear-gradient(135deg,rgba(239,246,255,0.9),rgba(255,255,255,0.96))] px-2.5 py-2.5">
+    <div className="rounded-[18px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(243,247,252,0.96))] px-2 py-2">
+      <div className="flex min-w-max items-start gap-2 overflow-x-auto">
+        <div className="w-24 shrink-0 rounded-[16px] border border-sky-200/80 bg-[linear-gradient(135deg,rgba(239,246,255,0.9),rgba(255,255,255,0.96))] px-2 py-2">
           <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-sky-700">Trigger</div>
-          <div className="mt-1.5 text-[10px] font-semibold leading-4 text-slate-900">{humanizeToken(normalizeEventTokens(flow.event)[0] ?? flow.event)}</div>
+          <div className="mt-1 text-[10px] font-semibold leading-4 text-slate-900">{humanizeToken(normalizeEventTokens(flow.event)[0] ?? flow.event)}</div>
         </div>
 
         {visibleLanes.map((laneJobs, laneIndex) => (
-          <div key={`${flow.id}:lane:${laneIndex}`} className="flex items-start gap-2.5">
-            <div className="flex h-8 items-center text-slate-300">
+          <div key={`${flow.id}:lane:${laneIndex}`} className="flex items-start gap-2">
+            <div className="flex h-7 items-center text-slate-300">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m0 0-4-4m4 4-4 4" />
               </svg>
             </div>
-            <div className="w-36 shrink-0 space-y-1.5">
+            <div className="w-32 shrink-0 space-y-1">
               {laneJobs.slice(0, 1).map((job) => (
-                <div key={job.id} className="rounded-[18px] border border-slate-200 bg-white/92 px-2.5 py-2">
+                <div key={job.id} className="rounded-[16px] border border-slate-200 bg-white/92 px-2 py-1.5">
                   <div className="truncate text-[11px] font-semibold text-slate-900">{job.name}</div>
                   <div className="mt-0.5 flex items-center justify-between gap-2">
                     <span className="truncate text-[10px] text-slate-500">{job.runner}</span>
@@ -397,7 +327,7 @@ function MiniDagPreview({ flow }: { flow: GitHubActionsFlow }) {
                 </div>
               ))}
               {laneJobs.length > 1 ? (
-                <div className="rounded-[18px] border border-dashed border-slate-200 bg-white/75 px-2.5 py-1.5 text-[10px] text-slate-500">
+                <div className="rounded-[16px] border border-dashed border-slate-200 bg-white/75 px-2 py-1 text-[10px] text-slate-500">
                   +{laneJobs.length - 1} more jobs
                 </div>
               ) : null}
@@ -406,13 +336,13 @@ function MiniDagPreview({ flow }: { flow: GitHubActionsFlow }) {
         ))}
 
         {hiddenLaneCount > 0 ? (
-          <div className="flex items-start gap-3">
-            <div className="flex h-8 items-center text-slate-300">
+          <div className="flex items-start gap-2">
+            <div className="flex h-7 items-center text-slate-300">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m0 0-4-4m4 4-4 4" />
               </svg>
             </div>
-            <div className="w-24 shrink-0 rounded-[18px] border border-dashed border-slate-200 bg-white/75 px-2.5 py-2.5 text-[10px] text-slate-500">
+            <div className="w-20 shrink-0 rounded-[16px] border border-dashed border-slate-200 bg-white/75 px-2 py-2 text-[10px] text-slate-500">
               +{hiddenLaneCount} more stages
             </div>
           </div>
@@ -432,6 +362,8 @@ function WorkflowCard({
   onSelect: () => void;
 }) {
   const eventTokens = normalizeEventTokens(flow.event);
+  const visibleTokens = eventTokens.slice(0, 2);
+  const hiddenTokenCount = Math.max(eventTokens.length - visibleTokens.length, 0);
   const stageCount = summarizeStageCount(flow);
 
   return (
@@ -439,7 +371,7 @@ function WorkflowCard({
       type="button"
       onClick={onSelect}
       className={cx(
-        "w-full rounded-[24px] border px-3.5 py-3.5 text-left transition-all",
+        "w-full rounded-[22px] border px-3 py-3 text-left transition-all",
         selected
           ? "border-sky-300 bg-[linear-gradient(180deg,rgba(250,252,255,0.98),rgba(238,246,255,0.98))] shadow-[0_18px_44px_rgba(59,130,246,0.08)]"
           : "border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,248,252,0.95))] shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:border-slate-300 hover:shadow-[0_16px_40px_rgba(15,23,42,0.06)]",
@@ -447,28 +379,32 @@ function WorkflowCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Workflow</div>
-          <h4 className="mt-1.5 truncate text-[15px] font-semibold tracking-[-0.02em] text-slate-900">{flow.name}</h4>
+          <h4 className="truncate text-[14px] font-semibold tracking-[-0.02em] text-slate-900">{flow.name}</h4>
         </div>
         <div className="shrink-0 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-[10px] text-slate-500">
           {flow.jobs.length} jobs
         </div>
       </div>
 
-      <div className="mt-2.5 flex flex-wrap gap-1.5">
-        {eventTokens.map((token) => (
+      <div className="mt-2 flex flex-wrap gap-1">
+        {visibleTokens.map((token) => (
           <span key={`${flow.id}:${token}`} className="rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-[10px] font-medium text-slate-600">
             {token}
           </span>
         ))}
+        {hiddenTokenCount > 0 ? (
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-500">
+            +{hiddenTokenCount}
+          </span>
+        ) : null}
       </div>
 
-      <div className="mt-3">
+      <div className="mt-2.5">
         <MiniDagPreview flow={flow} />
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500">
-        <div className="flex flex-wrap gap-2">
+      <div className="mt-2.5 flex flex-wrap gap-1.5 text-[10px] text-slate-500">
+        <div className="flex flex-wrap gap-1.5">
           <span className="rounded-full border border-slate-200 bg-white/90 px-2.5 py-1">
             {stageCount} stages
           </span>
@@ -476,9 +412,6 @@ function WorkflowCard({
             {countDependencies(flow)} dependencies
           </span>
         </div>
-        {flow.relativePath ? (
-          <span className="truncate font-mono text-[10px]">{flow.relativePath}</span>
-        ) : null}
       </div>
     </button>
   );
@@ -823,31 +756,31 @@ export function HarnessGitHubActionsFlowGallery({
 
   const cardsSection = (
     <section className="rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,248,252,0.95))] p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-      <div className="flex flex-wrap items-center justify-between gap-2.5">
-        <div className="flex flex-wrap gap-2 text-[10px]">
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Actions
-          </span>
-          <span className="rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 font-medium text-slate-700">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2 text-[10px]">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Actions</span>
+          <span className="rounded-full border border-slate-200 bg-white/90 px-2 py-1 font-medium text-slate-700">
             {repoLabel}
           </span>
-          <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-sky-700">
-            {activeCategory?.key}
-          </span>
-          <span className="rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-slate-500">
-            {activeCategory?.flows.length ?? 0} flows
-          </span>
-          {activeFlow ? (
-            <span className="rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-slate-500">
-              {summarizeStageCount(activeFlow)} stages in focus
-            </span>
-          ) : null}
+          <span className="text-slate-500">{activeCategory?.flows.length ?? 0} flows in {activeCategory?.key}</span>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           <MetricCard label="Workflows" value={summary.workflowCount} />
           <MetricCard label="Triggers" value={summary.triggerTypeCount} />
           <MetricCard label="Jobs" value={summary.jobCount} />
         </div>
+      </div>
+
+      <div className="mt-2.5">
+        <CategoryTabs
+          categories={categories}
+          selectedCategory={effectiveCategory}
+          onSelect={(category) => {
+            setSelectedCategory(category);
+            setSelectedFlowId("");
+            setSelectedJobId("");
+          }}
+        />
       </div>
 
       {(activeCategory?.flows.length ?? 0) > 0 ? (
@@ -874,35 +807,8 @@ export function HarnessGitHubActionsFlowGallery({
   );
 
   return (
-    <div className="space-y-4">
-      {compactMode ? (
-        <div className="space-y-3.5">
-          <CategoryTabs
-            categories={categories}
-            selectedCategory={effectiveCategory}
-            onSelect={(category) => {
-              setSelectedCategory(category);
-              setSelectedFlowId("");
-              setSelectedJobId("");
-            }}
-          />
-          {cardsSection}
-        </div>
-      ) : (
-        <div className="grid gap-4 xl:grid-cols-[232px_minmax(0,1fr)]">
-          <CategoryRail
-            categories={categories}
-            selectedCategory={effectiveCategory}
-            onSelect={(category) => {
-              setSelectedCategory(category);
-              setSelectedFlowId("");
-              setSelectedJobId("");
-            }}
-          />
-          <div>{cardsSection}</div>
-        </div>
-      )}
-
+    <div className="space-y-3">
+      {cardsSection}
       <WorkflowDetailDialog
         flow={activeFlow}
         activeJob={activeJob}
