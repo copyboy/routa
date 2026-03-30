@@ -235,32 +235,34 @@ function MiniDagPreview({ flow }: { flow: GitHubActionsFlow }) {
   const hiddenLaneCount = Math.max(lanes.length - visibleLanes.length, 0);
 
   return (
-    <div className="rounded-[18px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(243,247,252,0.96))] px-2 py-2">
-      <div className="flex min-w-max items-start gap-2 overflow-x-auto">
-        <div className="w-24 shrink-0 rounded-[16px] border border-sky-200/80 bg-[linear-gradient(135deg,rgba(239,246,255,0.9),rgba(255,255,255,0.96))] px-2 py-2">
+    <div className="overflow-x-auto">
+      <div className="flex min-w-max items-start gap-2.5">
+        <div className="w-20 shrink-0 rounded-[14px] border border-sky-200/80 bg-sky-50/80 px-2 py-2">
           <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-sky-700">Trigger</div>
-          <div className="mt-1 text-[10px] font-semibold leading-4 text-slate-900">{humanizeToken(normalizeGitHubWorkflowEventTokens(flow.event)[0] ?? flow.event)}</div>
+          <div className="mt-1 text-[10px] font-semibold leading-4 text-slate-900">
+            {humanizeToken(normalizeGitHubWorkflowEventTokens(flow.event)[0] ?? flow.event)}
+          </div>
         </div>
 
         {visibleLanes.map((laneJobs, laneIndex) => (
           <div key={`${flow.id}:lane:${laneIndex}`} className="flex items-start gap-2">
-            <div className="flex h-7 items-center text-slate-300">
+            <div className="flex h-8 items-center text-slate-300">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m0 0-4-4m4 4-4 4" />
               </svg>
             </div>
-            <div className="w-32 shrink-0 space-y-1">
+            <div className="w-28 shrink-0 space-y-1">
               {laneJobs.slice(0, 1).map((job) => (
-                <div key={job.id} className="rounded-[16px] border border-slate-200 bg-white/92 px-2 py-1.5">
-                  <div className="truncate text-[11px] font-semibold text-slate-900">{job.name}</div>
-                  <div className="mt-0.5 flex items-center justify-between gap-2">
-                    <span className="truncate text-[10px] text-slate-500">{job.runner}</span>
-                    <span className={cx("rounded-full border px-1.5 py-0.5 text-[9px]", JOB_KIND_STYLES[job.kind])}>{job.kind}</span>
+                <div key={job.id} className="rounded-[14px] border border-slate-200/80 bg-slate-50/75 px-2 py-1.5">
+                  <div className="truncate text-[10px] font-semibold text-slate-900">{job.name}</div>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <span className="truncate text-[9px] text-slate-500">{job.runner}</span>
+                    <span className={cx("rounded-full border px-1.5 py-0.5 text-[8px]", JOB_KIND_STYLES[job.kind])}>{job.kind}</span>
                   </div>
                 </div>
               ))}
               {laneJobs.length > 1 ? (
-                <div className="rounded-[16px] border border-dashed border-slate-200 bg-white/75 px-2 py-1 text-[10px] text-slate-500">
+                <div className="rounded-[14px] border border-dashed border-slate-200/80 bg-white/70 px-2 py-1 text-[9px] text-slate-500">
                   +{laneJobs.length - 1} more jobs
                 </div>
               ) : null}
@@ -270,12 +272,12 @@ function MiniDagPreview({ flow }: { flow: GitHubActionsFlow }) {
 
         {hiddenLaneCount > 0 ? (
           <div className="flex items-start gap-2">
-            <div className="flex h-7 items-center text-slate-300">
+            <div className="flex h-8 items-center text-slate-300">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m0 0-4-4m4 4-4 4" />
               </svg>
             </div>
-            <div className="w-20 shrink-0 rounded-[16px] border border-dashed border-slate-200 bg-white/75 px-2 py-2 text-[10px] text-slate-500">
+            <div className="w-20 shrink-0 rounded-[14px] border border-dashed border-slate-200/80 bg-white/70 px-2 py-2 text-[9px] text-slate-500">
               +{hiddenLaneCount} more stages
             </div>
           </div>
@@ -295,9 +297,14 @@ function WorkflowCard({
   onSelect: () => void;
 }) {
   const eventTokens = normalizeGitHubWorkflowEventTokens(flow.event);
-  const visibleTokens = eventTokens.slice(0, 2);
+  const visibleTokens = eventTokens.slice(0, 3);
   const hiddenTokenCount = Math.max(eventTokens.length - visibleTokens.length, 0);
   const stageCount = summarizeStageCount(flow);
+  const metaPills = [
+    { label: `${flow.jobs.length} jobs`, className: "border-slate-200 bg-slate-50/90 text-slate-600" },
+    { label: `${stageCount} stages`, className: "border-sky-200 bg-sky-50 text-sky-700" },
+    { label: `${countDependencies(flow)} dependencies`, className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  ];
 
   return (
     <button
@@ -311,40 +318,40 @@ function WorkflowCard({
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h4 className="truncate text-[14px] font-semibold tracking-[-0.02em] text-slate-900">{flow.name}</h4>
-        </div>
-        <div className="shrink-0 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-[10px] text-slate-500">
-          {flow.jobs.length} jobs
-        </div>
-      </div>
-
-      <div className="mt-2 flex flex-wrap gap-1">
-        {visibleTokens.map((token) => (
-          <span key={`${flow.id}:${token}`} className="rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-[10px] font-medium text-slate-600">
-            {token}
-          </span>
-        ))}
-        {hiddenTokenCount > 0 ? (
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-500">
-            +{hiddenTokenCount}
-          </span>
+        <h4 className="min-w-0 truncate pr-2 text-[15px] font-semibold tracking-[-0.02em] text-slate-900">{flow.name}</h4>
+        {flow.relativePath ? (
+          <div className="shrink-0 truncate rounded-full border border-slate-200 bg-white/90 px-2 py-0.5 font-mono text-[9px] text-slate-500">
+            {flow.relativePath.split("/").pop()}
+          </div>
         ) : null}
       </div>
 
-      <div className="mt-2.5">
+      <div className="mt-2 overflow-x-auto">
+        <div className="flex min-w-max items-center gap-1.5 whitespace-nowrap pr-1">
+          {visibleTokens.map((token) => (
+            <span key={`${flow.id}:${token}`} className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-medium text-violet-700">
+              {token}
+            </span>
+          ))}
+          {hiddenTokenCount > 0 ? (
+            <span className="rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-[10px] text-slate-500">
+              +{hiddenTokenCount}
+            </span>
+          ) : null}
+          {metaPills.map((pill) => (
+            <span key={`${flow.id}:${pill.label}`} className={cx("rounded-full border px-2.5 py-1 text-[10px]", pill.className)}>
+              {pill.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-2.5 rounded-[18px] bg-white/55 px-2.5 py-2">
         <MiniDagPreview flow={flow} />
       </div>
 
-      <div className="mt-2.5 flex flex-wrap gap-1.5 text-[10px] text-slate-500">
-        <div className="flex flex-wrap gap-1.5">
-          <span className="rounded-full border border-slate-200 bg-white/90 px-2.5 py-1">
-            {stageCount} stages
-          </span>
-          <span className="rounded-full border border-slate-200 bg-white/90 px-2.5 py-1">
-            {countDependencies(flow)} dependencies
-          </span>
-        </div>
+      <div className="mt-2 text-[10px] text-slate-500">
+        Click to inspect the full pipeline.
       </div>
     </button>
   );
@@ -689,7 +696,7 @@ export function HarnessGitHubActionsFlowGallery({
   const activeJob = activeFlow?.jobs.find((job) => job.id === selectedJobId) ?? activeFlow?.jobs[0] ?? null;
 
   const cardsSection = (
-    <section className="rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,248,252,0.95))] p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+    <>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2 text-[10px]">
           <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Actions</span>
@@ -737,7 +744,7 @@ export function HarnessGitHubActionsFlowGallery({
           {activeCategory?.emptyHint}
         </div>
       )}
-    </section>
+    </>
   );
 
   return (

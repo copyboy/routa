@@ -43,13 +43,11 @@ function PanelStateFrame({
 }) {
   return (
     <section className={panelClassName(variant)}>
-      <div className="rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,248,252,0.95))] p-4">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Repository workflows</div>
-        <h2 className="mt-2 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">
-          GitHub Actions Flow Gallery
-        </h2>
-        <div className="mt-4">{children}</div>
-      </div>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Repository workflows</div>
+      <h2 className="mt-2 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">
+        GitHub Actions Flow Gallery
+      </h2>
+      <div className="mt-4">{children}</div>
     </section>
   );
 }
