@@ -22,6 +22,7 @@ import { HarnessRepoSignalsPanel } from "@/client/components/harness-repo-signal
 import { HarnessReviewTriggersPanel } from "@/client/components/harness-review-triggers-panel";
 import { HarnessSpecSourcesPanel } from "@/client/components/harness-spec-sources-panel";
 import { HarnessUnsupportedState, getHarnessUnsupportedRepoMessage } from "@/client/components/harness-support-state";
+import { HarnessFloatingNav, type HarnessNavSection } from "@/client/components/harness-floating-nav";
 import { useHarnessSettingsData } from "@/client/hooks/use-harness-settings-data";
 import { useCodebases, useWorkspaces } from "@/client/hooks/use-workspaces";
 import { loadRepoSelection, saveRepoSelection } from "@/client/utils/repo-selection-storage";
@@ -147,7 +148,16 @@ export default function HarnessSettingsPage() {
     saveRepoSelection("harness", workspaceId, activeRepoSelection);
   }, [activeRepoSelection, workspaceId]);
 
-
+  // 定义导航 sections
+  const navSections: HarnessNavSection[] = useMemo(() => [
+    { id: "governance-loop", label: "Governance Loop" },
+    { id: "spec-sources", label: "Spec Sources" },
+    { id: "agent-instructions", label: "Agent Instructions" },
+    { id: "repo-signals", label: "Repository Signals" },
+    { id: "hook-systems", label: "Hook Systems" },
+    { id: "review-triggers", label: "Review Triggers" },
+    { id: "entrix-fitness", label: "Entrix Fitness" },
+  ], []);
 
   const governanceContextPanel = useMemo(() => {
     if (selectedGovernanceNodeId === null) {
@@ -372,61 +382,70 @@ export default function HarnessSettingsPage() {
           )}
         />
 
-        <HarnessGovernanceLoopGraph
-          repoPath={activeRepoPath}
-          selectedTier={selectedTier}
-          specsError={specsState.error}
-          dimensionCount={dimensionSpecs.length}
-          planError={planState.error}
-          metricCount={planState.data?.metricCount ?? 0}
-          hardGateCount={planState.data?.hardGateCount ?? 0}
-          unsupportedMessage={unsupportedRepoMessage}
-          hooksData={hooksState.data}
-          hooksError={hooksState.error}
-          workflowData={githubActionsState.data}
-          workflowError={githubActionsState.error}
-          instructionsData={instructionsState.data}
-          instructionsError={instructionsState.error}
-          fitnessFiles={specFiles}
-          selectedNodeId={selectedGovernanceNodeId}
-          onSelectedNodeChange={setSelectedGovernanceNodeId}
-          contextPanel={governanceContextPanel}
-        />
+        <div id="governance-loop">
+          <HarnessGovernanceLoopGraph
+            repoPath={activeRepoPath}
+            selectedTier={selectedTier}
+            specsError={specsState.error}
+            dimensionCount={dimensionSpecs.length}
+            planError={planState.error}
+            metricCount={planState.data?.metricCount ?? 0}
+            hardGateCount={planState.data?.hardGateCount ?? 0}
+            unsupportedMessage={unsupportedRepoMessage}
+            hooksData={hooksState.data}
+            hooksError={hooksState.error}
+            workflowData={githubActionsState.data}
+            workflowError={githubActionsState.error}
+            instructionsData={instructionsState.data}
+            instructionsError={instructionsState.error}
+            fitnessFiles={specFiles}
+            selectedNodeId={selectedGovernanceNodeId}
+            onSelectedNodeChange={setSelectedGovernanceNodeId}
+            contextPanel={governanceContextPanel}
+          />
+        </div>
 
-        <HarnessSpecSourcesPanel
-          repoLabel={selectedRepoLabel}
-          unsupportedMessage={unsupportedRepoMessage}
-          data={specSourcesState.data}
-          loading={specSourcesState.loading}
-          error={specSourcesState.error}
-        />
+        <div id="spec-sources">
+          <HarnessSpecSourcesPanel
+            repoLabel={selectedRepoLabel}
+            unsupportedMessage={unsupportedRepoMessage}
+            data={specSourcesState.data}
+            loading={specSourcesState.loading}
+            error={specSourcesState.error}
+          />
+        </div>
 
-        <HarnessAgentInstructionsPanel
-          workspaceId={workspaceId}
-          codebaseId={activeRepoCodebaseId}
-          repoPath={activeRepoPath}
-          repoLabel={selectedRepoLabel}
-          unsupportedMessage={unsupportedRepoMessage}
-          data={instructionsState.data}
-          loading={instructionsState.loading}
-          error={instructionsState.error}
-          onAuditRerun={reloadInstructions}
-        />
+        <div id="agent-instructions">
+          <HarnessAgentInstructionsPanel
+            workspaceId={workspaceId}
+            codebaseId={activeRepoCodebaseId}
+            repoPath={activeRepoPath}
+            repoLabel={selectedRepoLabel}
+            unsupportedMessage={unsupportedRepoMessage}
+            data={instructionsState.data}
+            loading={instructionsState.loading}
+            error={instructionsState.error}
+            onAuditRerun={reloadInstructions}
+          />
+        </div>
 
-        <HarnessRepoSignalsPanel
-          workspaceId={workspaceId}
-          codebaseId={activeRepoCodebaseId}
-          repoPath={activeRepoPath}
-          repoLabel={selectedRepoLabel}
-          mode="test"
-          unsupportedMessage={unsupportedRepoMessage}
-        />
+        <div id="repo-signals">
+          <HarnessRepoSignalsPanel
+            workspaceId={workspaceId}
+            codebaseId={activeRepoCodebaseId}
+            repoPath={activeRepoPath}
+            repoLabel={selectedRepoLabel}
+            mode="test"
+            unsupportedMessage={unsupportedRepoMessage}
+          />
+        </div>
 
-        <HarnessSectionCard
-          title="Hook systems"
-          description="Runtime hook and agent hook surfaces for repository lifecycle automation."
-          variant="full"
-        >
+        <div id="hook-systems">
+          <HarnessSectionCard
+            title="Hook systems"
+            description="Runtime hook and agent hook surfaces for repository lifecycle automation."
+            variant="full"
+          >
           <div className="space-y-4">
             <div className="min-w-0">
               <HarnessHookRuntimePanel
@@ -456,21 +475,25 @@ export default function HarnessSettingsPage() {
               />
             </div>
           </div>
-        </HarnessSectionCard>
+          </HarnessSectionCard>
+        </div>
 
-        <HarnessReviewTriggersPanel
-          repoLabel={selectedRepoLabel}
-          unsupportedMessage={unsupportedRepoMessage}
-          data={hooksState.data}
-          loading={hooksState.loading}
-          error={hooksState.error}
-        />
+        <div id="review-triggers">
+          <HarnessReviewTriggersPanel
+            repoLabel={selectedRepoLabel}
+            unsupportedMessage={unsupportedRepoMessage}
+            data={hooksState.data}
+            loading={hooksState.loading}
+            error={hooksState.error}
+          />
+        </div>
 
-        <HarnessSectionCard
-          title="Entrix Fitness"
-          description="Dimension specs and execution plan topology for repository quality enforcement."
-          variant="full"
-        >
+        <div id="entrix-fitness">
+          <HarnessSectionCard
+            title="Entrix Fitness"
+            description="Dimension specs and execution plan topology for repository quality enforcement."
+            variant="full"
+          >
           <div className="space-y-4">
             <HarnessFitnessFilesDashboard
               specFiles={specFiles}
@@ -774,7 +797,8 @@ export default function HarnessSettingsPage() {
               embedded
             />
           </div>
-        </HarnessSectionCard>
+          </HarnessSectionCard>
+        </div>
 
         <HarnessGitHubActionsFlowPanel
           workspaceId={workspaceId}
@@ -787,6 +811,9 @@ export default function HarnessSettingsPage() {
           error={githubActionsState.error}
         />
       </div>
+
+      {/* 浮动导航 */}
+      <HarnessFloatingNav sections={navSections} />
     </SettingsRouteShell>
   );
 }
