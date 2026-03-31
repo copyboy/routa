@@ -11,6 +11,7 @@ import {
   HarnessExecutionPlanFlow,
   type TierValue,
 } from "@/client/components/harness-execution-plan-flow";
+import { HarnessSectionCard } from "@/client/components/harness-section-card";
 import { HarnessAgentInstructionsPanel } from "@/client/components/harness-agent-instructions-panel";
 import { HarnessFitnessFilesDashboard } from "@/client/components/harness-fitness-files-dashboard";
 import { HarnessGovernanceLoopGraph } from "@/client/components/harness-governance-loop-graph";
@@ -412,27 +413,35 @@ export default function HarnessSettingsPage() {
           onAuditRerun={reloadInstructions}
         />
 
-        <HarnessHookRuntimePanel
-          workspaceId={workspaceId}
-          codebaseId={activeRepoCodebaseId}
-          repoPath={activeRepoPath}
-          repoLabel={selectedRepoLabel}
-          unsupportedMessage={unsupportedRepoMessage}
-          data={hooksState.data}
-          loading={hooksState.loading}
-          error={hooksState.error}
-        />
+        <HarnessSectionCard
+          title="Hook systems"
+          description="Runtime hook and agent hook surfaces for repository lifecycle automation."
+          variant="full"
+        >
+          <HarnessHookRuntimePanel
+            workspaceId={workspaceId}
+            codebaseId={activeRepoCodebaseId}
+            repoPath={activeRepoPath}
+            repoLabel={selectedRepoLabel}
+            unsupportedMessage={unsupportedRepoMessage}
+            data={hooksState.data}
+            loading={hooksState.loading}
+            error={hooksState.error}
+            embedded
+          />
 
-        <HarnessAgentHookPanel
-          workspaceId={workspaceId}
-          codebaseId={activeRepoCodebaseId}
-          repoPath={activeRepoPath}
-          repoLabel={selectedRepoLabel}
-          unsupportedMessage={unsupportedRepoMessage}
-          data={agentHooksState.data}
-          loading={agentHooksState.loading}
-          error={agentHooksState.error}
-        />
+          <HarnessAgentHookPanel
+            workspaceId={workspaceId}
+            codebaseId={activeRepoCodebaseId}
+            repoPath={activeRepoPath}
+            repoLabel={selectedRepoLabel}
+            unsupportedMessage={unsupportedRepoMessage}
+            data={agentHooksState.data}
+            loading={agentHooksState.loading}
+            error={agentHooksState.error}
+            embedded
+          />
+        </HarnessSectionCard>
 
         <HarnessReviewTriggersPanel
           repoLabel={selectedRepoLabel}
@@ -442,308 +451,315 @@ export default function HarnessSettingsPage() {
           error={hooksState.error}
         />
 
-        <section className="space-y-4">
-          <HarnessFitnessFilesDashboard
-            specFiles={specFiles}
-            selectedSpec={visibleSpec}
-            loading={specsState.loading}
-            error={specsState.error}
-            unsupportedMessage={unsupportedRepoMessage}
-          />
+        <HarnessSectionCard
+          title="Entrix Fitness"
+          description="Dimension specs and execution plan topology for repository quality enforcement."
+          variant="full"
+        >
+          <div className="space-y-4">
+            <HarnessFitnessFilesDashboard
+              specFiles={specFiles}
+              selectedSpec={visibleSpec}
+              loading={specsState.loading}
+              error={specsState.error}
+              unsupportedMessage={unsupportedRepoMessage}
+              embedded
+            />
 
-          <div className="rounded-2xl border border-desktop-border bg-desktop-bg-secondary/55 p-3 shadow-sm">
-            <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-              <div className="min-w-0 xl:border-r xl:border-desktop-border xl:pr-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Discovery</div>
-                  <h3 className="mt-1 text-sm font-semibold text-desktop-text-primary">Entrix Fitness</h3>
-                </div>
-                <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
-                  {specFiles.length} items
-                </div>
-              </div>
-
-              <div className="mt-3 space-y-1.5">
-                {specsState.loading ? (
-                  <div className="rounded-lg border border-desktop-border bg-desktop-bg-primary/80 px-3 py-3 text-[11px] text-desktop-text-secondary">
-                    Loading fitness specs...
-                  </div>
-                ) : null}
-
-                {unsupportedRepoMessage ? (
-                  <HarnessUnsupportedState className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-[11px] text-amber-800" />
-                ) : null}
-
-                {specsState.error && !unsupportedRepoMessage ? (
-                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-[11px] text-red-700">
-                    {specsState.error}
-                  </div>
-                ) : null}
-
-                {!specsState.loading && !specsState.error && !unsupportedRepoMessage && specFiles.length === 0 ? (
-                  <div className="rounded-lg border border-desktop-border bg-desktop-bg-primary/80 px-3 py-3 text-[11px] text-desktop-text-secondary">
-                    No fitness files found for this repository.
-                  </div>
-                ) : null}
-
-                {!unsupportedRepoMessage ? primaryFiles.map((file) => (
-                  <button
-                    key={file.name}
-                    type="button"
-                    onClick={() => {
-                      setSelectedSpecName(file.name);
-                    }}
-                    className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
-                      visibleSpec?.name === file.name
-                        ? "border-desktop-accent bg-desktop-bg-primary text-desktop-text-primary"
-                        : "border-desktop-border bg-desktop-bg-primary/80 text-desktop-text-secondary hover:bg-desktop-bg-primary"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-[11px] font-semibold">{file.name}</div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-current/75">
-                          <span>{file.kind === "dimension" ? (file.dimension ?? "dimension") : file.kind}</span>
-                          <span className="font-mono">{file.language}</span>
-                        </div>
-                      </div>
-                      {file.metricCount > 0 ? (
-                        <div className="shrink-0 rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5 text-[10px]">
-                          {file.metricCount}
-                        </div>
-                      ) : null}
+            <div className="rounded-2xl border border-desktop-border bg-desktop-bg-secondary/55 p-3 shadow-sm">
+              <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+                <div className="min-w-0 xl:border-r xl:border-desktop-border xl:pr-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Discovery</div>
                     </div>
-                  </button>
-                )) : null}
+                    <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
+                      {specFiles.length} items
+                    </div>
+                  </div>
 
-                {!unsupportedRepoMessage && auxiliaryFiles.length > 0 ? (
-                  <details className="mt-3 rounded-lg border border-desktop-border bg-desktop-bg-primary/60 px-3 py-2">
-                    <summary className="cursor-pointer list-none text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
-                      Auxiliary files
-                    </summary>
-                    <div className="mt-2 space-y-1.5">
-                      {auxiliaryFiles.map((file) => (
-                        <button
-                          key={file.name}
-                          type="button"
-                          onClick={() => {
-                            setSelectedSpecName(file.name);
-                          }}
-                          className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
-                            visibleSpec?.name === file.name
-                              ? "border-desktop-accent bg-desktop-bg-primary text-desktop-text-primary"
-                              : "border-desktop-border bg-desktop-bg-primary/80 text-desktop-text-secondary hover:bg-desktop-bg-primary"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-[11px] font-semibold">{file.name}</div>
-                              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-current/75">
-                                <span>{file.kind}</span>
-                                <span className="font-mono">{file.language}</span>
-                              </div>
+                  <div className="mt-3 space-y-1.5">
+                    {specsState.loading ? (
+                      <div className="rounded-lg border border-desktop-border bg-desktop-bg-primary/80 px-3 py-3 text-[11px] text-desktop-text-secondary">
+                        Loading fitness specs...
+                      </div>
+                    ) : null}
+
+                    {unsupportedRepoMessage ? (
+                      <HarnessUnsupportedState className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-[11px] text-amber-800" />
+                    ) : null}
+
+                    {specsState.error && !unsupportedRepoMessage ? (
+                      <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-[11px] text-red-700">
+                        {specsState.error}
+                      </div>
+                    ) : null}
+
+                    {!specsState.loading && !specsState.error && !unsupportedRepoMessage && specFiles.length === 0 ? (
+                      <div className="rounded-lg border border-desktop-border bg-desktop-bg-primary/80 px-3 py-3 text-[11px] text-desktop-text-secondary">
+                        No fitness files found for this repository.
+                      </div>
+                    ) : null}
+
+                    {!unsupportedRepoMessage ? primaryFiles.map((file) => (
+                      <button
+                        key={file.name}
+                        type="button"
+                        onClick={() => {
+                          setSelectedSpecName(file.name);
+                        }}
+                        className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
+                          visibleSpec?.name === file.name
+                            ? "border-desktop-accent bg-desktop-bg-primary text-desktop-text-primary"
+                            : "border-desktop-border bg-desktop-bg-primary/80 text-desktop-text-secondary hover:bg-desktop-bg-primary"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-semibold">{file.name}</div>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-current/75">
+                              <span>{file.kind === "dimension" ? (file.dimension ?? "dimension") : file.kind}</span>
+                              <span className="font-mono">{file.language}</span>
                             </div>
                           </div>
-                        </button>
-                      ))}
-                    </div>
-                  </details>
-                ) : null}
-              </div>
-              </div>
-
-              <div className="min-w-0 px-1 xl:px-0 xl:pl-1">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Source view</div>
-                  <h3 className="mt-1 text-sm font-semibold text-desktop-text-primary">{visibleSpec?.name ?? "Select a fitness file"}</h3>
-                </div>
-                {visibleSpec?.kind === "dimension" ? (
-                  <div className="flex flex-wrap gap-2 text-[10px]">
-                    <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-desktop-text-secondary">
-                      weight {visibleSpec.weight ?? 0}
-                    </span>
-                    <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-desktop-text-secondary">
-                      pass {visibleSpec.thresholdPass ?? 90}
-                    </span>
-                    <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-desktop-text-secondary">
-                      warn {visibleSpec.thresholdWarn ?? 80}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-
-              {unsupportedRepoMessage ? (
-                <HarnessUnsupportedState />
-              ) : visibleSpec ? (
-                <div className="mt-4 space-y-3">
-                <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-desktop-text-secondary">
-                    <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1">{visibleSpec.kind}</span>
-                    <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1">{visibleSpec.language}</span>
-                    <span className="font-mono text-desktop-text-primary">{visibleSpec.relativePath}</span>
-                  </div>
-                  {visibleSpec.kind === "rulebook" ? (
-                    <div className="mt-3 text-[11px] leading-5 text-desktop-text-secondary">
-                      This file stays narrative. Entrix loader skips README and does not turn it into executable dimensions.
-                    </div>
-                  ) : null}
-                  {visibleSpec.kind === "manifest" ? (
-                    <div className="mt-3 text-[11px] leading-5 text-desktop-text-secondary">
-                      Manifest drives evidence ordering. Dimension specs should follow this file instead of raw directory order.
-                    </div>
-                  ) : null}
-                  {visibleSpec.kind === "policy" ? (
-                    <div className="mt-3 text-[11px] leading-5 text-desktop-text-secondary">
-                      Policy file. This is adjacent to fitness execution, but it is not part of the dimension scoring pipeline.
-                    </div>
-                  ) : null}
-                  {visibleSpec.kind === "narrative" ? (
-                    <div className="mt-3 text-[11px] leading-5 text-desktop-text-secondary">
-                      Markdown exists in the fitness directory, but without executable metrics frontmatter.
-                    </div>
-                  ) : null}
-                </div>
-
-                {visibleSpec.kind === "dimension" && visibleSpec.frontmatterSource ? (
-                  <details className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
-                    <summary className="cursor-pointer list-none text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
-                      Frontmatter
-                    </summary>
-                    <div className="mt-3">
-                      <CodeViewer
-                        code={visibleSpec.frontmatterSource}
-                        filename={`${visibleSpec.name}.frontmatter.yaml`}
-                        language="yaml"
-                        maxHeight="240px"
-                        showHeader={false}
-                        wordWrap
-                      />
-                    </div>
-                  </details>
-                ) : null}
-
-                {visibleSpec.kind === "manifest" && visibleSpec.manifestEntries && visibleSpec.manifestEntries.length > 0 ? (
-                  <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
-                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Manifest order</div>
-                    <div className="space-y-1.5">
-                      {visibleSpec.manifestEntries.map((entry, index) => (
-                        <div key={entry} className="flex items-center gap-2 text-[11px] text-desktop-text-secondary">
-                          <span className="w-5 shrink-0 text-right text-[10px] text-desktop-text-secondary">{index + 1}</span>
-                          <span className="font-mono text-desktop-text-primary">{entry}</span>
+                          {file.metricCount > 0 ? (
+                            <div className="shrink-0 rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5 text-[10px]">
+                              {file.metricCount}
+                            </div>
+                          ) : null}
                         </div>
-                      ))}
+                      </button>
+                    )) : null}
+
+                    {!unsupportedRepoMessage && auxiliaryFiles.length > 0 ? (
+                      <details className="mt-3 rounded-lg border border-desktop-border bg-desktop-bg-primary/60 px-3 py-2">
+                        <summary className="cursor-pointer list-none text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
+                          Auxiliary files
+                        </summary>
+                        <div className="mt-2 space-y-1.5">
+                          {auxiliaryFiles.map((file) => (
+                            <button
+                              key={file.name}
+                              type="button"
+                              onClick={() => {
+                                setSelectedSpecName(file.name);
+                              }}
+                              className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                                visibleSpec?.name === file.name
+                                  ? "border-desktop-accent bg-desktop-bg-primary text-desktop-text-primary"
+                                  : "border-desktop-border bg-desktop-bg-primary/80 text-desktop-text-secondary hover:bg-desktop-bg-primary"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-[11px] font-semibold">{file.name}</div>
+                                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-current/75">
+                                    <span>{file.kind}</span>
+                                    <span className="font-mono">{file.language}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </details>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="min-w-0 px-1 xl:px-0 xl:pl-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Source view</div>
+                      <h3 className="mt-1 text-sm font-semibold text-desktop-text-primary">{visibleSpec?.name ?? "Select a fitness file"}</h3>
                     </div>
+                    {visibleSpec?.kind === "dimension" ? (
+                      <div className="flex flex-wrap gap-2 text-[10px]">
+                        <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-desktop-text-secondary">
+                          weight {visibleSpec.weight ?? 0}
+                        </span>
+                        <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-desktop-text-secondary">
+                          pass {visibleSpec.thresholdPass ?? 90}
+                        </span>
+                        <span className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-desktop-text-secondary">
+                          warn {visibleSpec.thresholdWarn ?? 80}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
 
-                {visibleSpec.language === "yaml" ? (
-                  <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
-                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">File source</div>
-                    <CodeViewer
-                      code={visibleSpec.source}
-                      filename={visibleSpec.name}
-                      language={visibleSpec.language === "yaml" ? "yaml" : undefined}
-                      maxHeight="360px"
-                      showHeader={false}
-                      wordWrap
-                    />
-                  </div>
-                ) : null}
+                  {unsupportedRepoMessage ? (
+                    <HarnessUnsupportedState />
+                  ) : visibleSpec ? (
+                    <div className="mt-4 space-y-3">
+                      <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-desktop-text-secondary">
+                          <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1">{visibleSpec.kind}</span>
+                          <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1">{visibleSpec.language}</span>
+                          <span className="font-mono text-desktop-text-primary">{visibleSpec.relativePath}</span>
+                        </div>
+                        {visibleSpec.kind === "rulebook" ? (
+                          <div className="mt-3 text-[11px] leading-5 text-desktop-text-secondary">
+                            This file stays narrative. Entrix loader skips README and does not turn it into executable dimensions.
+                          </div>
+                        ) : null}
+                        {visibleSpec.kind === "manifest" ? (
+                          <div className="mt-3 text-[11px] leading-5 text-desktop-text-secondary">
+                            Manifest drives evidence ordering. Dimension specs should follow this file instead of raw directory order.
+                          </div>
+                        ) : null}
+                        {visibleSpec.kind === "policy" ? (
+                          <div className="mt-3 text-[11px] leading-5 text-desktop-text-secondary">
+                            Policy file. This is adjacent to fitness execution, but it is not part of the dimension scoring pipeline.
+                          </div>
+                        ) : null}
+                        {visibleSpec.kind === "narrative" ? (
+                          <div className="mt-3 text-[11px] leading-5 text-desktop-text-secondary">
+                            Markdown exists in the fitness directory, but without executable metrics frontmatter.
+                          </div>
+                        ) : null}
+                      </div>
 
-                {visibleSpec.language === "markdown" && visibleSpec.kind !== "dimension" ? (
-                  <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
-                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Commands</div>
-                    {visibleSpecCodeBlocks.length > 0 ? (
-                      <div className="space-y-3">
-                        {visibleSpecCodeBlocks.map((block) => (
+                      {visibleSpec.kind === "dimension" && visibleSpec.frontmatterSource ? (
+                        <details className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
+                          <summary className="cursor-pointer list-none text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
+                            Frontmatter
+                          </summary>
+                          <div className="mt-3">
+                            <CodeViewer
+                              code={visibleSpec.frontmatterSource}
+                              filename={`${visibleSpec.name}.frontmatter.yaml`}
+                              language="yaml"
+                              maxHeight="240px"
+                              showHeader={false}
+                              wordWrap
+                            />
+                          </div>
+                        </details>
+                      ) : null}
+
+                      {visibleSpec.kind === "manifest" && visibleSpec.manifestEntries && visibleSpec.manifestEntries.length > 0 ? (
+                        <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
+                          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Manifest order</div>
+                          <div className="space-y-1.5">
+                            {visibleSpec.manifestEntries.map((entry, index) => (
+                              <div key={entry} className="flex items-center gap-2 text-[11px] text-desktop-text-secondary">
+                                <span className="w-5 shrink-0 text-right text-[10px] text-desktop-text-secondary">{index + 1}</span>
+                                <span className="font-mono text-desktop-text-primary">{entry}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {visibleSpec.language === "yaml" ? (
+                        <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
+                          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">File source</div>
                           <CodeViewer
-                            key={block.id}
-                            code={block.code}
-                            filename={`${visibleSpec.name}.${block.language || "txt"}`}
-                            maxHeight="220px"
+                            code={visibleSpec.source}
+                            filename={visibleSpec.name}
+                            language={visibleSpec.language === "yaml" ? "yaml" : undefined}
+                            maxHeight="360px"
                             showHeader={false}
                             wordWrap
                           />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-[11px] text-desktop-text-secondary">
-                        No command blocks found in this markdown file.
-                      </div>
-                    )}
-                  </div>
-                ) : null}
+                        </div>
+                      ) : null}
 
-                {visibleSpec.kind === "dimension" ? (
-                  <div className="overflow-hidden rounded-xl border border-desktop-border bg-desktop-bg-primary/80">
-                    <div className="grid grid-cols-[minmax(0,1.5fr)_auto] gap-3 border-b border-desktop-border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
-                      <div>Metric</div>
-                      <div>Dispatch</div>
-                    </div>
-                    {visibleSpec.metrics.map((metric) => (
-                      <div key={metric.name} className="grid grid-cols-[minmax(0,1.5fr)_auto] gap-3 border-t border-desktop-border px-3 py-2.5 first:border-t-0">
-                        <div className="min-w-0">
-                          <div className="text-[11px] font-semibold text-desktop-text-primary">{metric.name}</div>
-                          <div className="mt-1 break-all text-[10px] font-mono text-desktop-text-secondary">{metric.command || "No command"}</div>
-                          {metric.description ? (
-                            <div className="mt-1 text-[10px] leading-4 text-desktop-text-secondary">{metric.description}</div>
-                          ) : null}
-                          <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-desktop-text-secondary">
-                            {metric.evidenceType ? (
-                              <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5">
-                                evidence {metric.evidenceType}
-                              </span>
-                            ) : null}
-                            {metric.pattern ? (
-                              <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5">
-                                pattern
-                              </span>
-                            ) : null}
-                            {metric.scope.map((scope) => (
-                              <span key={scope} className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5">
-                                scope {scope}
-                              </span>
-                            ))}
-                            {metric.runWhenChanged.map((value) => (
-                              <span key={value} className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5">
-                                changed {value}
-                              </span>
-                            ))}
+                      {visibleSpec.language === "markdown" && visibleSpec.kind !== "dimension" ? (
+                        <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
+                          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Commands</div>
+                          {visibleSpecCodeBlocks.length > 0 ? (
+                            <div className="space-y-3">
+                              {visibleSpecCodeBlocks.map((block) => (
+                                <CodeViewer
+                                  key={block.id}
+                                  code={block.code}
+                                  filename={`${visibleSpec.name}.${block.language || "txt"}`}
+                                  maxHeight="220px"
+                                  showHeader={false}
+                                  wordWrap
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-[11px] text-desktop-text-secondary">
+                              No command blocks found in this markdown file.
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+
+                      {visibleSpec.kind === "dimension" ? (
+                        <div className="overflow-hidden rounded-xl border border-desktop-border bg-desktop-bg-primary/80">
+                          <div className="grid grid-cols-[minmax(0,1.5fr)_auto] gap-3 border-b border-desktop-border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
+                            <div>Metric</div>
+                            <div>Dispatch</div>
                           </div>
+                          {visibleSpec.metrics.map((metric) => (
+                            <div key={metric.name} className="grid grid-cols-[minmax(0,1.5fr)_auto] gap-3 border-t border-desktop-border px-3 py-2.5 first:border-t-0">
+                              <div className="min-w-0">
+                                <div className="text-[11px] font-semibold text-desktop-text-primary">{metric.name}</div>
+                                <div className="mt-1 break-all text-[10px] font-mono text-desktop-text-secondary">{metric.command || "No command"}</div>
+                                {metric.description ? (
+                                  <div className="mt-1 text-[10px] leading-4 text-desktop-text-secondary">{metric.description}</div>
+                                ) : null}
+                                <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-desktop-text-secondary">
+                                  {metric.evidenceType ? (
+                                    <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5">
+                                      evidence {metric.evidenceType}
+                                    </span>
+                                  ) : null}
+                                  {metric.pattern ? (
+                                    <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5">
+                                      pattern
+                                    </span>
+                                  ) : null}
+                                  {metric.scope.map((scope) => (
+                                    <span key={scope} className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5">
+                                      scope {scope}
+                                    </span>
+                                  ))}
+                                  {metric.runWhenChanged.map((value) => (
+                                    <span key={value} className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2 py-0.5">
+                                      changed {value}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap content-start justify-end gap-1.5 text-[10px]">
+                                <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">{metric.runner}</span>
+                                <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">{metric.tier}</span>
+                                <span className={`rounded-full border px-2.5 py-1 ${metric.hardGate ? "border-red-200 bg-red-50 text-red-700" : "border-desktop-border bg-desktop-bg-secondary text-desktop-text-secondary"}`}>
+                                  {metric.gate}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                        <div className="flex flex-wrap content-start justify-end gap-1.5 text-[10px]">
-                          <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">{metric.runner}</span>
-                          <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">{metric.tier}</span>
-                          <span className={`rounded-full border px-2.5 py-1 ${metric.hardGate ? "border-red-200 bg-red-50 text-red-700" : "border-desktop-border bg-desktop-bg-secondary text-desktop-text-secondary"}`}>
-                            {metric.gate}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <div className="mt-4 rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-4 py-6 text-[11px] text-desktop-text-secondary">
-                Select a repository and a fitness file to inspect its frontmatter and metric mapping.
-              </div>
-            )}
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-4 py-6 text-[11px] text-desktop-text-secondary">
+                      Select a repository and a fitness file to inspect its frontmatter and metric mapping.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        </section>
 
-        <HarnessExecutionPlanFlow
-          loading={planState.loading}
-          error={planState.error}
-          plan={planState.data}
-          repoLabel={selectedRepoLabel}
-          selectedTier={selectedTier}
-          onTierChange={setSelectedTier}
-          unsupportedMessage={unsupportedRepoMessage}
-        />
+            <HarnessExecutionPlanFlow
+              loading={planState.loading}
+              error={planState.error}
+              plan={planState.data}
+              repoLabel={selectedRepoLabel}
+              selectedTier={selectedTier}
+              onTierChange={setSelectedTier}
+              unsupportedMessage={unsupportedRepoMessage}
+              embedded
+            />
+          </div>
+        </HarnessSectionCard>
 
         <HarnessGitHubActionsFlowPanel
           workspaceId={workspaceId}

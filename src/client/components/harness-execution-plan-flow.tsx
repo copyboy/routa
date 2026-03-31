@@ -77,6 +77,7 @@ type HarnessExecutionPlanFlowProps = {
   onTierChange: (tier: TierValue) => void;
   unsupportedMessage?: string | null;
   variant?: "full" | "compact";
+  embedded?: boolean;
 };
 
 function getStatusTone(status: EdgeStatus | undefined) {
@@ -503,6 +504,7 @@ export function HarnessExecutionPlanFlow({
   onTierChange,
   unsupportedMessage,
   variant = "full",
+  embedded = false,
 }: HarnessExecutionPlanFlowProps) {
   const compactMode = variant === "compact";
   const [expandedState, setExpandedState] = useState<{
@@ -562,14 +564,13 @@ export function HarnessExecutionPlanFlow({
   );
   const flowKey = `${variant}:${planKey ?? "empty"}:${[...expandedDimensions].sort().join("|")}`;
 
-  return (
-    <section className={variant === "compact"
-      ? "rounded-2xl border border-desktop-border bg-desktop-bg-primary/60 p-4"
-      : "rounded-2xl border border-desktop-border bg-desktop-bg-secondary/55 p-4 shadow-sm"}
-    >
+  const content = (
+    <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Entrix Fitness</div>
+          {!embedded ? (
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Entrix Fitness</div>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="rounded-full border border-desktop-border bg-desktop-bg-primary p-0.5">
@@ -672,6 +673,19 @@ export function HarnessExecutionPlanFlow({
           </div>
         </div>
       ) : null}
+    </>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <section className={variant === "compact"
+      ? "rounded-2xl border border-desktop-border bg-desktop-bg-primary/60 p-4"
+      : "rounded-2xl border border-desktop-border bg-desktop-bg-secondary/55 p-4 shadow-sm"}
+    >
+      {content}
     </section>
   );
 }

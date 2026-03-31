@@ -25,6 +25,7 @@ type HarnessFitnessFilesDashboardProps = {
   loading: boolean;
   error?: string | null;
   unsupportedMessage?: string | null;
+  embedded?: boolean;
 };
 
 function DimensionDensityTooltip({ active, payload }: TooltipContentProps<ValueType, NameType>) {
@@ -62,21 +63,15 @@ export function HarnessFitnessFilesDashboard({
   loading,
   error,
   unsupportedMessage,
+  embedded = false,
 }: HarnessFitnessFilesDashboardProps) {
   const model = useMemo(
     () => buildHarnessFitnessFilesDashboardModel(specFiles, selectedSpec),
     [selectedSpec, specFiles],
   );
 
-  return (
-    <HarnessSectionCard
-      title="Entrix Fitness"
-      description="Entrix fitness manifest and dimension scoring surfaces."
-      variant="full"
-      actions={
-        loading ? <span className="text-[10px] text-desktop-text-secondary">Loading...</span> : null
-      }
-    >
+  const content = (
+    <>
       {unsupportedMessage ? (
         <HarnessUnsupportedState className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-[11px] text-amber-800" />
       ) : null}
@@ -136,6 +131,23 @@ export function HarnessFitnessFilesDashboard({
           </section>
         </div>
       ) : null}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="space-y-3">{content}</div>;
+  }
+
+  return (
+    <HarnessSectionCard
+      title="Entrix Fitness"
+      description="Entrix fitness manifest and dimension scoring surfaces."
+      variant="full"
+      actions={
+        loading ? <span className="text-[10px] text-desktop-text-secondary">Loading...</span> : null
+      }
+    >
+      {content}
     </HarnessSectionCard>
   );
 }

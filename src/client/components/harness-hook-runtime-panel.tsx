@@ -16,6 +16,7 @@ type HooksPanelProps = {
   loading?: boolean;
   error?: string | null;
   variant?: "full" | "compact";
+  embedded?: boolean;
 };
 
 type HooksState = {
@@ -34,6 +35,7 @@ export function HarnessHookRuntimePanel({
   loading,
   error,
   variant = "full",
+  embedded = false,
 }: HooksPanelProps) {
   const hasExternalState = loading !== undefined || error !== undefined || data !== undefined;
   const [hooksState, setHooksState] = useState<HooksState>({
@@ -118,47 +120,43 @@ export function HarnessHookRuntimePanel({
 
   const systemAction = <span className="text-[10px] text-desktop-text-secondary">Hook systems</span>;
 
-  if (resolvedState.loading) {
-    return (
-      <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
-        <HarnessSectionStateFrame>Loading hook runtime...</HarnessSectionStateFrame>
-      </HarnessSectionCard>
-    );
-  }
+  const runtimeStateFrame = () => {
+    if (resolvedState.loading) {
+      return <HarnessSectionStateFrame>Loading hook runtime...</HarnessSectionStateFrame>;
+    }
 
-  if (unsupportedMessage) {
-    return (
-      <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
-        <HarnessUnsupportedState className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-[11px] text-amber-800" />
-      </HarnessSectionCard>
-    );
-  }
+    if (unsupportedMessage) {
+      return <HarnessUnsupportedState className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-[11px] text-amber-800" />;
+    }
 
-  if (resolvedState.error) {
-    return (
-      <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
-        <HarnessSectionStateFrame tone="error">{resolvedState.error}</HarnessSectionStateFrame>
-      </HarnessSectionCard>
-    );
-  }
+    if (resolvedState.error) {
+      return <HarnessSectionStateFrame tone="error">{resolvedState.error}</HarnessSectionStateFrame>;
+    }
 
-  if (!resolvedState.data) {
-    return (
-      <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
+    if (!resolvedState.data) {
+      return (
         <HarnessSectionStateFrame>
           No hook runtime data found for the selected repository.
         </HarnessSectionStateFrame>
-      </HarnessSectionCard>
-    );
-  }
+      );
+    }
 
-  return (
-    <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
+    return (
       <HarnessHookWorkbench
         data={resolvedState.data}
         unsupportedMessage={unsupportedMessage}
         variant={variant}
       />
+    );
+  };
+
+  if (embedded) {
+    return <div className="space-y-3">{runtimeStateFrame()}</div>;
+  }
+
+  return (
+    <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
+      {runtimeStateFrame()}
     </HarnessSectionCard>
   );
 }

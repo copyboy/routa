@@ -16,6 +16,7 @@ type AgentHookPanelProps = {
   loading?: boolean;
   error?: string | null;
   variant?: "full" | "compact";
+  embedded?: boolean;
 };
 
 type AgentHooksState = {
@@ -34,6 +35,7 @@ export function HarnessAgentHookPanel({
   loading,
   error,
   variant = "full",
+  embedded = false,
 }: AgentHookPanelProps) {
   const hasExternalState = loading !== undefined || error !== undefined || data !== undefined;
   const [agentHooksState, setAgentHooksState] = useState<AgentHooksState>({
@@ -101,47 +103,43 @@ export function HarnessAgentHookPanel({
   const description = "Policy hooks that configure agent-side runtime behavior.";
   const systemAction = <span className="text-[10px] text-desktop-text-secondary">Hook systems</span>;
 
-  if (resolvedState.loading) {
-    return (
-      <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
-        <HarnessSectionStateFrame>Loading agent hooks...</HarnessSectionStateFrame>
-      </HarnessSectionCard>
-    );
-  }
+  const agentHookStateFrame = () => {
+    if (resolvedState.loading) {
+      return <HarnessSectionStateFrame>Loading agent hooks...</HarnessSectionStateFrame>;
+    }
 
-  if (unsupportedMessage) {
-    return (
-      <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
-        <HarnessUnsupportedState className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-[11px] text-amber-800" />
-      </HarnessSectionCard>
-    );
-  }
+    if (unsupportedMessage) {
+      return <HarnessUnsupportedState className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-[11px] text-amber-800" />;
+    }
 
-  if (resolvedState.error) {
-    return (
-      <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
-        <HarnessSectionStateFrame tone="error">{resolvedState.error}</HarnessSectionStateFrame>
-      </HarnessSectionCard>
-    );
-  }
+    if (resolvedState.error) {
+      return <HarnessSectionStateFrame tone="error">{resolvedState.error}</HarnessSectionStateFrame>;
+    }
 
-  if (!resolvedState.data) {
-    return (
-      <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
+    if (!resolvedState.data) {
+      return (
         <HarnessSectionStateFrame>
           No agent hook data found for the selected repository.
         </HarnessSectionStateFrame>
-      </HarnessSectionCard>
-    );
-  }
+      );
+    }
 
-  return (
-    <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
+    return (
       <HarnessAgentHookWorkbench
         data={resolvedState.data}
         unsupportedMessage={unsupportedMessage}
         variant={variant}
       />
+    );
+  };
+
+  if (embedded) {
+    return <div className="space-y-3">{agentHookStateFrame()}</div>;
+  }
+
+  return (
+    <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
+      {agentHookStateFrame()}
     </HarnessSectionCard>
   );
 }
