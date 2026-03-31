@@ -20,6 +20,7 @@
 import { useEffect, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
 import { EditorState, Extension } from "@codemirror/state";
+import { defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
 import { json } from "@codemirror/lang-json";
@@ -259,6 +260,7 @@ export function CodeViewer({
     const extensions: Extension[] = [
       langInfo.extensions,
       lightTheme,
+      syntaxHighlighting(defaultHighlightStyle),
       EditorView.editable.of(false),
       EditorState.readOnly.of(true),
       EditorView.theme({
@@ -463,6 +465,7 @@ export function CodeEditor({
     const extensions: Extension[] = [
       langInfo.extensions,
       lightTheme,
+      syntaxHighlighting(defaultHighlightStyle),
       EditorView.theme({ "&": { maxHeight } }),
       EditorView.lineWrapping,
       lineNumbersExtension,
