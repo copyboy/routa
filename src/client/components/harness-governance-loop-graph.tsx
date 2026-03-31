@@ -99,30 +99,40 @@ function getNodeToneClasses(tone: LoopTone) {
       return {
         border: "border-sky-200",
         badge: "border-sky-200 bg-sky-50 text-sky-700",
+        fill: "bg-sky-50",
+        fillActive: "bg-sky-100",
         shadow: "shadow-sky-100/80",
       };
     case "emerald":
       return {
         border: "border-emerald-200",
         badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
+        fill: "bg-emerald-50",
+        fillActive: "bg-emerald-100",
         shadow: "shadow-emerald-100/80",
       };
     case "amber":
       return {
         border: "border-amber-200",
         badge: "border-amber-200 bg-amber-50 text-amber-700",
+        fill: "bg-amber-50",
+        fillActive: "bg-amber-100",
         shadow: "shadow-amber-100/80",
       };
     case "violet":
       return {
         border: "border-violet-200",
         badge: "border-violet-200 bg-violet-50 text-violet-700",
+        fill: "bg-violet-50",
+        fillActive: "bg-violet-100",
         shadow: "shadow-violet-100/80",
       };
     default:
       return {
         border: "border-desktop-border",
         badge: "border-desktop-border bg-desktop-bg-secondary text-desktop-text-secondary",
+        fill: "bg-desktop-bg-secondary",
+        fillActive: "bg-desktop-bg-primary/96",
         shadow: "shadow-black/5",
       };
   }
@@ -193,7 +203,7 @@ function LoopNodeView({ data }: NodeProps<Node<LoopNodeData>>) {
         className={`flex h-[132px] w-[168px] flex-col justify-between rounded-[24px] border px-4 py-3 text-left shadow-sm transition ${
           interactive ? "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-desktop-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white" : "cursor-not-allowed"
         } ${
-          data.active ? `bg-desktop-bg-primary/96 ${tone.border} ${tone.shadow}` : "border-slate-200 bg-slate-100/90 shadow-black/0"
+          data.active ? `${tone.fillActive} ${tone.border} ${tone.shadow}` : `${tone.fill} ${tone.border} shadow-black/0`
         } ${selectedClasses}`}
       >
         <div className="flex items-start justify-between gap-3">
@@ -796,12 +806,12 @@ export function HarnessGovernanceLoopGraph({
       {hasContext && !unsupportedMessage ? (
         <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="relative overflow-hidden rounded-2xl border border-desktop-border bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.98))]">
-              <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-xl border border-desktop-border bg-white/90 px-3 py-2 text-[11px] text-slate-700 shadow-sm">
-                <div className="mb-1 font-semibold tracking-[0.08em] text-desktop-text-secondary">图注</div>
-                <div className="flex flex-col gap-1 text-[10px] font-medium">
-                  <div className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-500" />内部反馈环</div>
-                  <div className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-violet-500" />推送反馈环</div>
-                  <div className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />外部反馈环</div>
+              <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-xl border border-desktop-border bg-white/90 px-2.5 py-1.5 text-[10px] text-slate-700 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <span className="shrink-0 text-desktop-text-secondary">图注:</span>
+                  <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-500" />内部</span>
+                  <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-violet-500" />推送</span>
+                  <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />外部</span>
                 </div>
               </div>
               <div style={{ height: graph.minHeight }}>
