@@ -57,6 +57,7 @@ type WorkbenchContextValue = {
   groupedEntries: ReturnType<typeof groupHookEntries>;
   data: HooksResponse;
   compactMode: boolean;
+  embedded: boolean;
 };
 
 const WorkbenchContext = createContext<WorkbenchContextValue | null>(null);
@@ -674,6 +675,7 @@ export function HarnessHookWorkbench({
     groupedEntries,
     data,
     compactMode,
+    embedded,
   };
 
   return (
@@ -706,7 +708,13 @@ export function HarnessHookWorkbench({
         ) : null}
 
         {!unsupportedMessage && entries.length > 0 ? (
-          <div className={`grid gap-4 ${data.warnings.length ? "mt-4" : ""} ${compactMode ? "grid-cols-1" : "2xl:grid-cols-[280px_minmax(0,1fr)_360px]"}`}>
+          <div
+            className={`grid gap-4 ${data.warnings.length ? "mt-4" : ""} ${
+              compactMode
+                ? "grid-cols-1"
+                : "xl:grid-cols-[260px_minmax(0,1fr)_320px] 2xl:grid-cols-[280px_minmax(0,1fr)_360px]"
+            }`}
+          >
             <HookLifecycleRail />
             <HookFlowCanvas />
             <HookInspector />

@@ -427,14 +427,8 @@ export default function HarnessSettingsPage() {
           description="Runtime hook and agent hook surfaces for repository lifecycle automation."
           variant="full"
         >
-          <div className="grid gap-4 xl:grid-cols-2">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-desktop-border bg-desktop-bg-secondary/45 px-3 py-2.5">
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Runtime hooks</div>
-                  <div className="mt-1 text-[12px] text-desktop-text-secondary">Local lifecycle hooks for commit and push workflows.</div>
-                </div>
-              </div>
+          <div className="space-y-4">
+            <div className="min-w-0">
               <HarnessHookRuntimePanel
                 workspaceId={workspaceId}
                 codebaseId={activeRepoCodebaseId}
@@ -448,13 +442,7 @@ export default function HarnessSettingsPage() {
               />
             </div>
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-desktop-border bg-desktop-bg-secondary/45 px-3 py-2.5">
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Agent hooks</div>
-                  <div className="mt-1 text-[12px] text-desktop-text-secondary">Policy-driven hook events that shape agent runtime behavior.</div>
-                </div>
-              </div>
+            <div className="min-w-0">
               <HarnessAgentHookPanel
                 workspaceId={workspaceId}
                 codebaseId={activeRepoCodebaseId}

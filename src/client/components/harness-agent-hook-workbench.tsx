@@ -49,6 +49,7 @@ type WorkbenchContextValue = {
   groupedEntries: ReturnType<typeof groupAgentHookEntries>;
   data: AgentHooksResponse;
   compactMode: boolean;
+  embedded: boolean;
 };
 
 const WorkbenchContext = createContext<WorkbenchContextValue | null>(null);
@@ -470,7 +471,8 @@ export function HarnessAgentHookWorkbench({
     groupedEntries,
     data,
     compactMode,
-  }), [activeEntry, compactMode, data, groupedEntries, state]);
+    embedded,
+  }), [activeEntry, compactMode, data, embedded, groupedEntries, state]);
 
   if (unsupportedMessage) {
     return <HarnessUnsupportedState />;
@@ -496,7 +498,13 @@ export function HarnessAgentHookWorkbench({
           </div>
         ) : null}
 
-        <div className={`grid gap-3 ${compactMode ? "xl:grid-cols-[240px_minmax(0,1fr)]" : "2xl:grid-cols-[240px_minmax(0,1fr)_360px]"}`}>
+        <div
+          className={`grid gap-3 ${
+            compactMode
+              ? "xl:grid-cols-[240px_minmax(0,1fr)]"
+              : "xl:grid-cols-[240px_minmax(0,1fr)_320px] 2xl:grid-cols-[240px_minmax(0,1fr)_360px]"
+          }`}
+        >
           <AgentHookLifecycleRail />
           <AgentHookFlowCanvas />
           <AgentHookInspector />
