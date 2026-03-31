@@ -71,9 +71,8 @@ describe("HarnessAgentInstructionsPanel", () => {
       />,
     );
 
-    expect(screen.getByText("Instruction file - CLAUDE.md")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Instruction file - CLAUDE.md" })).not.toBeNull();
     expect(screen.getByText("Instruction audit")).not.toBeNull();
-    expect(screen.getAllByText("CLAUDE.md").length).toBeGreaterThan(0);
     expect(screen.getByText("preferred CLAUDE.md")).not.toBeNull();
     expect(screen.getByText("16/20")).not.toBeNull();
     expect(screen.getAllByText("4/5").length).toBeGreaterThanOrEqual(4);

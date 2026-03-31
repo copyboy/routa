@@ -9,6 +9,21 @@ const sampleData = {
   warnings: [],
   sources: [
     {
+      kind: "native-tool" as const,
+      system: "kiro" as const,
+      rootPath: ".kiro/specs",
+      confidence: "high" as const,
+      status: "artifacts-present" as const,
+      evidence: ["feature-tree"],
+      children: [],
+      features: [
+        {
+          name: "Feature Tree",
+          documents: [{ type: "requirements" as const, path: ".kiro/specs/feature/requirements.md" }],
+        },
+      ],
+    },
+    {
       kind: "framework" as const,
       system: "bmad" as const,
       rootPath: "docs",
@@ -48,5 +63,18 @@ describe("HarnessSpecSourcesPanel", () => {
 
     expect(screen.getByText("Harness is unavailable for this repository.")).not.toBeNull();
     expect(screen.queryByText("bmad")).toBeNull();
+  });
+
+  it("expands source cards and feature content by default", () => {
+    render(
+      <HarnessSpecSourcesPanel
+        repoLabel="repo"
+        data={sampleData}
+      />,
+    );
+
+    expect(screen.getByText("Feature Tree")).not.toBeNull();
+    expect(screen.getByText(".kiro/specs/feature/requirements.md")).not.toBeNull();
+    expect(screen.getByText("docs/prd.md")).not.toBeNull();
   });
 });

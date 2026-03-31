@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   SpecConfidence,
   SpecDetectionResponse,
@@ -136,11 +136,16 @@ function ChevronIcon({ expanded, className }: { expanded: boolean; className?: s
 }
 
 function KiroFeatureTree({ features }: { features: SpecFeature[] }) {
-  const [expandedFeatures, setExpandedFeatures] = useState<Set<string>>(new Set());
+  const allFeatureNames = useMemo(
+    () => features.map((feature) => feature.name),
+    [features],
+  );
+  const [expandedFeatures, setExpandedFeatures] = useState<Set<string> | null>(null);
+  const activeExpandedFeatures = expandedFeatures ?? new Set(allFeatureNames);
 
   const toggle = (name: string) => {
     setExpandedFeatures((prev) => {
-      const next = new Set(prev);
+      const next = new Set(prev ?? allFeatureNames);
       if (next.has(name)) next.delete(name); else next.add(name);
       return next;
     });
@@ -149,7 +154,7 @@ function KiroFeatureTree({ features }: { features: SpecFeature[] }) {
   return (
     <div className="space-y-1">
       {features.map((feature) => {
-        const isExpanded = expandedFeatures.has(feature.name);
+        const isExpanded = activeExpandedFeatures.has(feature.name);
 
         return (
           <div key={feature.name}>
@@ -296,15 +301,24 @@ export function HarnessSpecSourcesPanel({
   error,
   variant = "full",
 }: SpecSourcesPanelProps) {
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const sources = useMemo(
+    () => data?.sources ?? [],
+    [data?.sources],
+  );
+  const defaultExpandedKeys = useMemo(
+    () => new Set(sources.map((source) => `${source.system}-${source.kind}-${source.rootPath}`)),
+    [sources],
+  );
+  const [expandedKeys, setExpandedKeys] = useState<Set<string> | null>(null);
+  const activeExpandedKeys = expandedKeys ?? defaultExpandedKeys;
+
   const toggleKey = (key: string) => {
     setExpandedKeys((prev) => {
-      const next = new Set(prev);
+      const next = new Set(prev ?? defaultExpandedKeys);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
   };
-  const sources = data?.sources ?? [];
   const { nativeTools, frameworks, integrations, legacy } = groupSourcesByCategory(sources);
 
   const totalSpecs = sources.reduce((sum, s) => {
@@ -356,7 +370,7 @@ export function HarnessSpecSourcesPanel({
             <SpecSourceCard
               key={key}
               source={source}
-              expanded={expandedKeys.has(key)}
+              expanded={activeExpandedKeys.has(key)}
               onToggle={() => toggleKey(key)}
             />
           );
@@ -407,10 +421,10 @@ export function HarnessSpecSourcesPanel({
 
       {!loading && !unsupportedMessage && sources.length > 0 ? (
         <div className="mt-3 space-y-3" data-testid="spec-sources-full">
-          <SourceGroup title="Native Tools" sources={nativeTools} expandedKeys={expandedKeys} onToggle={toggleKey} />
-          <SourceGroup title="Frameworks" sources={frameworks} expandedKeys={expandedKeys} onToggle={toggleKey} />
-          <SourceGroup title="Integrations" sources={integrations} expandedKeys={expandedKeys} onToggle={toggleKey} />
-          <SourceGroup title="Legacy" sources={legacy} expandedKeys={expandedKeys} onToggle={toggleKey} />
+          <SourceGroup title="Native Tools" sources={nativeTools} expandedKeys={activeExpandedKeys} onToggle={toggleKey} />
+          <SourceGroup title="Frameworks" sources={frameworks} expandedKeys={activeExpandedKeys} onToggle={toggleKey} />
+          <SourceGroup title="Integrations" sources={integrations} expandedKeys={activeExpandedKeys} onToggle={toggleKey} />
+          <SourceGroup title="Legacy" sources={legacy} expandedKeys={activeExpandedKeys} onToggle={toggleKey} />
         </div>
       ) : null}
 

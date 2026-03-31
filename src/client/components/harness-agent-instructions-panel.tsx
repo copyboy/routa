@@ -400,11 +400,11 @@ export function HarnessAgentInstructionsPanel({
       ? "Current repository is marked unsupported."
       : null;
   const rerunButtonDisabled = Boolean(rerunUnavailableReason) || !canRerunAudit;
+  const treeId = compactMode ? "instructions-tree-compact" : "instructions-tree-full";
 
   return (
     <HarnessSectionCard
-      eyebrow="Instruction file - CLAUDE.md"
-      title={resolvedInstructionsState.data?.fileName ?? "CLAUDE.md / AGENTS.md"}
+      title="Instruction file - CLAUDE.md"
       actions={headerActions}
       description="Repository-level instruction file that defines governance and automation preferences for harness analysis."
       variant={variant}
@@ -531,7 +531,7 @@ export function HarnessAgentInstructionsPanel({
                 dataProvider={treeDataProvider}
                 getItemTitle={(item) => item.data.title}
                 viewState={{
-                  "instructions-tree": {
+                  [treeId]: {
                     expandedItems,
                     selectedItems: selectedSection ? [selectedSection.id] : [],
                     focusedItem: selectedSection?.id,
@@ -561,7 +561,7 @@ export function HarnessAgentInstructionsPanel({
                   </div>
                 )}
               >
-                <Tree treeId="instructions-tree" rootItem="root" treeLabel="Repository instruction headings" />
+                <Tree treeId={treeId} rootItem="root" treeLabel="Repository instruction headings" />
               </UncontrolledTreeEnvironment>
             </div>
           </div>
