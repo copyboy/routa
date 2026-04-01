@@ -5,9 +5,9 @@ import {
   type ReviewReportPayload,
   type ReviewTrigger,
 } from "./specialist-review.js";
-import type { OwnershipRoutingContext } from "../../../src/core/harness/codeowners-types.ts";
-import codeownersModule from "../../../src/core/harness/codeowners.ts";
-import reviewTriggersModule from "../../../src/core/harness/review-triggers.ts";
+import type { OwnershipRoutingContext } from "../../../src/core/harness/codeowners-types";
+import * as codeownersModule from "../../../src/core/harness/codeowners";
+import * as reviewTriggersModule from "../../../src/core/harness/review-triggers";
 
 const {
   buildOwnershipRoutingContext,

@@ -15,21 +15,13 @@ vi.mock("../specialist-review.js", () => ({
   runReviewTriggerSpecialist: runReviewTriggerSpecialistMock,
 }));
 
-vi.mock("../../../../src/core/harness/codeowners.ts", () => ({
-  default: {
-    loadCodeownersRules: loadCodeownersRulesMock,
-    resolveOwnership: resolveOwnershipMock,
-    buildOwnershipRoutingContext: buildOwnershipRoutingContextMock,
-  },
+vi.mock("../../../../src/core/harness/codeowners", () => ({
   loadCodeownersRules: loadCodeownersRulesMock,
   resolveOwnership: resolveOwnershipMock,
   buildOwnershipRoutingContext: buildOwnershipRoutingContextMock,
 }));
 
-vi.mock("../../../../src/core/harness/review-triggers.ts", () => ({
-  default: {
-    loadReviewTriggerRules: loadReviewTriggerRulesMock,
-  },
+vi.mock("../../../../src/core/harness/review-triggers", () => ({
   loadReviewTriggerRules: loadReviewTriggerRulesMock,
 }));
 

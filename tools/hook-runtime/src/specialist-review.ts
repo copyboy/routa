@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import { runCommand, tailOutput } from "./process.js";
-import type { OwnershipRoutingContext } from "../../../src/core/harness/codeowners-types.ts";
+import type { OwnershipRoutingContext } from "../../../src/core/harness/codeowners-types";
 
 const DEFAULT_SPECIALIST_ID = "harness-review-trigger";
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
