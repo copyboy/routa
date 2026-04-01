@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -15,12 +16,16 @@ impl CodebaseSourceType {
             Self::Github => "github",
         }
     }
+}
 
-    pub fn from_str(value: &str) -> Option<Self> {
+impl FromStr for CodebaseSourceType {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "local" => Some(Self::Local),
-            "github" => Some(Self::Github),
-            _ => None,
+            "local" => Ok(Self::Local),
+            "github" => Ok(Self::Github),
+            _ => Err(()),
         }
     }
 }
@@ -45,6 +50,7 @@ pub struct Codebase {
 }
 
 impl Codebase {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: String,
         workspace_id: String,

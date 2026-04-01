@@ -209,7 +209,7 @@ fn row_to_codebase(row: &Row<'_>) -> Codebase {
     let source_type = row
         .get::<_, Option<String>>(6)
         .unwrap_or(None)
-        .and_then(|value| CodebaseSourceType::from_str(&value));
+        .and_then(|value| value.parse::<CodebaseSourceType>().ok());
     let source_url = row.get(7).unwrap_or(None);
     let created_ms: i64 = row.get(8).unwrap_or(0);
     let updated_ms: i64 = row.get(9).unwrap_or(0);
