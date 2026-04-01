@@ -393,7 +393,6 @@ mod tests {
         )
         .await
         .expect("create card should succeed");
-
         move_card(
             &state,
             MoveCardParams {
@@ -538,7 +537,6 @@ mod tests {
         )
         .await
         .expect("create card should succeed");
-
         move_card(
             &state,
             MoveCardParams {
@@ -632,6 +630,14 @@ mod tests {
         )
         .await
         .expect("create card should succeed");
+        let created_task = state
+            .task_store
+            .get(&created.card.id)
+            .await
+            .expect("task lookup should succeed")
+            .expect("task should exist after create");
+        let existing_session_ids = created_task.session_ids.clone();
+        let existing_lane_sessions = created_task.lane_sessions.clone();
 
         move_card(
             &state,
@@ -661,8 +667,14 @@ mod tests {
             "expected a2a-specific error, got {:?}",
             task.last_sync_error
         );
-        assert!(task.session_ids.is_empty());
-        assert!(task.lane_sessions.is_empty());
+        assert_eq!(task.session_ids, existing_session_ids);
+        assert_eq!(task.lane_sessions, existing_lane_sessions);
+        assert!(
+            task.lane_sessions
+                .iter()
+                .all(|session| session.transport.as_deref() != Some("a2a")),
+            "failed A2A transitions must not append A2A lane sessions"
+        );
     }
 
     #[tokio::test]
