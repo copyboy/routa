@@ -35,6 +35,10 @@ pub fn router() -> Router<AppState> {
             get(get_reposlide),
         )
         .route(
+            "/workspaces/{workspace_id}/codebases/{codebase_id}/wiki",
+            get(get_wiki),
+        )
+        .route(
             "/codebases/{id}",
             patch(update_codebase).delete(delete_codebase),
         )
@@ -848,5 +852,214 @@ async fn get_reposlide(
             },
             "prompt": prompt,
         },
+    })))
+}
+
+async fn get_wiki(
+    State(state): State<AppState>,
+    axum::extract::Path((workspace_id, codebase_id)): axum::extract::Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ServerError> {
+    let codebase = state
+        .codebase_store
+        .get(&codebase_id)
+        .await?
+        .ok_or_else(|| ServerError::NotFound(format!("Codebase {} not found", codebase_id)))?;
+
+    if codebase.workspace_id != workspace_id {
+        return Err(ServerError::NotFound(format!(
+            "Codebase {} not found in workspace {}",
+            codebase_id, workspace_id
+        )));
+    }
+
+    if codebase.repo_path.is_empty() {
+        return Err(ServerError::BadRequest(
+            "Codebase has no repository path".to_string(),
+        ));
+    }
+
+    let tree = scan_repo_tree(&codebase.repo_path);
+    let source_type = codebase
+        .source_type
+        .as_ref()
+        .map(CodebaseSourceType::as_str)
+        .unwrap_or("local");
+    let summary = compute_summary(&tree, source_type, codebase.branch.as_deref());
+    let entry_points = detect_entry_points(&tree);
+    let key_files = detect_key_files(&tree);
+    let focus_directories = build_focus_directories(&tree);
+
+    let modules = focus_directories
+        .iter()
+        .map(|directory| {
+            let name = directory
+                .get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or("unknown");
+            let path = directory
+                .get("path")
+                .and_then(|value| value.as_str())
+                .unwrap_or(".");
+            let file_count = directory
+                .get("fileCount")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0);
+            serde_json::json!({
+                "name": name,
+                "path": path,
+                "fileCount": file_count,
+                "role": "Core repository module area."
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let anchors = entry_points
+        .iter()
+        .map(|entry| {
+            let path = entry
+                .get("path")
+                .and_then(|value| value.as_str())
+                .unwrap_or(".");
+            let reason = entry
+                .get("reason")
+                .and_then(|value| value.as_str())
+                .unwrap_or("Architecture anchor");
+            serde_json::json!({
+                "kind": "file",
+                "path": path,
+                "reason": reason,
+            })
+        })
+        .chain(key_files.iter().map(|file| {
+            let path = file
+                .get("path")
+                .and_then(|value| value.as_str())
+                .unwrap_or(".");
+            serde_json::json!({
+                "kind": "file",
+                "path": path,
+                "reason": "Key root-level file",
+            })
+        }))
+        .collect::<Vec<_>>();
+
+    let source_links = anchors
+        .iter()
+        .filter_map(|anchor| {
+            anchor.get("path").map(|path| {
+                serde_json::json!({
+                    "label": path,
+                    "path": path,
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let top_level_folders = summary.top_level_folders.clone();
+    let runtime_boundaries = vec![
+        top_level_folders
+            .contains(&"src".to_string())
+            .then_some("Source runtime boundary under src/".to_string()),
+        top_level_folders
+            .contains(&"crates".to_string())
+            .then_some("Rust/Axum backend boundary under crates/".to_string()),
+        top_level_folders
+            .contains(&"docs".to_string())
+            .then_some("Documentation boundary under docs/".to_string()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+
+    Ok(Json(serde_json::json!({
+        "codebase": {
+            "id": codebase.id,
+            "workspaceId": codebase.workspace_id,
+            "label": codebase.label,
+            "repoPath": codebase.repo_path,
+            "sourceType": source_type,
+            "sourceUrl": codebase.source_url,
+            "branch": codebase.branch,
+        },
+        "summary": {
+            "totalFiles": summary.total_files,
+            "totalDirectories": summary.total_directories,
+            "topLevelFolders": summary.top_level_folders,
+            "sourceType": summary.source_type,
+            "branch": summary.branch,
+            "repositoryRoleSummary": format!(
+                "Repository is organized around {}.",
+                if top_level_folders.is_empty() {
+                    "root-level files".to_string()
+                } else {
+                    top_level_folders.iter().take(4).cloned().collect::<Vec<_>>().join(", ")
+                }
+            )
+        },
+        "anchors": anchors,
+        "modules": modules,
+        "architecture": {
+            "runtimeBoundaries": runtime_boundaries,
+            "crossLayerRelationships": if top_level_folders.contains(&"src".to_string()) && top_level_folders.contains(&"crates".to_string()) {
+                vec!["Next.js app layer in src/ coordinates with Rust services in crates/".to_string()]
+            } else {
+                vec!["Cross-layer relationships require deeper file-level inspection.".to_string()]
+            }
+        },
+        "workflows": [
+            {
+                "name": "Repo orientation",
+                "description": "Start from README/AGENTS and map top-level modules before detailed tracing.",
+                "relatedPaths": ["README.md", "AGENTS.md"]
+            },
+            {
+                "name": "Architecture walkthrough",
+                "description": "Trace runtime boundaries and handoffs between major layers.",
+                "relatedPaths": top_level_folders.iter().map(|path| format!("{}/", path)).collect::<Vec<_>>()
+            }
+        ],
+        "glossary": [
+            {
+                "term": "RepoWiki",
+                "meaning": "Intermediate architecture-aware repository knowledge artifact."
+            },
+            {
+                "term": "Storyline context",
+                "meaning": "Slide-ready narrative hints generated from repository evidence."
+            }
+        ],
+        "sourceLinks": source_links,
+        "storylineContext": {
+            "suggestedSections": [
+                "Repository overview",
+                "Top-level architecture",
+                "Runtime boundaries",
+                "Important modules and responsibilities",
+                "Key files and why they matter",
+                "Main workflows / narratives",
+                "Slide-ready storyline hints"
+            ],
+            "entryPoints": entry_points.iter().filter_map(|entry| entry.get("path").and_then(|path| path.as_str()).map(str::to_string)).collect::<Vec<_>>(),
+            "keyFiles": key_files.iter().filter_map(|file| file.get("path").and_then(|path| path.as_str()).map(str::to_string)).collect::<Vec<_>>(),
+            "focusAreas": focus_directories.iter().map(|directory| {
+                let path = directory
+                    .get("path")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or(".");
+                let file_count = directory
+                    .get("fileCount")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0);
+                serde_json::json!({
+                    "path": path,
+                    "fileCount": file_count,
+                })
+            }).collect::<Vec<_>>(),
+            "narrativeHints": [
+                "Start from docs/README and then explain the largest module area.",
+                "Call out cross-layer boundaries between app/core/client or equivalent runtime layers.",
+                "Label inferred conclusions explicitly when source files do not state intent directly."
+            ]
+        }
     })))
 }
