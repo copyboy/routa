@@ -125,6 +125,11 @@ export default function HarnessSettingsPage() {
     repoPath: activeRepoPath,
     selectedTier,
   });
+  const resolvedCodeownersState = codeownersState ?? {
+    loading: false,
+    error: null,
+    data: null,
+  };
   const specFiles = useMemo(
     () => specsState.data?.files ?? [],
     [specsState.data?.files],
@@ -309,9 +314,9 @@ export default function HarnessSettingsPage() {
             <HarnessCodeownersPanel
               repoLabel={selectedRepoLabel}
               unsupportedMessage={unsupportedRepoMessage}
-              data={codeownersState.data}
-              loading={codeownersState.loading}
-              error={codeownersState.error}
+              data={resolvedCodeownersState.data}
+              loading={resolvedCodeownersState.loading}
+              error={resolvedCodeownersState.error}
               variant="compact"
             />
           </div>
@@ -353,9 +358,9 @@ export default function HarnessSettingsPage() {
   }, [
     activeRepoCodebaseId,
     activeRepoPath,
-    codeownersState.data,
-    codeownersState.error,
-    codeownersState.loading,
+    resolvedCodeownersState.data,
+    resolvedCodeownersState.error,
+    resolvedCodeownersState.loading,
     githubActionsState.data,
     githubActionsState.error,
     githubActionsState.loading,
@@ -590,9 +595,9 @@ export default function HarnessSettingsPage() {
           <HarnessCodeownersPanel
             repoLabel={selectedRepoLabel}
             unsupportedMessage={unsupportedRepoMessage}
-            data={codeownersState.data}
-            loading={codeownersState.loading}
-            error={codeownersState.error}
+            data={resolvedCodeownersState.data}
+            loading={resolvedCodeownersState.loading}
+            error={resolvedCodeownersState.error}
           />
         </div>
         <div id="entrix-fitness">
