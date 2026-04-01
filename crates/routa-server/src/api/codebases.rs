@@ -363,16 +363,6 @@ struct RepoSummary {
     branch: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RepoSlide {
-    id: String,
-    #[serde(rename = "type")]
-    slide_type: String,
-    title: String,
-    content: serde_json::Value,
-}
-
 fn scan_repo_tree(repo_path: &str) -> RepoTreeNode {
     let root_name = std::path::Path::new(repo_path)
         .file_name()
@@ -491,139 +481,6 @@ fn count_tree(node: &RepoTreeNode) -> (u64, u64) {
     (files, dirs)
 }
 
-fn build_slides(codebase: &Codebase, tree: &RepoTreeNode, summary: &RepoSummary) -> Vec<RepoSlide> {
-    let mut slides = Vec::new();
-
-    // 1. Overview
-    let label = codebase
-        .label
-        .clone()
-        .unwrap_or_else(|| repo_label_from_path(&codebase.repo_path));
-    slides.push(RepoSlide {
-        id: "overview".to_string(),
-        slide_type: "overview".to_string(),
-        title: "Repository Overview".to_string(),
-        content: serde_json::json!({
-            "label": label,
-            "repoPath": codebase.repo_path,
-            "branch": codebase.branch.as_deref().unwrap_or("unknown"),
-            "sourceType": summary.source_type,
-            "totalFiles": summary.total_files,
-            "totalDirectories": summary.total_directories,
-        }),
-    });
-
-    // 2. Top-level structure
-    let dirs: Vec<serde_json::Value> = tree
-        .children
-        .as_deref()
-        .unwrap_or(&[])
-        .iter()
-        .filter(|c| c.node_type == "directory")
-        .map(|c| {
-            serde_json::json!({
-                "name": c.name,
-                "fileCount": c.file_count.unwrap_or(0),
-            })
-        })
-        .collect();
-    let root_files: Vec<String> = tree
-        .children
-        .as_deref()
-        .unwrap_or(&[])
-        .iter()
-        .filter(|c| c.node_type == "file")
-        .map(|c| c.name.clone())
-        .collect();
-    slides.push(RepoSlide {
-        id: "top-level-structure".to_string(),
-        slide_type: "top-level-structure".to_string(),
-        title: "Top-level Structure".to_string(),
-        content: serde_json::json!({
-            "directories": dirs,
-            "rootFiles": root_files,
-        }),
-    });
-
-    // 3. Entry points
-    let entry_points = detect_entry_points(tree);
-    if !entry_points.is_empty() {
-        slides.push(RepoSlide {
-            id: "entry-points".to_string(),
-            slide_type: "entry-points".to_string(),
-            title: "Entry Points & Architecture Anchors".to_string(),
-            content: serde_json::json!({ "entryPoints": entry_points }),
-        });
-    }
-
-    // 4. Directory focus
-    let mut focus_dirs: Vec<&RepoTreeNode> = tree
-        .children
-        .as_deref()
-        .unwrap_or(&[])
-        .iter()
-        .filter(|c| c.node_type == "directory")
-        .collect();
-    focus_dirs.sort_by(|a, b| {
-        b.file_count
-            .unwrap_or(0)
-            .cmp(&a.file_count.unwrap_or(0))
-    });
-    for dir in focus_dirs.into_iter().take(MAX_DIR_FOCUS_SLIDES) {
-        let children_info: Vec<serde_json::Value> = dir
-            .children
-            .as_deref()
-            .unwrap_or(&[])
-            .iter()
-            .map(|c| {
-                let mut v = serde_json::json!({
-                    "name": c.name,
-                    "type": c.node_type,
-                });
-                if c.node_type == "directory" {
-                    v["fileCount"] = serde_json::json!(c.file_count.unwrap_or(0));
-                }
-                v
-            })
-            .collect();
-        slides.push(RepoSlide {
-            id: format!("dir-focus-{}", dir.name),
-            slide_type: "directory-focus".to_string(),
-            title: dir.name.clone(),
-            content: serde_json::json!({
-                "path": dir.path,
-                "fileCount": dir.file_count.unwrap_or(0),
-                "children": children_info,
-            }),
-        });
-    }
-
-    // 5. Key files
-    let key_files: Vec<serde_json::Value> = tree
-        .children
-        .as_deref()
-        .unwrap_or(&[])
-        .iter()
-        .filter(|c| c.node_type == "file" && KEY_FILE_NAMES.contains(&c.name.as_str()))
-        .map(|c| {
-            serde_json::json!({
-                "name": c.name,
-                "path": c.path,
-            })
-        })
-        .collect();
-    if !key_files.is_empty() {
-        slides.push(RepoSlide {
-            id: "key-files".to_string(),
-            slide_type: "key-files".to_string(),
-            title: "Key Files".to_string(),
-            content: serde_json::json!({ "files": key_files }),
-        });
-    }
-
-    slides
-}
-
 fn detect_entry_points(tree: &RepoTreeNode) -> Vec<serde_json::Value> {
     let mut found = Vec::new();
 
@@ -648,6 +505,241 @@ fn detect_entry_points(tree: &RepoTreeNode) -> Vec<serde_json::Value> {
     }
 
     found
+}
+
+fn detect_key_files(tree: &RepoTreeNode) -> Vec<serde_json::Value> {
+    tree.children
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter(|c| c.node_type == "file" && KEY_FILE_NAMES.contains(&c.name.as_str()))
+        .map(|c| {
+            serde_json::json!({
+                "name": c.name,
+                "path": c.path,
+            })
+        })
+        .collect()
+}
+
+fn build_focus_directories(tree: &RepoTreeNode) -> Vec<serde_json::Value> {
+    let mut focus_dirs: Vec<&RepoTreeNode> = tree
+        .children
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter(|c| c.node_type == "directory")
+        .collect();
+    focus_dirs.sort_by(|a, b| {
+        b.file_count
+            .unwrap_or(0)
+            .cmp(&a.file_count.unwrap_or(0))
+    });
+
+    focus_dirs
+        .into_iter()
+        .take(MAX_DIR_FOCUS_SLIDES)
+        .map(|dir| {
+            let children: Vec<serde_json::Value> = dir
+                .children
+                .as_deref()
+                .unwrap_or(&[])
+                .iter()
+                .map(|child| {
+                    let mut value = serde_json::json!({
+                        "name": child.name,
+                        "type": child.node_type,
+                    });
+                    if child.node_type == "directory" {
+                        value["fileCount"] = serde_json::json!(child.file_count.unwrap_or(0));
+                    }
+                    value
+                })
+                .collect();
+
+            serde_json::json!({
+                "name": dir.name,
+                "path": dir.path,
+                "fileCount": dir.file_count.unwrap_or(0),
+                "children": children,
+            })
+        })
+        .collect()
+}
+
+fn build_reposlide_prompt(
+    codebase: &Codebase,
+    summary: &RepoSummary,
+    root_files: &[String],
+    entry_points: &[serde_json::Value],
+    key_files: &[serde_json::Value],
+    focus_directories: &[serde_json::Value],
+) -> String {
+    let repo_label = codebase
+        .label
+        .clone()
+        .unwrap_or_else(|| repo_label_from_path(&codebase.repo_path));
+    let mut lines = vec![
+        format!(
+            "Create a presentation slide deck for the repository \"{}\".",
+            repo_label
+        ),
+        String::new(),
+        "Goal:".to_string(),
+        "- Explain what this repository is, how it is structured, and how an engineer should orient themselves quickly.".to_string(),
+        "- Keep the deck concise: target 6-8 slides.".to_string(),
+        "- Use evidence from the local repository only. If a conclusion is inferred, label it as an inference.".to_string(),
+        String::new(),
+        "Required coverage:".to_string(),
+        "- Repository purpose and audience.".to_string(),
+        "- Runtime or architecture overview.".to_string(),
+        "- Top-level structure and major subsystems.".to_string(),
+        "- Important entry points, docs, and operational files.".to_string(),
+        "- Notable risks, TODOs, or ambiguities if they materially affect understanding.".to_string(),
+        String::new(),
+        "Before drafting slides, inspect these first if they exist:".to_string(),
+        "- AGENTS.md".to_string(),
+        "- README.md".to_string(),
+        "- docs/ARCHITECTURE.md".to_string(),
+        "- docs/adr/README.md".to_string(),
+        "- package.json / Cargo.toml / pyproject.toml / go.mod".to_string(),
+        String::new(),
+        "Output:".to_string(),
+        "- Build the deck with slide-skill and save the final artifact as a PPTX.".to_string(),
+        "- In the final response, report the PPTX path and summarize the slide outline.".to_string(),
+        String::new(),
+        "Repository context:".to_string(),
+        format!("- Repo path: {}", codebase.repo_path),
+        format!(
+            "- Branch: {}",
+            codebase.branch.as_deref().unwrap_or("unknown")
+        ),
+        format!("- Source type: {}", summary.source_type),
+        format!("- Total files scanned: {}", summary.total_files),
+        format!("- Total directories scanned: {}", summary.total_directories),
+        format!(
+            "- Top-level folders: {}",
+            if summary.top_level_folders.is_empty() {
+                "(none detected)".to_string()
+            } else {
+                summary.top_level_folders.join(", ")
+            }
+        ),
+        format!(
+            "- Root files: {}",
+            if root_files.is_empty() {
+                "(none detected)".to_string()
+            } else {
+                root_files.join(", ")
+            }
+        ),
+    ];
+
+    if !entry_points.is_empty() {
+        lines.push(String::new());
+        lines.push("Entry points and architecture anchors:".to_string());
+        for item in entry_points {
+            let path = item
+                .get("path")
+                .and_then(|value| value.as_str())
+                .unwrap_or("(unknown)");
+            let reason = item
+                .get("reason")
+                .and_then(|value| value.as_str())
+                .unwrap_or("(no reason)");
+            lines.push(format!("- {}: {}", path, reason));
+        }
+    }
+
+    if !key_files.is_empty() {
+        lines.push(String::new());
+        lines.push("Key files worth reading:".to_string());
+        for item in key_files {
+            let path = item
+                .get("path")
+                .and_then(|value| value.as_str())
+                .unwrap_or("(unknown)");
+            lines.push(format!("- {}", path));
+        }
+    }
+
+    if !focus_directories.is_empty() {
+        lines.push(String::new());
+        lines.push("Largest top-level areas:".to_string());
+        for item in focus_directories {
+            let dir_path = item
+                .get("path")
+                .and_then(|value| value.as_str())
+                .unwrap_or("(unknown)");
+            let file_count = item
+                .get("fileCount")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0);
+            let preview = item
+                .get("children")
+                .and_then(|value| value.as_array())
+                .map(|children| {
+                    children
+                        .iter()
+                        .take(8)
+                        .map(|child| {
+                            let name = child
+                                .get("name")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("(unknown)");
+                            let node_type = child
+                                .get("type")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("file");
+                            if node_type == "directory" {
+                                let nested_count = child
+                                    .get("fileCount")
+                                    .and_then(|value| value.as_u64())
+                                    .unwrap_or(0);
+                                format!("{}/ ({} files)", name, nested_count)
+                            } else {
+                                name.to_string()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            lines.push(format!(
+                "- {} ({} files): {}",
+                dir_path,
+                file_count,
+                if preview.is_empty() {
+                    "no immediate children scanned".to_string()
+                } else {
+                    preview
+                }
+            ));
+        }
+    }
+
+    lines.push(String::new());
+    lines.push(
+        "Work in the repository itself as the primary context. Do not generate application code for Routa; generate the slide deck artifact about this repo.".to_string(),
+    );
+
+    lines.join("\n")
+}
+
+fn resolve_reposlide_skill_repo_path() -> Option<String> {
+    let cwd = std::env::current_dir().ok()?;
+    let candidate = cwd.join("tools").join("ppt-template");
+    let skill_file = candidate
+        .join(".agents")
+        .join("skills")
+        .join("slide-skill")
+        .join("SKILL.md");
+
+    if skill_file.is_file() {
+        Some(candidate.to_string_lossy().to_string())
+    } else {
+        None
+    }
 }
 
 fn find_node_by_path<'a>(tree: &'a RepoTreeNode, target: &str) -> Option<&'a RepoTreeNode> {
@@ -689,7 +781,26 @@ async fn get_reposlide(
     let tree = scan_repo_tree(&codebase.repo_path);
     let source_type = "local";
     let summary = compute_summary(&tree, source_type, codebase.branch.as_deref());
-    let slides = build_slides(&codebase, &tree, &summary);
+    let root_files: Vec<String> = tree
+        .children
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter(|c| c.node_type == "file")
+        .map(|c| c.name.clone())
+        .collect();
+    let entry_points = detect_entry_points(&tree);
+    let key_files = detect_key_files(&tree);
+    let focus_directories = build_focus_directories(&tree);
+    let skill_repo_path = resolve_reposlide_skill_repo_path();
+    let prompt = build_reposlide_prompt(
+        &codebase,
+        &summary,
+        &root_files,
+        &entry_points,
+        &key_files,
+        &focus_directories,
+    );
 
     Ok(Json(serde_json::json!({
         "codebase": {
@@ -700,7 +811,16 @@ async fn get_reposlide(
             "branch": codebase.branch,
         },
         "summary": summary,
-        "tree": tree,
-        "slides": slides,
+        "context": {
+            "rootFiles": root_files,
+            "entryPoints": entry_points,
+            "keyFiles": key_files,
+            "focusDirectories": focus_directories,
+        },
+        "launch": {
+            "skillName": "slide-skill",
+            "skillRepoPath": skill_repo_path,
+            "prompt": prompt,
+        },
     })))
 }

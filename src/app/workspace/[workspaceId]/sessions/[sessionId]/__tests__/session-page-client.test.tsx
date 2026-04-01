@@ -255,7 +255,45 @@ describe("SessionPageClient", () => {
     render(<SessionPageClient />);
 
     await waitFor(() => {
-      expect(mockPrompt).toHaveBeenCalledWith("continue execution");
+      expect(mockPrompt).toHaveBeenCalledWith("continue execution", undefined);
+    });
+  });
+
+  it("loads skill context for a structured pending prompt before sending", async () => {
+    storePendingPrompt("session-1", {
+      text: "build repo slides",
+      skillName: "slide-skill",
+      skillRepoPath: "/tmp/routa/tools/ppt-template",
+    });
+    acpState.updates = [
+      { update: { sessionUpdate: "acp_status", status: "ready" } },
+    ];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/skills?name=slide-skill&repoPath=%2Ftmp%2Frouta%2Ftools%2Fppt-template") {
+        return {
+          ok: true,
+          json: async () => ({
+            name: "slide-skill",
+            content: "Use this skill as reference material when creating slides.",
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ session: {}, sessions: [], specialists: [], globalMode: "essential" }),
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<SessionPageClient />);
+
+    await waitFor(() => {
+      expect(mockPrompt).toHaveBeenCalledWith("build repo slides", {
+        skillName: "slide-skill",
+        skillContent: "Use this skill as reference material when creating slides.",
+      });
     });
   });
 

@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { scanRepoTree, computeSummary } from "../scan-codebase-tree";
-import { buildRepoBuildDeck } from "../build-reposlide-deck";
+import { buildRepoSlideLaunch, resolveRepoSlideSkillRepoPath } from "../build-reposlide-launch";
 import type { Codebase } from "@/core/models/codebase";
 
 /** Create a small fixture directory tree for testing. */
@@ -94,18 +94,32 @@ describe("computeSummary", () => {
   });
 });
 
-describe("buildRepoBuildDeck", () => {
+describe("buildRepoSlideLaunch", () => {
   let fixtureDir: string;
+  let projectRoot: string;
 
   beforeAll(() => {
     fixtureDir = createFixtureDir();
+    projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "reposlide-project-"));
+    fs.mkdirSync(path.join(projectRoot, "tools", "ppt-template", ".agents", "skills", "slide-skill"), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectRoot, "tools", "ppt-template", ".agents", "skills", "slide-skill", "SKILL.md"),
+      "---\nname: slide-skill\ndescription: slide skill\n---\nUse this skill."
+    );
   });
 
   afterAll(() => {
     removeFixtureDir(fixtureDir);
+    removeFixtureDir(projectRoot);
   });
 
-  it("generates a complete deck with all expected slide types", () => {
+  it("resolves the bundled slide-skill repo path", () => {
+    expect(resolveRepoSlideSkillRepoPath(projectRoot)).toBe(
+      path.join(projectRoot, "tools", "ppt-template"),
+    );
+  });
+
+  it("builds launch payload with repo summary and skill context", () => {
     const codebase: Codebase = {
       id: "cb-1",
       workspaceId: "ws-1",
@@ -118,20 +132,19 @@ describe("buildRepoBuildDeck", () => {
       updatedAt: new Date(),
     };
 
-    const deck = buildRepoBuildDeck(codebase);
+    const launch = buildRepoSlideLaunch(codebase, { projectRoot });
 
-    expect(deck.codebase.id).toBe("cb-1");
-    expect(deck.codebase.label).toBe("test-repo");
-    expect(deck.summary.totalFiles).toBe(7);
-    expect(deck.slides.length).toBeGreaterThanOrEqual(3);
-
-    const slideTypes = deck.slides.map((s) => s.type);
-    expect(slideTypes).toContain("overview");
-    expect(slideTypes).toContain("top-level-structure");
-    expect(slideTypes).toContain("entry-points");
+    expect(launch.codebase.id).toBe("cb-1");
+    expect(launch.codebase.label).toBe("test-repo");
+    expect(launch.summary.totalFiles).toBe(7);
+    expect(launch.launch.skillName).toBe("slide-skill");
+    expect(launch.launch.skillRepoPath).toBe(path.join(projectRoot, "tools", "ppt-template"));
+    expect(launch.context.entryPoints.some((entry) => entry.path === "README.md")).toBe(true);
+    expect(launch.launch.prompt).toContain('Create a presentation slide deck for the repository "test-repo".');
+    expect(launch.launch.prompt).toContain(`- Repo path: ${fixtureDir}`);
   });
 
-  it("includes directory focus slides for top-level directories", () => {
+  it("includes the largest top-level directories in launch context", () => {
     const codebase: Codebase = {
       id: "cb-2",
       workspaceId: "ws-1",
@@ -142,9 +155,9 @@ describe("buildRepoBuildDeck", () => {
       updatedAt: new Date(),
     };
 
-    const deck = buildRepoBuildDeck(codebase);
-    const dirFocusSlides = deck.slides.filter((s) => s.type === "directory-focus");
-    expect(dirFocusSlides.length).toBeGreaterThan(0);
+    const launch = buildRepoSlideLaunch(codebase, { projectRoot });
+    expect(launch.context.focusDirectories.length).toBeGreaterThan(0);
+    expect(launch.context.focusDirectories.some((directory) => directory.path === "src")).toBe(true);
   });
 
   it("detects key files at root level", () => {
@@ -157,15 +170,12 @@ describe("buildRepoBuildDeck", () => {
       updatedAt: new Date(),
     };
 
-    const deck = buildRepoBuildDeck(codebase);
-    const keyFilesSlide = deck.slides.find((s) => s.type === "key-files");
-    expect(keyFilesSlide).toBeDefined();
-    const files = (keyFilesSlide!.content as { files: { name: string }[] }).files;
-    expect(files.some((f) => f.name === "README.md")).toBe(true);
-    expect(files.some((f) => f.name === "AGENTS.md")).toBe(true);
+    const launch = buildRepoSlideLaunch(codebase, { projectRoot });
+    expect(launch.context.keyFiles.some((file) => file.name === "README.md")).toBe(true);
+    expect(launch.context.keyFiles.some((file) => file.name === "AGENTS.md")).toBe(true);
   });
 
-  it("overview slide has correct content shape", () => {
+  it("preserves source metadata in the launch payload", () => {
     const codebase: Codebase = {
       id: "cb-4",
       workspaceId: "ws-1",
@@ -179,12 +189,11 @@ describe("buildRepoBuildDeck", () => {
       updatedAt: new Date(),
     };
 
-    const deck = buildRepoBuildDeck(codebase);
-    const overview = deck.slides.find((s) => s.type === "overview");
-    expect(overview).toBeDefined();
-    expect(overview!.content.label).toBe("my-repo");
-    expect(overview!.content.branch).toBe("develop");
-    expect(overview!.content.sourceType).toBe("github");
-    expect(overview!.content.totalFiles).toBe(7);
+    const launch = buildRepoSlideLaunch(codebase, { projectRoot });
+    expect(launch.codebase.label).toBe("my-repo");
+    expect(launch.codebase.branch).toBe("develop");
+    expect(launch.codebase.sourceType).toBe("github");
+    expect(launch.codebase.sourceUrl).toBe("https://github.com/example/repo");
+    expect(launch.summary.totalFiles).toBe(7);
   });
 });

@@ -14,20 +14,35 @@
 
 const STORAGE_KEY_PREFIX = "routa_pending_prompt_";
 
-export interface PendingPrompt {
+export interface PendingPromptPayload {
   text: string;
   timestamp: number;
+  skillName?: string;
+  skillRepoPath?: string;
 }
+
+export type PendingPromptInput =
+  | string
+  | {
+      text: string;
+      skillName?: string;
+      skillRepoPath?: string;
+    };
 
 /**
  * Store a pending prompt for a session
  */
-export function storePendingPrompt(sessionId: string, text: string): void {
+export function storePendingPrompt(
+  sessionId: string,
+  input: PendingPromptInput,
+): void {
   if (typeof window === "undefined") return;
 
-  const data: PendingPrompt = {
-    text,
+  const data: PendingPromptPayload = {
+    text: typeof input === "string" ? input : input.text,
     timestamp: Date.now(),
+    skillName: typeof input === "string" ? undefined : input.skillName,
+    skillRepoPath: typeof input === "string" ? undefined : input.skillRepoPath,
   };
 
   try {
@@ -45,6 +60,16 @@ export function storePendingPrompt(sessionId: string, text: string): void {
  * Returns null if no pending prompt exists or if it's too old (> 30 seconds)
  */
 export function consumePendingPrompt(sessionId: string): string | null {
+  return consumePendingPromptPayload(sessionId)?.text ?? null;
+}
+
+/**
+ * Retrieve and clear a structured pending prompt payload for a session.
+ * Returns null if no pending prompt exists or if it's too old (> 30 seconds)
+ */
+export function consumePendingPromptPayload(
+  sessionId: string,
+): PendingPromptPayload | null {
   if (typeof window === "undefined") return null;
 
   const key = `${STORAGE_KEY_PREFIX}${sessionId}`;
@@ -56,7 +81,7 @@ export function consumePendingPrompt(sessionId: string): string | null {
     // Always remove the item, regardless of whether we use it
     sessionStorage.removeItem(key);
 
-    const data: PendingPrompt = JSON.parse(raw);
+    const data = JSON.parse(raw) as PendingPromptPayload;
 
     // Check if the prompt is too old (> 30 seconds)
     const age = Date.now() - data.timestamp;
@@ -65,7 +90,7 @@ export function consumePendingPrompt(sessionId: string): string | null {
       return null;
     }
 
-    return data.text;
+    return data;
   } catch (e) {
     console.warn("[PendingPrompt] Failed to retrieve pending prompt:", e);
     return null;
@@ -90,7 +115,7 @@ export function cleanupOldPendingPrompts(maxAgeMs: number = 60000): void {
         const raw = sessionStorage.getItem(key);
         if (!raw) continue;
 
-        const data: PendingPrompt = JSON.parse(raw);
+        const data = JSON.parse(raw) as PendingPromptPayload;
         const age = Date.now() - data.timestamp;
         if (age > maxAgeMs) {
           keysToRemove.push(key);
@@ -114,4 +139,3 @@ export function cleanupOldPendingPrompts(maxAgeMs: number = 60000): void {
     console.warn("[PendingPrompt] Failed to cleanup old pending prompts:", e);
   }
 }
-

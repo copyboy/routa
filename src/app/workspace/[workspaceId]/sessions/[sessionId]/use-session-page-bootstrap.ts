@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { consumePendingPrompt } from "@/client/utils/pending-prompt";
+import {
+  consumePendingPromptPayload,
+  type PendingPromptPayload,
+} from "@/client/utils/pending-prompt";
+import { desktopAwareFetch } from "@/client/utils/diagnostics";
 
 export type AgentRole = "CRAFTER" | "ROUTA" | "GATE" | "DEVELOPER";
 
@@ -35,7 +39,10 @@ interface UseSessionPageBootstrapParams {
   acpConnect: () => Promise<void>;
   acpSelectSession: (sessionId: string) => void;
   acpSetProvider: (provider: string) => void;
-  acpPrompt: (text: string) => Promise<void>;
+  acpPrompt: (
+    text: string,
+    skillContext?: { skillName: string; skillContent: string },
+  ) => Promise<void>;
   setSelectedAgent: (role: AgentRole) => void;
   setDockerErrorMessage: (message: string | null) => void;
   setDockerRetryText: (text: string | null) => void;
@@ -65,7 +72,44 @@ export function useSessionPageBootstrap(params: UseSessionPageBootstrapParams) {
   const [toolMode, setToolMode] = useState<"essential" | "full">("essential");
   const sessionMetadataLoadedRef = useRef<Set<string>>(new Set());
   const pendingPromptSentRef = useRef<Set<string>>(new Set());
-  const pendingPromptTextRef = useRef<string | null>(null);
+  const pendingPromptRef = useRef<PendingPromptPayload | null>(null);
+
+  const loadSkillContext = useCallback(async (
+    skillName: string,
+    skillRepoPath?: string,
+  ): Promise<{ skillName: string; skillContent: string } | undefined> => {
+    const baseQuery = `name=${encodeURIComponent(skillName)}`;
+    const candidates = skillRepoPath
+      ? [
+          `/api/skills?${baseQuery}&repoPath=${encodeURIComponent(skillRepoPath)}`,
+          `/api/skills?${baseQuery}`,
+        ]
+      : [`/api/skills?${baseQuery}`];
+
+    for (const url of candidates) {
+      try {
+        const response = await desktopAwareFetch(url);
+        if (!response.ok) {
+          continue;
+        }
+        const data = await response.json() as {
+          name?: string;
+          content?: string;
+        };
+        if (data.name && data.content) {
+          return {
+            skillName: data.name,
+            skillContent: data.content,
+          };
+        }
+      } catch (error) {
+        console.warn(`[SessionPage] Failed to load skill context from ${url}:`, error);
+      }
+    }
+
+    console.warn(`[SessionPage] Could not resolve skill context for ${skillName}`);
+    return undefined;
+  }, []);
 
   useEffect(() => {
     const loadSpecialists = async () => {
@@ -134,13 +178,14 @@ export function useSessionPageBootstrap(params: UseSessionPageBootstrapParams) {
     if (!sessionId || !acpConnected || acpLoading) return;
     if (pendingPromptSentRef.current.has(sessionId)) return;
 
-    if (!pendingPromptTextRef.current) {
-      const text = consumePendingPrompt(sessionId);
-      if (!text) return;
-      pendingPromptTextRef.current = text;
+    if (!pendingPromptRef.current) {
+      const payload = consumePendingPromptPayload(sessionId);
+      if (!payload) return;
+      pendingPromptRef.current = payload;
     }
 
-    const pendingText = pendingPromptTextRef.current;
+    const pendingPrompt = pendingPromptRef.current;
+    if (!pendingPrompt) return;
     const lastUpdate = acpUpdates.findLast(
       (u) => (u as Record<string, unknown>).update &&
         ((u as Record<string, unknown>).update as Record<string, unknown>).sessionUpdate === "acp_status"
@@ -148,27 +193,36 @@ export function useSessionPageBootstrap(params: UseSessionPageBootstrapParams) {
     const acpReady = lastUpdate &&
       ((lastUpdate as Record<string, unknown>).update as Record<string, unknown>).status === "ready";
 
+    const sendPendingPrompt = async () => {
+      pendingPromptSentRef.current.add(sessionId);
+      const promptToSend = pendingPromptRef.current;
+      pendingPromptRef.current = null;
+      if (!promptToSend) return;
+
+      const skillContext = promptToSend.skillName
+        ? await loadSkillContext(promptToSend.skillName, promptToSend.skillRepoPath)
+        : undefined;
+
+      await acpPrompt(promptToSend.text, skillContext);
+    };
+
     if (acpReady) {
       console.log(`[SessionPage] ACP ready, sending pending prompt for session ${sessionId}`);
-      pendingPromptSentRef.current.add(sessionId);
-      pendingPromptTextRef.current = null;
-      void acpPrompt(pendingText);
+      void sendPendingPrompt();
       return;
     }
 
     console.log(`[SessionPage] Waiting for ACP ready before sending pending prompt for session ${sessionId}`);
 
     const timer = setTimeout(() => {
-      if (!pendingPromptSentRef.current.has(sessionId) && pendingPromptTextRef.current) {
+      if (!pendingPromptSentRef.current.has(sessionId) && pendingPromptRef.current) {
         console.log(`[SessionPage] Timeout fallback: sending pending prompt for session ${sessionId}`);
-        pendingPromptSentRef.current.add(sessionId);
-        pendingPromptTextRef.current = null;
-        void acpPrompt(pendingText);
+        void sendPendingPrompt();
       }
     }, 8000);
 
     return () => clearTimeout(timer);
-  }, [sessionId, acpConnected, acpLoading, acpUpdates, acpPrompt]);
+  }, [sessionId, acpConnected, acpLoading, acpUpdates, acpPrompt, loadSkillContext]);
 
   useEffect(() => {
     if (!acpUpdates.length) return;
@@ -181,9 +235,9 @@ export function useSessionPageBootstrap(params: UseSessionPageBootstrapParams) {
     ) {
       const errMsg = (update.error as string | undefined) ?? "Docker session failed to start";
       setDockerErrorMessage(errMsg);
-      if (pendingPromptTextRef.current) {
-        setDockerRetryText(pendingPromptTextRef.current);
-        pendingPromptTextRef.current = null;
+      if (pendingPromptRef.current) {
+        setDockerRetryText(pendingPromptRef.current.text);
+        pendingPromptRef.current = null;
       }
     }
   }, [acpUpdates, acpSelectedProvider, setDockerErrorMessage, setDockerRetryText]);

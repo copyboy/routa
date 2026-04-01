@@ -1,12 +1,12 @@
 /**
  * GET /api/workspaces/[workspaceId]/codebases/[codebaseId]/reposlide
  *
- * Returns an auto-generated slide deck for the given codebase.
+ * Returns the launch context for an agent-driven RepoSlide session.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getRoutaSystem } from "@/core/routa-system";
-import { buildRepoBuildDeck } from "@/core/reposlide/build-reposlide-deck";
+import { buildRepoSlideLaunch } from "@/core/reposlide/build-reposlide-launch";
 
 export const dynamic = "force-dynamic";
 
@@ -30,8 +30,8 @@ export async function GET(
   }
 
   try {
-    const deck = buildRepoBuildDeck(codebase);
-    return NextResponse.json(deck);
+    const launch = buildRepoSlideLaunch(codebase);
+    return NextResponse.json(launch);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 500 });
