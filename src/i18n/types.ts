@@ -159,12 +159,24 @@ export interface TranslationDictionary {
       repositorySignals: string;
       hookSystems: string;
       reviewTriggers: string;
-      codeowners: string;
       entrixFitness: string;
       ciCd: string;
       quickNavigation: string;
       expandNavigation: string;
       collapseNavigation: string;
+      quickStart: {
+        title: string;
+        description: string;
+        viewQualityDimensions: string;
+        reviewHooks: string;
+        checkCICD: string;
+      };
+      healthCards: {
+        fitnessScore: string;
+        hardGates: string;
+        hooks: string;
+        cicd: string;
+      };
     };
   };
 

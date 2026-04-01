@@ -20,11 +20,11 @@ import { HarnessGitHubActionsFlowPanel } from "@/client/components/harness-githu
 import { HarnessHookRuntimePanel } from "@/client/components/harness-hook-runtime-panel";
 import { HarnessAgentHookPanel } from "@/client/components/harness-agent-hook-panel";
 import { HarnessRepoSignalsPanel } from "@/client/components/harness-repo-signals-panel";
-import { HarnessCodeownersPanel } from "@/client/components/harness-codeowners-panel";
 import { HarnessReviewTriggersPanel } from "@/client/components/harness-review-triggers-panel";
 import { HarnessSpecSourcesPanel } from "@/client/components/harness-spec-sources-panel";
 import { HarnessUnsupportedState, getHarnessUnsupportedRepoMessage } from "@/client/components/harness-support-state";
 import { HarnessFloatingNav, type HarnessNavSection } from "@/client/components/harness-floating-nav";
+import { HarnessQuickStartCard } from "@/client/components/harness-quick-start-card";
 import { useHarnessSettingsData } from "@/client/hooks/use-harness-settings-data";
 import { useCodebases, useWorkspaces } from "@/client/hooks/use-workspaces";
 import { loadRepoSelection, saveRepoSelection } from "@/client/utils/repo-selection-storage";
@@ -115,7 +115,6 @@ export default function HarnessSettingsPage() {
     githubActionsState,
     specSourcesState,
     designDecisionsState,
-    codeownersState,
     reloadInstructions,
   } = useHarnessSettingsData({
     workspaceId,
@@ -170,10 +169,33 @@ export default function HarnessSettingsPage() {
     { id: "repo-signals", label: t.settings.harness.repositorySignals },
     { id: "hook-systems", label: t.settings.harness.hookSystems },
     { id: "review-triggers", label: t.settings.harness.reviewTriggers },
-    { id: "codeowners", label: t.settings.harness.codeowners },
     { id: "entrix-fitness", label: t.settings.harness.entrixFitness },
     { id: "ci-cd", label: t.settings.harness.ciCd },
-  ], [t.settings.harness.agentInstructions, t.settings.harness.ciCd, t.settings.harness.codeowners, t.settings.harness.entrixFitness, t.settings.harness.governanceLoop, t.settings.harness.hookSystems, t.settings.harness.repositorySignals, t.settings.harness.reviewTriggers, t.settings.harness.specSources]);
+  ], [t.settings.harness.agentInstructions, t.settings.harness.ciCd, t.settings.harness.entrixFitness, t.settings.harness.governanceLoop, t.settings.harness.hookSystems, t.settings.harness.repositorySignals, t.settings.harness.reviewTriggers, t.settings.harness.specSources]);
+
+  const hookCount = useMemo(
+    () => (hooksState.data?.hookFiles?.length ?? 0) + (agentHooksState.data?.hooks?.length ?? 0),
+    [hooksState.data?.hookFiles?.length, agentHooksState.data?.hooks?.length],
+  );
+
+  const workflowCount = useMemo(
+    () => githubActionsState.data?.flows?.length ?? 0,
+    [githubActionsState.data?.flows?.length],
+  );
+
+  const scrollToSection = (sectionId: string) => {
+    const element = document.getElementById(sectionId);
+    const scrollContainer = document.querySelector("main.overflow-y-auto");
+
+    if (element && scrollContainer) {
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const elementRect = element.getBoundingClientRect();
+      const scrollTop = scrollContainer.scrollTop;
+
+      const targetScrollTop = elementRect.top - containerRect.top + scrollTop - 80;
+      scrollContainer.scrollTo({ top: targetScrollTop, behavior: "smooth" });
+    }
+  };
 
   const governanceContextPanel = useMemo(() => {
     if (selectedGovernanceNodeId === null) {
@@ -260,26 +282,16 @@ export default function HarnessSettingsPage() {
         );
       case "review":
         return (
-          <div className="space-y-3">
-            <HarnessReviewTriggersPanel
-              repoLabel={selectedRepoLabel}
-              unsupportedMessage={unsupportedRepoMessage}
-              data={hooksState.data}
-              loading={hooksState.loading}
-              error={hooksState.error}
-              variant="compact"
-              showDetailToggle
-              defaultShowDetails={false}
-            />
-            <HarnessCodeownersPanel
-              repoLabel={selectedRepoLabel}
-              unsupportedMessage={unsupportedRepoMessage}
-              data={codeownersState.data}
-              loading={codeownersState.loading}
-              error={codeownersState.error}
-              variant="compact"
-            />
-          </div>
+          <HarnessReviewTriggersPanel
+            repoLabel={selectedRepoLabel}
+            unsupportedMessage={unsupportedRepoMessage}
+            data={hooksState.data}
+            loading={hooksState.loading}
+            error={hooksState.error}
+            variant="compact"
+            showDetailToggle
+            defaultShowDetails={false}
+          />
         );
       case "commit":
       case "post-commit":
@@ -321,9 +333,6 @@ export default function HarnessSettingsPage() {
     githubActionsState.data,
     githubActionsState.error,
     githubActionsState.loading,
-    codeownersState.data,
-    codeownersState.error,
-    codeownersState.loading,
     hooksState.data,
     hooksState.error,
     hooksState.loading,
@@ -384,7 +393,7 @@ export default function HarnessSettingsPage() {
         { label: t.settings.harness.summaryFocusLabel, value: t.settings.harness.summaryFocusValue },
       ]}
     >
-      <div className="space-y-4">
+      <div className="space-y-3">
         <SettingsPageHeader
           title={t.settings.harness.title}
           description={t.settings.harness.pageDescription}
@@ -393,9 +402,9 @@ export default function HarnessSettingsPage() {
             { label: "dispatch", value: planState.loading ? "..." : `${planState.data?.metricCount ?? 0} metrics` },
           ]}
           extra={(
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px]">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px]">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">{t.settings.harness.repositoryLabel}</span>
+                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">{t.settings.harness.repositoryLabel}</span>
                 <RepoPicker
                   value={selectedRepo}
                   onChange={(selection) => {
@@ -423,6 +432,15 @@ export default function HarnessSettingsPage() {
               </div>
             </div>
           )}
+        />
+
+        <HarnessQuickStartCard
+          dimensionCount={dimensionSpecs.length}
+          metricCount={planState.data?.metricCount ?? 0}
+          hardGateCount={planState.data?.hardGateCount ?? 0}
+          hookCount={hookCount}
+          workflowCount={workflowCount}
+          onNavigateToSection={scrollToSection}
         />
 
         <div id="governance-loop">
@@ -529,16 +547,6 @@ export default function HarnessSettingsPage() {
             data={hooksState.data}
             loading={hooksState.loading}
             error={hooksState.error}
-          />
-        </div>
-
-        <div id="codeowners">
-          <HarnessCodeownersPanel
-            repoLabel={selectedRepoLabel}
-            unsupportedMessage={unsupportedRepoMessage}
-            data={codeownersState.data}
-            loading={codeownersState.loading}
-            error={codeownersState.error}
           />
         </div>
 
