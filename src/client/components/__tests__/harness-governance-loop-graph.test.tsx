@@ -105,7 +105,9 @@ describe("HarnessGovernanceLoopGraph", () => {
     );
 
     fireEvent.click(screen.getByText("flow-node-release"));
+    fireEvent.click(screen.getByText("flow-node-agent-hook"));
 
     expect(onSelectedNodeChange).toHaveBeenCalledWith("release");
+    expect(onSelectedNodeChange).toHaveBeenCalledWith("agent-hook");
   });
 });

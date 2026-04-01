@@ -249,6 +249,21 @@ export default function HarnessSettingsPage() {
             variant="compact"
           />
         );
+      case "agent-hook":
+        return (
+          <HarnessAgentHookPanel
+            workspaceId={workspaceId}
+            codebaseId={activeRepoCodebaseId}
+            repoPath={activeRepoPath}
+            repoLabel={selectedRepoLabel}
+            unsupportedMessage={unsupportedRepoMessage}
+            data={agentHooksState.data}
+            loading={agentHooksState.loading}
+            error={agentHooksState.error}
+            variant="compact"
+            embedded
+          />
+        );
       case "lint":
       case "precommit":
         return (
@@ -367,6 +382,9 @@ export default function HarnessSettingsPage() {
     hooksState.data,
     hooksState.error,
     hooksState.loading,
+    agentHooksState.data,
+    agentHooksState.error,
+    agentHooksState.loading,
     instructionsState.data,
     instructionsState.error,
     instructionsState.loading,
@@ -486,6 +504,8 @@ export default function HarnessSettingsPage() {
             unsupportedMessage={unsupportedRepoMessage}
             hooksData={hooksState.data}
             hooksError={hooksState.error}
+            agentHooksData={agentHooksState.data}
+            agentHooksError={agentHooksState.error}
             workflowData={githubActionsState.data}
             workflowError={githubActionsState.error}
             instructionsData={instructionsState.data}
