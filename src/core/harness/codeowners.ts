@@ -77,24 +77,30 @@ export function parseCodeownersContent(content: string): { rules: CodeownersRule
   return { rules, warnings };
 }
 
-function normalizePattern(pattern: string): string {
-  if (pattern.startsWith("/")) {
-    return pattern.slice(1);
+function normalizePattern(pattern: string): { normalized: string; anchoredToRoot: boolean } {
+  const anchoredToRoot = pattern.startsWith("/");
+  const normalized = anchoredToRoot ? pattern.slice(1) : pattern;
+  if (!anchoredToRoot && !normalized.includes("/")) {
+    return { normalized: `**/${normalized}`, anchoredToRoot };
   }
-  if (!pattern.includes("/")) {
-    return `**/${pattern}`;
+  return { normalized, anchoredToRoot };
+}
+
+function matchesPattern(filePath: string, pattern: string): boolean {
+  const { normalized, anchoredToRoot } = normalizePattern(pattern);
+  const isDir = pattern.endsWith("/");
+  const matchPattern = isDir ? `${normalized}**` : normalized;
+  const requiresRootMatch = anchoredToRoot && !normalized.includes("/");
+  if (requiresRootMatch && filePath.includes("/")) {
+    return false;
   }
-  return pattern;
+  return minimatch(filePath, matchPattern, { dot: true, matchBase: false });
 }
 
 export function matchFileToRule(filePath: string, rules: CodeownersRule[]): CodeownersRule | null {
   let bestMatch: CodeownersRule | null = null;
   for (const rule of rules) {
-    const normalized = normalizePattern(rule.pattern);
-    const isDir = rule.pattern.endsWith("/");
-    const matchPattern = isDir ? `${normalized}**` : normalized;
-
-    if (minimatch(filePath, matchPattern, { dot: true })) {
+    if (matchesPattern(filePath, rule.pattern)) {
       if (!bestMatch || rule.precedence > bestMatch.precedence) {
         bestMatch = rule;
       }
@@ -104,12 +110,7 @@ export function matchFileToRule(filePath: string, rules: CodeownersRule[]): Code
 }
 
 function findAllMatchingRules(filePath: string, rules: CodeownersRule[]): CodeownersRule[] {
-  return rules.filter((rule) => {
-    const normalized = normalizePattern(rule.pattern);
-    const isDir = rule.pattern.endsWith("/");
-    const matchPattern = isDir ? `${normalized}**` : normalized;
-    return minimatch(filePath, matchPattern, { dot: true });
-  });
+  return rules.filter((rule) => matchesPattern(filePath, rule.pattern));
 }
 
 export function resolveOwnership(filePaths: string[], rules: CodeownersRule[]): OwnershipMatch[] {

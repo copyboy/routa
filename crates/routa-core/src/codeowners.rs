@@ -155,7 +155,11 @@ pub fn parse_codeowners_content(content: &str) -> (Vec<CodeownersRule>, Vec<Stri
 
         let tokens: Vec<&str> = trimmed.split_whitespace().collect();
         if tokens.len() < 2 {
-            warnings.push(format!("Line {}: pattern without owners — \"{}\"", i + 1, trimmed));
+            warnings.push(format!(
+                "Line {}: pattern without owners — \"{}\"",
+                i + 1,
+                trimmed
+            ));
             continue;
         }
 
@@ -174,24 +178,34 @@ pub fn parse_codeowners_content(content: &str) -> (Vec<CodeownersRule>, Vec<Stri
     (rules, warnings)
 }
 
-fn normalize_pattern(pattern: &str) -> String {
-    if let Some(stripped) = pattern.strip_prefix('/') {
+fn normalize_pattern(pattern: &str) -> (String, bool) {
+    let anchored_to_root = pattern.starts_with('/');
+    let normalized = if let Some(stripped) = pattern.strip_prefix('/') {
         stripped.to_string()
-    } else if !pattern.contains('/') {
-        format!("**/{pattern}")
     } else {
         pattern.to_string()
+    };
+
+    if !anchored_to_root && !normalized.contains('/') {
+        (format!("**/{normalized}"), anchored_to_root)
+    } else {
+        (normalized, anchored_to_root)
     }
 }
 
 fn match_file(file_path: &str, pattern: &str) -> bool {
-    let normalized = normalize_pattern(pattern);
+    let (normalized, anchored_to_root) = normalize_pattern(pattern);
     let is_dir = pattern.ends_with('/');
     let match_pattern = if is_dir {
         format!("{normalized}**")
     } else {
         normalized
     };
+    let requires_root_match = anchored_to_root && !match_pattern.contains('/');
+
+    if requires_root_match && file_path.contains('/') {
+        return false;
+    }
 
     let dir_variant = if !match_pattern.ends_with("/**") {
         Some(format!("{match_pattern}/**"))
@@ -298,10 +312,14 @@ fn parse_review_trigger_rules(repo_root: &Path) -> (Option<String>, Vec<ReviewTr
                         })
                         .unwrap_or_default();
 
-                    let _ = normalize_yaml_int(rule.get(Value::String("min_boundaries".to_string())));
+                    let _ =
+                        normalize_yaml_int(rule.get(Value::String("min_boundaries".to_string())));
                     let _ = normalize_yaml_int(rule.get(Value::String("max_files".to_string())));
-                    let _ = normalize_yaml_int(rule.get(Value::String("max_added_lines".to_string())));
-                    let _ = normalize_yaml_int(rule.get(Value::String("max_deleted_lines".to_string())));
+                    let _ =
+                        normalize_yaml_int(rule.get(Value::String("max_added_lines".to_string())));
+                    let _ = normalize_yaml_int(
+                        rule.get(Value::String("max_deleted_lines".to_string())),
+                    );
 
                     ReviewTriggerRule {
                         name: rule
@@ -319,7 +337,9 @@ fn parse_review_trigger_rules(repo_root: &Path) -> (Option<String>, Vec<ReviewTr
                             .and_then(Value::as_str)
                             .unwrap_or("require_human_review")
                             .to_string(),
-                        paths: normalize_yaml_string_list(rule.get(Value::String("paths".to_string()))),
+                        paths: normalize_yaml_string_list(
+                            rule.get(Value::String("paths".to_string())),
+                        ),
                         boundaries,
                         directories: normalize_yaml_string_list(
                             rule.get(Value::String("directories".to_string())),
@@ -339,12 +359,15 @@ fn match_review_trigger_files(rule: &ReviewTriggerRule, file_paths: &[String]) -
         let matches_pattern = rule
             .paths
             .iter()
-            .chain(rule.boundaries.iter().flat_map(|boundary| boundary.paths.iter()))
+            .chain(
+                rule.boundaries
+                    .iter()
+                    .flat_map(|boundary| boundary.paths.iter()),
+            )
             .any(|pattern| match_file(file_path, pattern));
-        let matches_directory = rule
-            .directories
-            .iter()
-            .any(|directory| file_path == directory || file_path.starts_with(&format!("{directory}/")));
+        let matches_directory = rule.directories.iter().any(|directory| {
+            file_path == directory || file_path.starts_with(&format!("{directory}/"))
+        });
 
         if matches_pattern || matches_directory {
             matched.insert(file_path.clone());
@@ -355,7 +378,11 @@ fn match_review_trigger_files(rule: &ReviewTriggerRule, file_paths: &[String]) -
 }
 
 fn unique_sorted(values: Vec<String>) -> Vec<String> {
-    values.into_iter().collect::<BTreeSet<_>>().into_iter().collect()
+    values
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 fn build_ownership_routing_context(
@@ -409,7 +436,11 @@ fn build_ownership_routing_context(
             let unowned_paths = unique_sorted(
                 touched_files
                     .iter()
-                    .filter(|file| owners_by_file.get(*file).is_some_and(|owners| owners.is_empty()))
+                    .filter(|file| {
+                        owners_by_file
+                            .get(*file)
+                            .is_some_and(|owners| owners.is_empty())
+                    })
                     .cloned()
                     .collect(),
             );
@@ -502,7 +533,8 @@ fn collect_tracked_files(repo_root: &Path, warnings: &mut Vec<String>) -> Vec<St
         }
         _ => {
             warnings.push(
-                "Failed to list git-tracked files. Coverage analysis may be incomplete.".to_string(),
+                "Failed to list git-tracked files. Coverage analysis may be incomplete."
+                    .to_string(),
             );
             Vec::new()
         }
@@ -609,7 +641,10 @@ pub fn detect_codeowners(repo_root: &Path) -> Result<CodeownersResponse, String>
         rules: rule_responses,
         coverage: CoverageReport {
             unowned_files: unowned_files.into_iter().take(MAX_REPORT_FILES).collect(),
-            overlapping_files: overlapping_files.into_iter().take(MAX_REPORT_FILES).collect(),
+            overlapping_files: overlapping_files
+                .into_iter()
+                .take(MAX_REPORT_FILES)
+                .collect(),
             sensitive_unowned_files,
         },
         correlation: build_codeowners_correlation_report(
@@ -657,6 +692,8 @@ mod tests {
         assert!(match_file("lib/utils.js", "*.js"));
         assert!(!match_file("lib/utils.ts", "*.js"));
         assert!(match_file("docs/README.md", "docs/"));
+        assert!(match_file("README.md", "/README.md"));
+        assert!(!match_file("docs/README.md", "/README.md"));
     }
 
     #[test]
@@ -686,6 +723,23 @@ mod tests {
     }
 
     #[test]
+    fn root_anchored_basenames_do_not_overlap_nested_files() {
+        let content = "/package.json @root\npackages/** @packages\n";
+        let (rules, _) = parse_codeowners_content(content);
+
+        assert_eq!(
+            count_matching_rules("packages/routa-cli/package.json", &rules),
+            1
+        );
+        assert_eq!(count_matching_rules("package.json", &rules), 1);
+        assert_eq!(
+            best_matching_rule("packages/routa-cli/package.json", &rules),
+            Some(1)
+        );
+        assert_eq!(best_matching_rule("package.json", &rules), Some(0));
+    }
+
+    #[test]
     fn missing_codeowners_returns_warning() {
         let temp = tempfile::tempdir().unwrap();
         let result = detect_codeowners(temp.path()).unwrap();
@@ -699,11 +753,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let github_dir = temp.path().join(".github");
         std::fs::create_dir_all(&github_dir).unwrap();
-        std::fs::write(
-            github_dir.join("CODEOWNERS"),
-            "src/** @dev-team\n",
-        )
-        .unwrap();
+        std::fs::write(github_dir.join("CODEOWNERS"), "src/** @dev-team\n").unwrap();
 
         Command::new("git")
             .args(["init"])
@@ -714,7 +764,10 @@ mod tests {
         std::fs::write(temp.path().join("src").join("..").join("test.txt"), "x").ok();
 
         let result = detect_codeowners(temp.path()).unwrap();
-        assert_eq!(result.codeowners_file.as_deref(), Some(".github/CODEOWNERS"));
+        assert_eq!(
+            result.codeowners_file.as_deref(),
+            Some(".github/CODEOWNERS")
+        );
         assert_eq!(result.rules.len(), 1);
     }
 
@@ -725,7 +778,14 @@ mod tests {
         let docs_fitness_dir = temp.path().join("docs").join("fitness");
         std::fs::create_dir_all(&github_dir).unwrap();
         std::fs::create_dir_all(temp.path().join("src").join("core")).unwrap();
-        std::fs::create_dir_all(temp.path().join("crates").join("routa-server").join("src").join("api")).unwrap();
+        std::fs::create_dir_all(
+            temp.path()
+                .join("crates")
+                .join("routa-server")
+                .join("src")
+                .join("api"),
+        )
+        .unwrap();
         std::fs::create_dir_all(&docs_fitness_dir).unwrap();
 
         std::fs::write(
@@ -781,14 +841,15 @@ mod tests {
             .unwrap();
 
         let result = detect_codeowners(temp.path()).unwrap();
-        assert_eq!(result.correlation.review_trigger_file.as_deref(), Some("docs/fitness/review-triggers.yaml"));
-        assert!(!result.correlation.trigger_correlations.is_empty());
-        assert!(
-            result
-                .correlation
-                .trigger_correlations
-                .iter()
-                .any(|correlation| correlation.trigger_name == "cross_boundary_change_web_rust")
+        assert_eq!(
+            result.correlation.review_trigger_file.as_deref(),
+            Some("docs/fitness/review-triggers.yaml")
         );
+        assert!(!result.correlation.trigger_correlations.is_empty());
+        assert!(result
+            .correlation
+            .trigger_correlations
+            .iter()
+            .any(|correlation| correlation.trigger_name == "cross_boundary_change_web_rust"));
     }
 }

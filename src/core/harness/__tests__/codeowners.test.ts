@@ -104,6 +104,12 @@ describe("matchFileToRule", () => {
     const rule = matchFileToRule("any/path/file.rs", rules);
     expect(rule).not.toBeNull();
   });
+
+  it("keeps leading-slash file rules anchored to the repo root", () => {
+    const { rules } = parseCodeownersContent("/README.md @docs\n");
+    expect(matchFileToRule("README.md", rules)?.owners[0].name).toBe("@docs");
+    expect(matchFileToRule("docs/README.md", rules)).toBeNull();
+  });
 });
 
 describe("resolveOwnership", () => {
@@ -139,6 +145,19 @@ describe("resolveOwnership", () => {
     const matches = resolveOwnership(["src/index.ts"], rules);
 
     expect(matches[0].overlap).toBe(false);
+  });
+
+  it("does not mark nested files as overlaps for root-anchored basename rules", () => {
+    const content = "/package.json @root\npackages/** @packages\n";
+    const { rules } = parseCodeownersContent(content);
+    const matches = resolveOwnership(["packages/routa-cli/package.json", "package.json"], rules);
+
+    expect(matches[0].covered).toBe(true);
+    expect(matches[0].owners[0].name).toBe("@packages");
+    expect(matches[0].overlap).toBe(false);
+    expect(matches[1].covered).toBe(true);
+    expect(matches[1].owners[0].name).toBe("@root");
+    expect(matches[1].overlap).toBe(false);
   });
 
   it("builds trigger-aware ownership routing context", () => {
