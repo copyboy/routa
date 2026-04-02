@@ -40,6 +40,9 @@ interface DesktopSidebarProps {
   topAction?: SidebarTopAction;
 }
 
+const COLLAPSE_SIDEBAR_ICON_PATH = "M13.5 4.5 6 12l7.5 7.5M18 4.5 10.5 12 18 19.5";
+const EXPAND_SIDEBAR_ICON_PATH = "M10.5 4.5 18 12l-7.5 7.5M6 4.5 13.5 12 6 19.5";
+
 export function DesktopSidebar({
   workspaceId,
   collapsed = false,
@@ -213,11 +216,11 @@ export function DesktopSidebar({
           aria-label={collapsed ? t.nav.openSidebar : t.nav.closeSidebar}
         >
           <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            {collapsed ? (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 6 12l7.5 7.5M18 4.5 10.5 12 18 19.5" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 4.5 18 12l-7.5 7.5M6 4.5 13.5 12 6 19.5" />
-            )}
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d={collapsed ? EXPAND_SIDEBAR_ICON_PATH : COLLAPSE_SIDEBAR_ICON_PATH}
+            />
           </svg>
         </button>
       </div>
