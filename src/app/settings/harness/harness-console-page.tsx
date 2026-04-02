@@ -145,14 +145,10 @@ export default function HarnessConsolePage() {
   const [selectedTier, setSelectedTier] = useState<TierValue>("normal");
   const [selectedSpecName, setSelectedSpecName] = useState("");
 
-  const persistedRepoSelection = useMemo(
+  const rawPersistedRepoSelection = useMemo(
     () => loadRepoSelection("harness", workspaceId),
     [workspaceId],
   );
-  const selectedRepoOverride = selectedRepoOverrideState.workspaceId === workspaceId
-    ? selectedRepoOverrideState.selection
-    : null;
-  const effectiveRepoOverride = selectedRepoOverride ?? persistedRepoSelection;
 
   const activeWorkspaceTitle = useMemo(() => {
     return workspacesHook.workspaces.find((workspace) => workspace.id === workspaceId)?.title
@@ -166,6 +162,25 @@ export default function HarnessConsolePage() {
       : (codebases.find((codebase) => codebase.isDefault)?.id ?? codebases[0]?.id ?? "");
     return codebases.find((codebase) => codebase.id === effectiveCodebaseId) ?? null;
   }, [codebases, selectedCodebaseId]);
+
+  const persistedRepoSelection = useMemo(() => {
+    if (!rawPersistedRepoSelection) {
+      return null;
+    }
+    if (
+      activeCodebase
+      && rawPersistedRepoSelection.path === activeCodebase.repoPath
+      && rawPersistedRepoSelection.branch === (activeCodebase.branch ?? "")
+    ) {
+      return null;
+    }
+    return rawPersistedRepoSelection;
+  }, [activeCodebase, rawPersistedRepoSelection]);
+
+  const selectedRepoOverride = selectedRepoOverrideState.workspaceId === workspaceId
+    ? selectedRepoOverrideState.selection
+    : null;
+  const effectiveRepoOverride = selectedRepoOverride ?? persistedRepoSelection;
 
   const matchedSelectedCodebase = useMemo(() => {
     if (!effectiveRepoOverride) {
@@ -192,7 +207,8 @@ export default function HarnessConsolePage() {
   }, [activeCodebase, effectiveRepoOverride]);
 
   const activeRepoPath = activeRepoSelection?.path;
-  const activeRepoCodebaseId = matchedSelectedCodebase?.id;
+  const queryRepoPath = effectiveRepoOverride?.path;
+  const queryRepoCodebaseId = effectiveRepoOverride ? matchedSelectedCodebase?.id : undefined;
 
   const {
     specsState,
@@ -208,8 +224,8 @@ export default function HarnessConsolePage() {
     reloadInstructions,
   } = useHarnessSettingsData({
     workspaceId,
-    codebaseId: activeRepoCodebaseId,
-    repoPath: activeRepoPath,
+    codebaseId: queryRepoCodebaseId,
+    repoPath: queryRepoPath,
     selectedTier,
   });
 
@@ -257,8 +273,11 @@ export default function HarnessConsolePage() {
   );
 
   useEffect(() => {
-    saveRepoSelection("harness", workspaceId, activeRepoSelection);
-  }, [activeRepoSelection, workspaceId]);
+    if (selectedRepoOverrideState.workspaceId !== workspaceId) {
+      return;
+    }
+    saveRepoSelection("harness", workspaceId, selectedRepoOverrideState.selection);
+  }, [selectedRepoOverrideState, workspaceId]);
 
   const [openTabs, setOpenTabs] = useState<SectionId[]>(
     sectionFromUrl === DEFAULT_SECTION ? [DEFAULT_SECTION] : [DEFAULT_SECTION, sectionFromUrl],
@@ -422,14 +441,14 @@ export default function HarnessConsolePage() {
       case "coding":
         return <HarnessDesignDecisionPanel {...props} data={designDecisionsState.data} loading={designDecisionsState.loading} error={designDecisionsState.error} variant="compact" />;
       case "build":
-        return <HarnessAgentInstructionsPanel workspaceId={workspaceId} codebaseId={activeRepoCodebaseId} repoPath={activeRepoPath} {...props} data={instructionsState.data} loading={instructionsState.loading} error={instructionsState.error} onAuditRerun={reloadInstructions} variant="compact" />;
+        return <HarnessAgentInstructionsPanel workspaceId={workspaceId} codebaseId={queryRepoCodebaseId} repoPath={queryRepoPath} {...props} data={instructionsState.data} loading={instructionsState.loading} error={instructionsState.error} onAuditRerun={reloadInstructions} variant="compact" />;
       case "lint":
       case "precommit":
         return <HarnessExecutionPlanFlow loading={planState.loading} error={planState.error} plan={planState.data} repoLabel={selectedRepoLabel} selectedTier={selectedTier} onTierChange={setSelectedTier} unsupportedMessage={unsupportedRepoMessage} variant="compact" />;
       case "test":
-        return <HarnessRepoSignalsPanel workspaceId={workspaceId} codebaseId={activeRepoCodebaseId} repoPath={activeRepoPath} {...props} mode="test" variant="compact" />;
+        return <HarnessRepoSignalsPanel workspaceId={workspaceId} codebaseId={queryRepoCodebaseId} repoPath={queryRepoPath} {...props} mode="test" variant="compact" />;
       case "release":
-        return <HarnessGitHubActionsFlowPanel workspaceId={workspaceId} codebaseId={activeRepoCodebaseId} repoPath={activeRepoPath} {...props} data={githubActionsState.data} loading={githubActionsState.loading} error={githubActionsState.error} variant="compact" initialCategory="Release" />;
+        return <HarnessGitHubActionsFlowPanel workspaceId={workspaceId} codebaseId={queryRepoCodebaseId} repoPath={queryRepoPath} {...props} data={githubActionsState.data} loading={githubActionsState.loading} error={githubActionsState.error} variant="compact" initialCategory="Release" />;
       case "review":
         return (
           <div className="space-y-3">
@@ -440,13 +459,11 @@ export default function HarnessConsolePage() {
         );
       case "commit":
       case "post-commit":
-        return <HarnessGitHubActionsFlowPanel workspaceId={workspaceId} codebaseId={activeRepoCodebaseId} repoPath={activeRepoPath} {...props} data={githubActionsState.data} loading={githubActionsState.loading} error={githubActionsState.error} variant="compact" />;
+        return <HarnessGitHubActionsFlowPanel workspaceId={workspaceId} codebaseId={queryRepoCodebaseId} repoPath={queryRepoPath} {...props} data={githubActionsState.data} loading={githubActionsState.loading} error={githubActionsState.error} variant="compact" />;
       default:
         return <div className="p-3 text-[11px] text-desktop-text-secondary">选择 Lifecycle 节点查看对应组件的上下文视图。</div>;
     }
   }, [
-    activeRepoCodebaseId,
-    activeRepoPath,
     designDecisionsState.data,
     designDecisionsState.error,
     designDecisionsState.loading,
@@ -462,6 +479,8 @@ export default function HarnessConsolePage() {
     planState.data,
     planState.error,
     planState.loading,
+    queryRepoCodebaseId,
+    queryRepoPath,
     reloadInstructions,
     resolvedCodeownersState.data,
     resolvedCodeownersState.error,
@@ -704,18 +723,18 @@ export default function HarnessConsolePage() {
       case "spec-sources":
         return <HarnessSpecSourcesPanel {...sharedProps} data={specSourcesState.data} loading={specSourcesState.loading} error={specSourcesState.error} hideHeader />;
       case "agent-instructions":
-        return <HarnessAgentInstructionsPanel workspaceId={workspaceId} codebaseId={activeRepoCodebaseId} repoPath={activeRepoPath} {...sharedProps} data={instructionsState.data} loading={instructionsState.loading} error={instructionsState.error} onAuditRerun={reloadInstructions} hideHeader />;
+        return <HarnessAgentInstructionsPanel workspaceId={workspaceId} codebaseId={queryRepoCodebaseId} repoPath={queryRepoPath} {...sharedProps} data={instructionsState.data} loading={instructionsState.loading} error={instructionsState.error} onAuditRerun={reloadInstructions} hideHeader />;
       case "design-decisions":
         return <HarnessDesignDecisionPanel {...sharedProps} data={designDecisionsState.data} loading={designDecisionsState.loading} error={designDecisionsState.error} hideHeader />;
       case "repo-signals":
-        return <HarnessRepoSignalsPanel workspaceId={workspaceId} codebaseId={activeRepoCodebaseId} repoPath={activeRepoPath} {...sharedProps} mode="test" hideHeader />;
+        return <HarnessRepoSignalsPanel workspaceId={workspaceId} codebaseId={queryRepoCodebaseId} repoPath={queryRepoPath} {...sharedProps} mode="test" hideHeader />;
       case "automations":
         return <HarnessAutomationPanel {...sharedProps} data={automationsState.data} loading={automationsState.loading} error={automationsState.error} hideHeader />;
       case "hook-systems":
         return (
           <div className="space-y-4">
-            <HarnessHookRuntimePanel workspaceId={workspaceId} codebaseId={activeRepoCodebaseId} repoPath={activeRepoPath} {...sharedProps} data={hooksState.data} loading={hooksState.loading} error={hooksState.error} embedded />
-            <HarnessAgentHookPanel workspaceId={workspaceId} codebaseId={activeRepoCodebaseId} repoPath={activeRepoPath} {...sharedProps} data={agentHooksState.data} loading={agentHooksState.loading} error={agentHooksState.error} embedded />
+            <HarnessHookRuntimePanel workspaceId={workspaceId} codebaseId={queryRepoCodebaseId} repoPath={queryRepoPath} {...sharedProps} data={hooksState.data} loading={hooksState.loading} error={hooksState.error} embedded />
+            <HarnessAgentHookPanel workspaceId={workspaceId} codebaseId={queryRepoCodebaseId} repoPath={queryRepoPath} {...sharedProps} data={agentHooksState.data} loading={agentHooksState.loading} error={agentHooksState.error} embedded />
           </div>
         );
       case "review-triggers":
@@ -749,7 +768,7 @@ export default function HarnessConsolePage() {
           </div>
         );
       case "ci-cd":
-        return <HarnessGitHubActionsFlowPanel workspaceId={workspaceId} codebaseId={activeRepoCodebaseId} repoPath={activeRepoPath} {...sharedProps} data={githubActionsState.data} loading={githubActionsState.loading} error={githubActionsState.error} hideHeader />;
+        return <HarnessGitHubActionsFlowPanel workspaceId={workspaceId} codebaseId={queryRepoCodebaseId} repoPath={queryRepoPath} {...sharedProps} data={githubActionsState.data} loading={githubActionsState.loading} error={githubActionsState.error} hideHeader />;
       default:
         return null;
     }

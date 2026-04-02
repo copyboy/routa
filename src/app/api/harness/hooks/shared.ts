@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { getCurrentRoutaRepoRoot } from "@/core/fitness/repo-root";
 import { getRoutaSystem } from "@/core/routa-system";
 
 export type HarnessContext = {
@@ -62,6 +63,13 @@ export async function resolveRepoRoot(context: HarnessContext): Promise<string> 
 
   if (!workspaceId) {
     throw new Error("缺少 harness 上下文，请提供 workspaceId / codebaseId / repoPath 之一");
+  }
+
+  if (workspaceId === "default") {
+    const currentRepoRoot = getCurrentRoutaRepoRoot();
+    if (currentRepoRoot) {
+      return currentRepoRoot;
+    }
   }
 
   const codebases = await system.codebaseStore.listByWorkspace(workspaceId);

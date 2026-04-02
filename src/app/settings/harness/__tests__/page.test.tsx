@@ -8,6 +8,7 @@ import HarnessSettingsPage from "../page";
 const repoPickerMock = vi.fn();
 const routerReplaceMock = vi.fn();
 const routerPushMock = vi.fn();
+const useHarnessSettingsDataMock = vi.fn();
 let currentSearchParams = new URLSearchParams();
 
 function createSpecSourcesData(
@@ -346,7 +347,7 @@ vi.mock("@/client/hooks/use-workspaces", () => ({
 }));
 
 vi.mock("@/client/hooks/use-harness-settings-data", () => ({
-  useHarnessSettingsData: () => mockHarnessSettingsData,
+  useHarnessSettingsData: (args: unknown) => useHarnessSettingsDataMock(args),
 }));
 
 describe("HarnessSettingsPage", () => {
@@ -357,6 +358,8 @@ describe("HarnessSettingsPage", () => {
     currentSearchParams = new URLSearchParams();
     window.localStorage.clear();
     mockHarnessSettingsData.reloadInstructions.mockClear();
+    useHarnessSettingsDataMock.mockReset();
+    useHarnessSettingsDataMock.mockReturnValue(mockHarnessSettingsData);
     mockHarnessSettingsData.specSourcesState = {
       loading: false,
       error: null,
@@ -389,6 +392,18 @@ describe("HarnessSettingsPage", () => {
     expect(screen.getByText("Test Feedback")).not.toBeNull();
   });
 
+  it("uses workspace-only context until a repo is explicitly selected", () => {
+    render(<HarnessSettingsPage />);
+
+    expect(useHarnessSettingsDataMock).toHaveBeenCalledWith({
+      workspaceId: "default",
+      codebaseId: undefined,
+      repoPath: undefined,
+      selectedTier: "normal",
+    });
+    expect(window.localStorage.getItem("routa.repoSelection.harness.default")).toBeNull();
+  });
+
   it("opens the tab from the section query parameter on first render", () => {
     currentSearchParams = new URLSearchParams("section=hook-systems");
 
@@ -414,6 +429,20 @@ describe("HarnessSettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Spec Sources/i }));
 
     expect(routerReplaceMock).toHaveBeenCalledWith("/settings/harness?section=spec-sources");
+  });
+
+  it("persists an explicit repo override from the picker", () => {
+    render(<HarnessSettingsPage />);
+
+    fireEvent.click(screen.getByTestId("repo-picker"));
+
+    expect(useHarnessSettingsDataMock).toHaveBeenLastCalledWith({
+      workspaceId: "default",
+      codebaseId: undefined,
+      repoPath: "/Users/phodal/ai/codex",
+      selectedTier: "normal",
+    });
+    expect(window.localStorage.getItem("routa.repoSelection.harness.default")).toContain("/Users/phodal/ai/codex");
   });
 
   it("opens the bottom panel with compact context when clicking a lifecycle node", () => {
