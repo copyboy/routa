@@ -166,9 +166,10 @@ const en: TranslationDictionary = {
       entrixFitness: "Entrix Fitness",
       ciCd: "CI/CD",
       sectionGroups: {
-        readability: "Readability",
-        guardrails: "Guardrails",
-        feedback: "Feedback",
+        intent: "Intent",
+        control: "Control",
+        flow: "Flow",
+        signal: "Signal",
       },
       quickNavigation: "Quick Navigation",
       expandNavigation: "Expand navigation menu",

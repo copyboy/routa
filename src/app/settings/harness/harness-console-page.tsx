@@ -51,7 +51,7 @@ interface SectionDef {
   label: string;
   shortLabel: string;
   code: string;
-  group?: "readability" | "guardrails" | "feedback";
+  group?: "intent" | "control" | "flow" | "signal";
 }
 
 type SectionStatusTone = "neutral" | "success" | "warning";
@@ -339,25 +339,26 @@ export default function HarnessConsolePage() {
 
   const sections = useMemo((): SectionDef[] => [
     { id: "overview", label: t.settings.harness.overview, shortLabel: "Overview", code: "OV" },
-    { id: "spec-sources", label: t.settings.harness.specSources, shortLabel: "Specs", code: "SP", group: "readability" },
-    { id: "agent-instructions", label: t.settings.harness.agentInstructions, shortLabel: "Instructions", code: "AI", group: "readability" },
-    { id: "design-decisions", label: t.settings.harness.designDecisions, shortLabel: "ADR", code: "DD", group: "readability" },
-    { id: "repo-signals", label: t.settings.harness.repositorySignals, shortLabel: "Feedback", code: "RS", group: "feedback" },
-    { id: "automations", label: t.settings.harness.automations, shortLabel: "Automation", code: "AT", group: "feedback" },
-    { id: "hook-systems", label: t.settings.harness.hookSystems, shortLabel: "Hooks", code: "HK", group: "guardrails" },
-    { id: "review-triggers", label: t.settings.harness.reviewTriggers, shortLabel: "Review", code: "RV", group: "guardrails" },
-    { id: "release-triggers", label: t.settings.harness.releaseTriggers, shortLabel: "Release", code: "RL", group: "guardrails" },
-    { id: "codeowners", label: t.settings.harness.codeowners, shortLabel: "Owners", code: "CO", group: "guardrails" },
-    { id: "entrix-fitness", label: t.settings.harness.entrixFitness, shortLabel: "Fitness", code: "FT", group: "guardrails" },
-    { id: "ci-cd", label: t.settings.harness.ciCd, shortLabel: "CI/CD", code: "CI", group: "feedback" },
+    { id: "spec-sources", label: t.settings.harness.specSources, shortLabel: "Specs", code: "SP", group: "intent" },
+    { id: "agent-instructions", label: t.settings.harness.agentInstructions, shortLabel: "Instructions", code: "AI", group: "intent" },
+    { id: "design-decisions", label: t.settings.harness.designDecisions, shortLabel: "ADR", code: "DD", group: "intent" },
+    { id: "repo-signals", label: t.settings.harness.repositorySignals, shortLabel: "Feedback", code: "RS", group: "signal" },
+    { id: "automations", label: t.settings.harness.automations, shortLabel: "Automation", code: "AT", group: "flow" },
+    { id: "hook-systems", label: t.settings.harness.hookSystems, shortLabel: "Hooks", code: "HK", group: "control" },
+    { id: "review-triggers", label: t.settings.harness.reviewTriggers, shortLabel: "Review", code: "RV", group: "control" },
+    { id: "release-triggers", label: t.settings.harness.releaseTriggers, shortLabel: "Release", code: "RL", group: "control" },
+    { id: "codeowners", label: t.settings.harness.codeowners, shortLabel: "Owners", code: "CO", group: "control" },
+    { id: "entrix-fitness", label: t.settings.harness.entrixFitness, shortLabel: "Fitness", code: "FT", group: "signal" },
+    { id: "ci-cd", label: t.settings.harness.ciCd, shortLabel: "CI/CD", code: "CI", group: "flow" },
   ], [t]);
 
   const groupedSections = useMemo(() => {
-    const groupOrder = ["readability", "guardrails", "feedback"] as const;
+    const groupOrder = ["intent", "control", "flow", "signal"] as const;
     const groupLabels = {
-      readability: t.settings.harness.sectionGroups.readability,
-      guardrails: t.settings.harness.sectionGroups.guardrails,
-      feedback: t.settings.harness.sectionGroups.feedback,
+      intent: t.settings.harness.sectionGroups.intent,
+      control: t.settings.harness.sectionGroups.control,
+      flow: t.settings.harness.sectionGroups.flow,
+      signal: t.settings.harness.sectionGroups.signal,
     } as const;
     return groupOrder.map((groupId) => ({
       id: groupId,

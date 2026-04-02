@@ -167,9 +167,10 @@ export interface TranslationDictionary {
       entrixFitness: string;
       ciCd: string;
       sectionGroups: {
-        readability: string;
-        guardrails: string;
-        feedback: string;
+        intent: string;
+        control: string;
+        flow: string;
+        signal: string;
       };
       quickNavigation: string;
       expandNavigation: string;

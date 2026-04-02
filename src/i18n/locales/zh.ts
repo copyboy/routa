@@ -162,9 +162,10 @@ const zh: TranslationDictionary = {
       entrixFitness: "Entrix Fitness",
       ciCd: "CI/CD",
       sectionGroups: {
-        readability: "可读性",
-        guardrails: "防御",
-        feedback: "反馈",
+        intent: "Intent",
+        control: "Control",
+        flow: "Flow",
+        signal: "Signal",
       },
       quickNavigation: "快速导航",
       expandNavigation: "展开导航菜单",

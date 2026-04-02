@@ -370,9 +370,10 @@ describe("HarnessSettingsPage", () => {
     expect(screen.queryByText("metrics: 2")).toBeNull();
     expect(screen.queryByText("hard gates: 1")).toBeNull();
     expect(screen.getAllByText("Overview").length).toBeGreaterThan(0);
-    expect(screen.getByText("Readability")).not.toBeNull();
-    expect(screen.getByText("Guardrails")).not.toBeNull();
-    expect(screen.getByText("Feedback")).not.toBeNull();
+    expect(screen.getByText("Intent")).not.toBeNull();
+    expect(screen.getByText("Control")).not.toBeNull();
+    expect(screen.getByText("Flow")).not.toBeNull();
+    expect(screen.getByText("Signal")).not.toBeNull();
     expect(screen.getByText("Test Feedback")).not.toBeNull();
   });
 
