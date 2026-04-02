@@ -1,6 +1,6 @@
 schema: harness-surface-v1
 surface: test
-title: 测试反馈环
+title: 测试反馈
 summary: 把测试入口、配置文件和 coverage / reports 证据压缩到一个 test view 里。
 overview:
   - id: repository-shape

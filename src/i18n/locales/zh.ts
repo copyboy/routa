@@ -151,7 +151,7 @@ const zh: TranslationDictionary = {
       governanceLoop: "治理闭环",
       specSources: "规范来源",
       agentInstructions: "Agent 指令",
-      repositorySignals: "仓库信号",
+      repositorySignals: "测试反馈",
       hookSystems: "Hook 系统",
       reviewTriggers: "评审触发器",
       releaseTriggers: "发布触发器",

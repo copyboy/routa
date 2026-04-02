@@ -155,7 +155,7 @@ const en: TranslationDictionary = {
       governanceLoop: "Governance Loop",
       specSources: "Spec Sources",
       agentInstructions: "Agent Instructions",
-      repositorySignals: "Repository Signals",
+      repositorySignals: "Test Feedback",
       hookSystems: "Hook Systems",
       reviewTriggers: "Review Triggers",
       releaseTriggers: "Release Triggers",

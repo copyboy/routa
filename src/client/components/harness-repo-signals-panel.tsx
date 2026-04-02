@@ -115,7 +115,7 @@ export function HarnessRepoSignalsPanel({
   const tone = categoryTone(mode);
   const focus = state.data?.[mode];
   const scriptGroups = useMemo(() => focus?.entrypointGroups ?? [], [focus]);
-  const title = mode === "build" ? "构建反馈环" : "测试反馈环";
+  const title = mode === "build" ? "Build Feedback" : "Test Feedback";
   const summaryRows = useMemo(() => {
     return focus?.overviewRows.map((row) => ({
       label: row.label,
