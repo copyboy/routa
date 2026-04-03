@@ -19,7 +19,6 @@ import { KanbanDescriptionEditor } from "./kanban-description-editor";
 import { FileRow, formatChangeSummary } from "./kanban-file-changes-panel";
 import type { KanbanTaskChanges } from "./kanban-file-changes-types";
 import { MarkdownViewer } from "@/client/components/markdown/markdown-viewer";
-import { CanonicalStoryRenderer } from "@/client/components/markdown/canonical-story-renderer";
 import {
   createKanbanSpecialistResolver,
   getOrderedSessionIds,
@@ -36,7 +35,6 @@ import {
   KANBAN_SPECIALIST_LANGUAGE_LABELS,
   type KanbanSpecialistLanguage,
 } from "./kanban-specialist-language";
-import { parseCanonicalStory } from "@/core/kanban/canonical-story";
 import { useTranslation } from "@/i18n";
 
 export interface KanbanCardDetailProps {
@@ -204,7 +202,6 @@ export function KanbanCardDetail({
     () => resolveKanbanTransitionArtifacts(boardColumns ?? [], task.columnId),
     [boardColumns, task.columnId],
   );
-  const canonicalStory = useMemo(() => parseCanonicalStory(task.objective ?? ""), [task.objective]);
   const orderedSessionIds = useMemo(() => getOrderedSessionIds(task), [task]);
   const activeRunSessionId = task.triggerSessionId
     ?? (orderedSessionIds.length > 0 ? orderedSessionIds[orderedSessionIds.length - 1] : undefined);
@@ -216,11 +213,11 @@ export function KanbanCardDetail({
   const splitMode = !fullWidth;
   const compactMode = splitMode;
   const tabStateKey = `${task.id}:${splitMode ? "split" : "full"}`;
-  const activeTab = tabSelections[tabStateKey] ?? "description";
+  const storedTab = tabSelections[tabStateKey];
+  const activeTab = storedTab === "execution" ? "description" : (storedTab ?? "description");
   const detailTabs = [
     { id: "description" as const, label: t.kanbanDetail.description },
     { id: "readiness" as const, label: t.kanbanDetail.storyReadiness },
-    { id: "execution" as const, label: t.kanbanDetail.execution },
     { id: "changes" as const, label: t.kanbanDetail.changes },
     { id: "evidence" as const, label: t.kanbanDetail.evidenceBundle },
     ...(!splitMode ? [{ id: "runs" as const, label: t.kanbanDetail.runs }] : []),
@@ -407,16 +404,6 @@ export function KanbanCardDetail({
                 />
               </section>
 
-              {canonicalStory.hasYamlBlock && (
-                <DetailSection
-                  title={t.kanbanDetail.structuredStory}
-                  description={compactMode ? undefined : t.kanbanDetail.structuredStoryHint}
-                  compact={compactMode}
-                >
-                  <CanonicalStoryRenderer parseResult={canonicalStory} compact={compactMode} />
-                </DetailSection>
-              )}
-
               <DetailSection
                 title={t.kanbanDetail.progressNotes}
                 description={compactMode ? undefined : t.kanbanDetail.progressNotesHint}
@@ -469,21 +456,7 @@ export function KanbanCardDetail({
                   className="focus:ring-offset-0 w-full border border-slate-200/80 bg-transparent px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-400 dark:border-slate-700 dark:bg-transparent dark:text-slate-100"
                 />
               </DetailSection>
-            </>
-          )}
 
-          {activeTab === "readiness" && (
-            <DetailSection
-              title={t.kanbanDetail.storyReadiness}
-              description={compactMode ? undefined : t.kanbanDetail.storyReadinessHint}
-              compact={compactMode}
-            >
-              <StoryReadinessPanel task={task} compact={compactMode} />
-            </DetailSection>
-          )}
-
-          {activeTab === "execution" && (
-            <>
               <ExecutionSection
                 task={task}
                 lane={currentLane}
@@ -514,6 +487,16 @@ export function KanbanCardDetail({
                 compact={compactMode}
               />
             </>
+          )}
+
+          {activeTab === "readiness" && (
+            <DetailSection
+              title={t.kanbanDetail.storyReadiness}
+              description={compactMode ? undefined : t.kanbanDetail.storyReadinessHint}
+              compact={compactMode}
+            >
+              <StoryReadinessPanel task={task} compact={compactMode} />
+            </DetailSection>
           )}
 
           {activeTab === "changes" && (

@@ -119,7 +119,6 @@ describe("KanbanCardDetail repository health", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Execution" }));
     fireEvent.click(screen.getByText("Repo").closest("summary")!);
 
     expect(await screen.findByText("Repo Health")).toBeTruthy();
@@ -178,7 +177,6 @@ describe("KanbanCardDetail repository health", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Execution" }));
     expect(screen.getByText(/Current run failed on Auggie:/i)).toBeTruthy();
     expect(screen.getByText(/403 Forbidden/i)).toBeTruthy();
   });
@@ -238,7 +236,6 @@ describe("KanbanCardDetail repository health", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Execution" }));
     expect(screen.getByText(/Current run failed on Claude Code:/i)).toBeTruthy();
     expect(screen.queryByText(/Current run failed on Codex:/i)).toBeNull();
   });
@@ -303,7 +300,6 @@ describe("KanbanCardDetail repository health", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Execution" }));
     expect(screen.getAllByText(/A2A · GATE · Remote Review · agents\.example\.com\/reviewer\/agent-card\.json · skill:review/i).length).toBeGreaterThan(0);
   });
 
