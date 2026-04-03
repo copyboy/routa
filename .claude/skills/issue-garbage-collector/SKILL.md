@@ -9,17 +9,26 @@ version: 1.2.0
 
 ```bash
 # Phase 1: Run Python scanner (fast, free)
-python3 scripts/issue-scanner.py
+python3 .github/scripts/issue-scanner.py
 
 # Phase 1: Get suspects only (for Phase 2 input)
-python3 scripts/issue-scanner.py --suspects-only
+python3 .github/scripts/issue-scanner.py --suspects-only
 
 # Phase 1: JSON output (for automation)
-python3 scripts/issue-scanner.py --json
+python3 .github/scripts/issue-scanner.py --json
 
 # Phase 1: Validation check (CI integration, exit 1 if errors)
-python3 scripts/issue-scanner.py --check
+python3 .github/scripts/issue-scanner.py --check
 ```
+
+---
+
+## Harness Integration
+
+- Repo-defined entry: `docs/harness/automations.yml` contains `issue-gc-review`
+- Harness surface: `settings/harness` → `Cleanup & Correction`
+- Data source: the Harness automation view reads suspect data from `python3 .github/scripts/issue-scanner.py --suspects-only`
+- Intended usage: review pending duplicate / stale / open-check suspects in Harness first, then decide whether to run the cleanup workflow below
 
 ---
 
@@ -35,7 +44,7 @@ python3 scripts/issue-scanner.py --check
 ┌─────────────────────────────────────────────────────────┐
 │  All Issues (N files)                                   │
 │  ┌───────────────────────────────────────────────────┐  │
-│  │ Phase 1: Python Scanner (scripts/issue-scanner.py)│  │
+│  │ Phase 1: Python Scanner (.github/scripts/issue-scanner.py)│ │
 │  │ - Filename keyword extraction                     │  │
 │  │ - YAML front-matter validation                    │  │
 │  │ - Same area + keyword overlap detection           │  │
@@ -56,7 +65,7 @@ python3 scripts/issue-scanner.py --check
 
 ## Phase 1: Python Scanner
 
-Run `python3 scripts/issue-scanner.py` to get:
+Run `python3 .github/scripts/issue-scanner.py` to get:
 
 ### 1.1 Formatted Table View
 
@@ -125,7 +134,7 @@ Output:
 
 ```bash
 # Get suspects as JSON for scripting
-python3 scripts/issue-scanner.py --suspects-only
+python3 .github/scripts/issue-scanner.py --suspects-only
 ```
 
 Output:
@@ -148,7 +157,7 @@ Output:
 
 ### Execution Flow
 
-1. Run `python3 scripts/issue-scanner.py`
+1. Run `python3 .github/scripts/issue-scanner.py`
 2. For each suspect found, **automatically** perform deep analysis
 3. For each action needed, **execute immediately** (update status, merge, etc.)
 4. Only ask for confirmation on **destructive actions** (delete, merge)
@@ -163,7 +172,7 @@ Output:
 
 **Open Issues** — Check if resolved:
 - Read the issue, check `Relevant Files` in codebase
-- If code shows fix → `python3 scripts/issue-scanner.py --resolve <file>`
+- If code shows fix → `python3 .github/scripts/issue-scanner.py --resolve <file>`
 - If still broken → Leave as open
 - If unclear → Leave as open, add comment in issue
 
@@ -179,13 +188,13 @@ Use the scanner's update commands for fast changes:
 
 ```bash
 # Resolve issues (status: open → resolved)
-python3 scripts/issue-scanner.py --resolve file1.md file2.md
+python3 .github/scripts/issue-scanner.py --resolve file1.md file2.md
 
 # Close issues (status: open → wontfix)
-python3 scripts/issue-scanner.py --close file.md
+python3 .github/scripts/issue-scanner.py --close file.md
 
 # Generic field update
-python3 scripts/issue-scanner.py --set severity high --files file.md
+python3 .github/scripts/issue-scanner.py --set severity high --files file.md
 ```
 
 ### Safety Rules
@@ -202,7 +211,7 @@ python3 scripts/issue-scanner.py --set severity high --files file.md
 
 | Frequency | Action |
 |-----------|--------|
-| After adding issues | Run `python3 scripts/issue-scanner.py` |
+| After adding issues | Run `python3 .github/scripts/issue-scanner.py` |
 | Weekly (active dev) | Full scan + Phase 2 on suspects |
 | Monthly (stable) | Full scan + triage all open issues |
 
@@ -216,4 +225,3 @@ python3 scripts/issue-scanner.py --set severity high --files file.md
 | Two-phase | ~M suspects (M << N) | 💰 |
 
 **Savings**: ~90% cost reduction by filtering in Phase 1.
-

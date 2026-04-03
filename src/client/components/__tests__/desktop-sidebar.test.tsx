@@ -29,4 +29,20 @@ describe("DesktopSidebar", () => {
       "/settings/harness?workspaceId=default",
     );
   });
+
+  it("shows a collapse icon when expanded and an expand icon when collapsed", () => {
+    const { rerender } = render(<DesktopSidebar workspaceId="default" collapsed={false} />);
+
+    const expandedToggle = screen.getByRole("button", { name: "Close sidebar" });
+    expect(expandedToggle.querySelector("path")?.getAttribute("d")).toBe(
+      "M13.5 4.5 6 12l7.5 7.5M18 4.5 10.5 12 18 19.5",
+    );
+
+    rerender(<DesktopSidebar workspaceId="default" collapsed />);
+
+    const collapsedToggle = screen.getByRole("button", { name: "Open sidebar" });
+    expect(collapsedToggle.querySelector("path")?.getAttribute("d")).toBe(
+      "M10.5 4.5 18 12l-7.5 7.5M6 4.5 13.5 12 6 19.5",
+    );
+  });
 });

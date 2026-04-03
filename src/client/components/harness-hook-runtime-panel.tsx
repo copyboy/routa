@@ -5,6 +5,7 @@ import { HarnessHookWorkbench } from "@/client/components/harness-hook-workbench
 import { HarnessSectionCard, HarnessSectionStateFrame } from "@/client/components/harness-section-card";
 import { HarnessUnsupportedState } from "@/client/components/harness-support-state";
 import type { HooksResponse } from "@/client/hooks/use-harness-settings-data";
+import { desktopAwareFetch } from "@/client/utils/diagnostics";
 
 type HooksPanelProps = {
   workspaceId: string;
@@ -74,7 +75,7 @@ export function HarnessHookRuntimePanel({
         }
         query.set("repoPath", repoPath);
 
-        const response = await fetch(`/api/harness/hooks?${query.toString()}`);
+        const response = await desktopAwareFetch(`/api/harness/hooks?${query.toString()}`);
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           throw new Error(typeof payload?.details === "string" ? payload.details : "Failed to load hook runtime");
@@ -116,17 +117,13 @@ export function HarnessHookRuntimePanel({
     }
     : hooksState;
 
-  const description = "Runtime hooks invoked in local hook workflows.";
-
-  const systemAction = <span className="text-[10px] text-desktop-text-secondary">Hook systems</span>;
-
   const runtimeStateFrame = () => {
     if (resolvedState.loading) {
       return <HarnessSectionStateFrame>Loading hook runtime...</HarnessSectionStateFrame>;
     }
 
     if (unsupportedMessage) {
-      return <HarnessUnsupportedState className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-[11px] text-amber-800" />;
+      return <HarnessUnsupportedState className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-4 text-[11px] text-amber-800" />;
     }
 
     if (resolvedState.error) {
@@ -156,7 +153,7 @@ export function HarnessHookRuntimePanel({
   }
 
   return (
-    <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
+    <HarnessSectionCard title="Hook systems" variant={variant}>
       {runtimeStateFrame()}
     </HarnessSectionCard>
   );

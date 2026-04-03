@@ -104,8 +104,45 @@ describe("HarnessGovernanceLoopGraph", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("flow-node-release"));
+    fireEvent.click(screen.getByRole("button", {
+      name: /外部反馈环 制品发布/i,
+    }));
+    fireEvent.click(screen.getByRole("button", {
+      name: /推送反馈环 变更门禁/i,
+    }));
 
     expect(onSelectedNodeChange).toHaveBeenCalledWith("release");
+    expect(onSelectedNodeChange).toHaveBeenCalledWith("precommit");
+  });
+
+  it("uses ArrowLeft for the Test -> Build transition", () => {
+    const onSelectedNodeChange = vi.fn();
+
+    render(
+      <HarnessGovernanceLoopGraph
+        repoPath="/Users/phodal/ai/routa-js"
+        selectedTier="normal"
+        specsError={null}
+        dimensionCount={8}
+        planError={null}
+        metricCount={31}
+        hardGateCount={13}
+        instructionsData={null}
+        hooksData={null}
+        workflowData={null}
+        selectedNodeId="test"
+        onSelectedNodeChange={onSelectedNodeChange}
+      />,
+    );
+
+    const testNode = screen.getByRole("button", {
+      name: /内部反馈环 本地验证/i,
+    });
+
+    fireEvent.keyDown(testNode, { key: "ArrowRight" });
+    expect(onSelectedNodeChange).toHaveBeenCalledTimes(0);
+
+    fireEvent.keyDown(testNode, { key: "ArrowLeft" });
+    expect(onSelectedNodeChange).toHaveBeenCalledWith("build");
   });
 });

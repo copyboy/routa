@@ -11,10 +11,12 @@
 
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "@/i18n";
 import { HarnessMark } from "./harness-mark";
-import { ChevronLeft, CircleUser, Columns2, LayoutGrid, Settings, Server, Calendar, Workflow, House, Share2, MonitorUp, Monitor } from "lucide-react";
+import { SettingsPopupMenu } from "./settings-popup-menu";
+import { ChevronLeft, CircleUser, Columns2, LayoutGrid, Server, Calendar, Workflow, House, Share2, MonitorUp, Monitor } from "lucide-react";
 
 
 interface NavItem {
@@ -37,6 +39,9 @@ interface DesktopSidebarProps {
   onToggleCollapse?: () => void;
   topAction?: SidebarTopAction;
 }
+
+const COLLAPSE_SIDEBAR_ICON_PATH = "M13.5 4.5 6 12l7.5 7.5M18 4.5 10.5 12 18 19.5";
+const EXPAND_SIDEBAR_ICON_PATH = "M10.5 4.5 18 12l-7.5 7.5M6 4.5 13.5 12 6 19.5";
 
 export function DesktopSidebar({
   workspaceId,
@@ -145,14 +150,6 @@ export function DesktopSidebar({
 
   const secondaryItems: NavItem[] = [
     {
-      id: "config",
-      label: t.nav.settings,
-      href: "/settings",
-      icon: (
-        <Settings className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}/>
-      ),
-    },
-    {
       id: "debug",
       label: t.nav.debug,
       href: "/traces",
@@ -161,6 +158,7 @@ export function DesktopSidebar({
       ),
     },
   ];
+  const settingsActive = pathname === "/settings" || pathname.startsWith("/settings/");
 
   const isActive = (href: string) => {
     const hrefPath = href.split("?")[0]?.split("#")[0] ?? href;
@@ -198,7 +196,16 @@ export function DesktopSidebar({
       }`}
       data-testid="desktop-shell-sidebar"
     >
-      <div className={`border-b border-desktop-border px-2 py-2 ${collapsed ? "flex justify-center" : ""}`}>
+      <div className={`border-b border-desktop-border px-2 py-2 ${collapsed ? "flex items-center justify-center" : "flex items-center justify-between gap-2"}`}>
+        {!collapsed ? (
+          <div
+            className="flex items-center gap-1.5 rounded-xl px-2 py-1 text-sm font-semibold text-desktop-text-primary"
+            title="Routa"
+          >
+            <Image src="/logo.svg" alt="Routa" width={18} height={18} className="rounded-md" />
+            <span>Routa</span>
+          </div>
+        ) : null}
         <button
           type="button"
           onClick={onToggleCollapse}
@@ -209,11 +216,11 @@ export function DesktopSidebar({
           aria-label={collapsed ? t.nav.openSidebar : t.nav.closeSidebar}
         >
           <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            {collapsed ? (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 6 12l7.5 7.5M18 4.5 10.5 12 18 19.5" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 4.5 18 12l-7.5 7.5M6 4.5 13.5 12 6 19.5" />
-            )}
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d={collapsed ? EXPAND_SIDEBAR_ICON_PATH : COLLAPSE_SIDEBAR_ICON_PATH}
+            />
           </svg>
         </button>
       </div>
@@ -242,6 +249,13 @@ export function DesktopSidebar({
       <div className={`${collapsed ? "mx-3" : "mx-2"} border-t border-desktop-border`} />
 
       <div className={`py-3 ${collapsed ? "flex flex-col items-center gap-1" : "px-2 space-y-1"}`}>
+        <SettingsPopupMenu
+          position="sidebar"
+          showLabel={!collapsed}
+          isActive={settingsActive}
+          className="w-full"
+          buttonClassName={collapsed ? "h-10 w-10 px-0 py-0 justify-center" : "h-11 w-full gap-3 px-3 py-0 text-sm font-medium"}
+        />
         {secondaryItems.map(renderNavItem)}
       </div>
     </aside>

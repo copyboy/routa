@@ -3,7 +3,6 @@
 import { useState } from "react";
 
 import { SettingsRouteShell } from "@/client/components/settings-route-shell";
-import { SettingsPageHeader } from "@/client/components/settings-page-header";
 import { SpecialistsTab } from "@/client/components/settings-panel-specialists-tab";
 import { loadModelDefinitions } from "@/client/components/settings-panel-shared";
 import { CircleUser } from "lucide-react";
@@ -24,20 +23,9 @@ export default function SpecialistsSettingsPage() {
         { label: "Purpose", value: "Focused execution personas" },
         { label: "Binding", value: "Prompt + model pairing" },
       ]}
+      contentClassName="flex h-full min-h-0 w-full flex-col px-4 py-4"
     >
-      <div className="space-y-4">
-        <SettingsPageHeader
-          title="Specialists"
-          description="Create and manage custom specialists, prompts, and model bindings for focused execution roles."
-          metadata={[
-            { label: "Purpose", value: "Focused execution personas" },
-            { label: "Binding", value: "Prompt + model pairing" },
-          ]}
-        />
-        <div className="rounded-2xl border border-desktop-border bg-desktop-bg-secondary/70 shadow-sm">
-          <SpecialistsTab modelDefs={modelDefs} />
-        </div>
-      </div>
+      <SpecialistsTab modelDefs={modelDefs} />
     </SettingsRouteShell>
   );
 }

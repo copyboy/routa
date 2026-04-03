@@ -154,6 +154,22 @@ test.describe("Harness settings spec sources", () => {
       }));
     });
 
+    await page.route("**/api/harness/automations?**", async (route) => {
+      await route.fulfill(json({
+        generatedAt: "2026-03-30T00:00:00.000Z",
+        repoRoot: "/Users/phodal/ai/routa-js",
+        configFile: {
+          relativePath: "docs/harness/automations.yml",
+          source: "schema: harness-automation-v1",
+          schema: "harness-automation-v1",
+        },
+        definitions: [],
+        pendingSignals: [],
+        recentRuns: [],
+        warnings: [],
+      }));
+    });
+
     await page.route("**/api/harness/agent-hooks?**", async (route) => {
       await route.fulfill(json({
         generatedAt: "2026-03-30T00:00:00.000Z",
@@ -183,13 +199,13 @@ test.describe("Harness settings spec sources", () => {
       }));
     });
 
-    await page.goto(`${BASE_URL}/settings/harness?workspaceId=default`);
+    await page.goto(`${BASE_URL}/settings/harness?workspaceId=default&section=spec-sources`);
 
     await expect(page.getByTestId("spec-sources-full")).toBeVisible({ timeout: 15_000 });
 
-    await page.locator('[data-governance-node-id="thinking"]').click();
+    await page.goto(`${BASE_URL}/settings/harness?workspaceId=default`);
+    await page.getByRole("button", { name: "需求定义" }).click();
 
-    await expect(page.getByTestId("spec-sources-full")).toBeVisible();
     await expect(page.getByTestId("spec-sources-compact")).toBeVisible({ timeout: 15_000 });
   });
 });

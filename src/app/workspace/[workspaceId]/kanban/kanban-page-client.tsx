@@ -81,7 +81,7 @@ export function KanbanPageClient() {
     const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch(`/api/kanban/boards?workspaceId=${encodeURIComponent(workspaceId)}`, {
+        const res = await desktopAwareFetch(`/api/kanban/boards?workspaceId=${encodeURIComponent(workspaceId)}`, {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -136,7 +136,7 @@ export function KanbanPageClient() {
       }
 
       warmedupProvidersRef.current.add(providerId);
-      void fetch("/api/acp/warmup", {
+      void desktopAwareFetch("/api/acp/warmup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ agentId: providerId }),
@@ -156,7 +156,7 @@ export function KanbanPageClient() {
     const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch(`/api/tasks?workspaceId=${encodeURIComponent(workspaceId)}`, {
+        const res = await desktopAwareFetch(`/api/tasks?workspaceId=${encodeURIComponent(workspaceId)}`, {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -172,7 +172,7 @@ export function KanbanPageClient() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`/api/sessions?workspaceId=${encodeURIComponent(workspaceId)}&limit=100`, { cache: "no-store" });
+        const res = await desktopAwareFetch(`/api/sessions?workspaceId=${encodeURIComponent(workspaceId)}&limit=100`, { cache: "no-store" });
         const data = await res.json();
         setSessions(Array.isArray(data?.sessions) ? data.sessions : []);
       } catch { /* ignore */ }
@@ -183,7 +183,7 @@ export function KanbanPageClient() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(
+        const res = await desktopAwareFetch(
           `/api/specialists?workspaceId=${encodeURIComponent(workspaceId)}&locale=${encodeURIComponent(specialistLanguage)}`,
           { cache: "no-store" },
         );

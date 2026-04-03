@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "@/i18n";
 
 interface DockerStatusResponse {
   available: boolean;
@@ -12,7 +13,13 @@ interface DockerStatusResponse {
   imageAvailable?: boolean;
 }
 
-export function DockerStatusIndicator() {
+interface DockerStatusIndicatorProps {
+  compact?: boolean;
+  className?: string;
+}
+
+export function DockerStatusIndicator({ compact = false, className = "" }: DockerStatusIndicatorProps) {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<DockerStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -26,13 +33,13 @@ export function DockerStatusIndicator() {
       setStatus({
         available: false,
         daemonRunning: false,
-        error: "Docker status check failed",
+        error: t.dockerStatus.checkFailed,
         checkedAt: new Date().toISOString(),
       });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void refresh();
@@ -42,17 +49,22 @@ export function DockerStatusIndicator() {
   const isChecking = loading && !status;
   const isRetryable = !available && !isChecking;
   const label = isChecking
-    ? "Checking Docker..."
+    ? t.dockerStatus.checking
     : available
-      ? `Docker ${status?.version ?? "ready"}`
+      ? t.dockerStatus.ready.replace("{{version}}", status?.version ?? "ready")
       : loading
-        ? "Retrying Docker..."
-        : "Docker unavailable · Retry";
+        ? t.dockerStatus.retrying
+        : t.dockerStatus.unavailable;
   const toneClass = isChecking
     ? "border-gray-200 text-gray-500 bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:bg-gray-800/30"
     : available
       ? "border-emerald-200 text-emerald-700 bg-emerald-50 dark:border-emerald-800/60 dark:text-emerald-300 dark:bg-emerald-900/20"
       : "border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 dark:border-amber-800/60 dark:text-amber-300 dark:bg-amber-900/20 dark:hover:bg-amber-900/30";
+  const compactToneClass = isChecking
+    ? "text-desktop-text-tertiary"
+    : available
+      ? "text-emerald-500"
+      : "text-amber-500";
   const dotClass = isChecking
     ? "bg-gray-400 animate-pulse"
     : available
@@ -63,15 +75,21 @@ export function DockerStatusIndicator() {
   const title = available
     ? status?.error ?? label
     : loading
-      ? "Refreshing Docker status"
-      : status?.error ?? "Docker unavailable. Click to refresh status.";
+      ? t.dockerStatus.refreshing
+      : status?.error ?? t.dockerStatus.clickToRefresh;
 
   return (
     <div className="flex items-center">
       <button
         type="button"
         onClick={isRetryable ? () => void refresh() : undefined}
-        className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${toneClass} ${
+        className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors ${
+          compact ? "border-0" : "border"
+        } ${
+          compact ? "bg-transparent" : toneClass
+        } ${
+          compact ? compactToneClass : ""
+        } ${compact ? "hover:bg-transparent" : ""} ${className} ${
           isRetryable ? "cursor-pointer" : "cursor-default"
         }`}
         title={title}

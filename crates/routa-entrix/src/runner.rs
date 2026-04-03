@@ -463,16 +463,31 @@ mod tests {
     fn test_run_batch_parallel_executes_concurrently() {
         let runner = ShellRunner::new(Path::new("/tmp"));
         let metrics = vec![Metric::new("a", "sleep 2"), Metric::new("b", "sleep 2")];
+        let events: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        let cb: ProgressCallback = Box::new(move |event, metric, _result| {
+            events_clone
+                .lock()
+                .unwrap()
+                .push((event.to_string(), metric.name.clone()));
+        });
 
-        let start = Instant::now();
-        let results = runner.run_batch(&metrics, true, false, None);
-        let elapsed = start.elapsed();
+        let results = runner.run_batch(&metrics, true, false, Some(&cb));
+        let recorded_events = events.lock().unwrap();
+        let first_end_index = recorded_events
+            .iter()
+            .position(|(event, _metric_name)| event == "end")
+            .expect("parallel run should emit end events");
+        let start_events_before_end = recorded_events[..first_end_index]
+            .iter()
+            .filter(|(event, _metric_name)| event == "start")
+            .count();
 
         assert_eq!(results.len(), 2);
         assert!(
-            elapsed < Duration::from_millis(3500),
-            "parallel batch should finish in about one sleep interval, got {:?}",
-            elapsed
+            start_events_before_end >= 2,
+            "both metrics should start before the first metric ends, got events: {:?}",
+            *recorded_events
         );
     }
 

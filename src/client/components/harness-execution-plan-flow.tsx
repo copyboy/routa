@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -8,6 +8,8 @@ import {
   MarkerType,
   Position,
   ReactFlow,
+  useNodesInitialized,
+  useReactFlow,
   type Edge,
   type Node,
   type NodeProps,
@@ -68,6 +70,12 @@ type PlanNodeData = {
   exitOffsetPx?: number;
 };
 
+type FitViewOptions = {
+  padding: number;
+  minZoom: number;
+  maxZoom: number;
+};
+
 type HarnessExecutionPlanFlowProps = {
   loading: boolean;
   error: string | null;
@@ -80,37 +88,117 @@ type HarnessExecutionPlanFlowProps = {
   embedded?: boolean;
 };
 
+function getPlanNodeInitialSize(data: PlanNodeData) {
+  switch (data.kind) {
+    case "metric":
+      return { width: 244, height: 184 };
+    case "dimension":
+      return { width: 252, height: 208 };
+    case "lane":
+      return { width: data.frameWidth ?? 640, height: data.frameHeight ?? 220 };
+    case "anchor":
+      return { width: 1, height: 1 };
+    default:
+      return { width: 292, height: 124 };
+  }
+}
+
+function ExecutionPlanViewportController({
+  flowId,
+  layoutKey,
+  fitViewOptions,
+}: {
+  flowId: string;
+  layoutKey: string;
+  fitViewOptions: FitViewOptions;
+}) {
+  const nodesInitialized = useNodesInitialized();
+  const { fitView } = useReactFlow<Node<PlanNodeData>, Edge>();
+  const rafRef = useRef<number | null>(null);
+  const timeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!nodesInitialized || typeof window === "undefined") {
+      return;
+    }
+
+    const clearScheduledFitView = () => {
+      if (rafRef.current != null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      if (timeoutRef.current != null) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+
+    const runFitView = () => {
+      void fitView(fitViewOptions);
+    };
+
+    const scheduleFitView = () => {
+      clearScheduledFitView();
+      rafRef.current = window.requestAnimationFrame(() => {
+        rafRef.current = window.requestAnimationFrame(() => {
+          runFitView();
+        });
+      });
+      timeoutRef.current = window.setTimeout(runFitView, 160);
+    };
+
+    scheduleFitView();
+
+    const flowElement = document.getElementById(flowId);
+    if (typeof ResizeObserver === "undefined" || !flowElement) {
+      return clearScheduledFitView;
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleFitView();
+    });
+    resizeObserver.observe(flowElement);
+
+    return () => {
+      resizeObserver.disconnect();
+      clearScheduledFitView();
+    };
+  }, [fitView, fitViewOptions, flowId, layoutKey, nodesInitialized]);
+
+  return null;
+}
+
 function getStatusTone(status: EdgeStatus | undefined) {
   switch (status) {
     case "hard":
       return {
         badge: "border-red-200 bg-red-50 text-red-700",
         border: "border-red-200",
-        glow: "shadow-red-100/80",
+        glow: "",
       };
     case "warn":
       return {
         badge: "border-amber-200 bg-amber-50 text-amber-700",
         border: "border-amber-200",
-        glow: "shadow-amber-100/80",
+        glow: "",
       };
     case "pass":
       return {
         badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
         border: "border-emerald-200",
-        glow: "shadow-emerald-100/80",
+        glow: "",
       };
     case "blocked":
       return {
         badge: "border-slate-300 bg-slate-100 text-slate-700",
         border: "border-slate-300",
-        glow: "shadow-slate-200/80",
+        glow: "",
       };
     default:
       return {
         badge: "border-desktop-border bg-desktop-bg-secondary text-desktop-text-secondary",
         border: "border-desktop-border",
-        glow: "shadow-black/5",
+        glow: "",
       };
   }
 }
@@ -147,7 +235,7 @@ function PlanNodeView({ data }: NodeProps<Node<PlanNodeData>>) {
   if (data.kind === "lane") {
     return (
       <div
-        className="rounded-[28px] border border-desktop-border/70 bg-desktop-bg-primary/35 px-3 py-1.5 shadow-sm backdrop-blur-[1px]"
+        className="rounded-sm border border-desktop-border bg-desktop-bg-primary/40 px-3 py-1.5"
         style={{ width: data.frameWidth ?? 640, height: data.frameHeight ?? 220 }}
       >
         <Handle
@@ -190,7 +278,7 @@ function PlanNodeView({ data }: NodeProps<Node<PlanNodeData>>) {
         onClick={() => {
           data.onToggle?.();
         }}
-        className={`${widthClass} ${heightClass} ${contentPaddingClass} flex flex-col overflow-hidden rounded-2xl border bg-desktop-bg-primary/96 text-left shadow-sm transition ${tone.border} ${tone.glow} ${interactive ? "cursor-pointer hover:bg-desktop-bg-secondary/90" : "cursor-default"}`}
+        className={`${widthClass} ${heightClass} ${contentPaddingClass} flex flex-col overflow-hidden rounded-sm border bg-desktop-bg-primary text-left transition ${tone.border} ${tone.glow} ${interactive ? "cursor-pointer hover:bg-desktop-bg-secondary/90" : "cursor-default"}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -251,11 +339,14 @@ function buildEdgeStyle(status: EdgeStatus) {
 }
 
 function buildNode(id: string, x: number, y: number, data: PlanNodeData): Node<PlanNodeData> {
+  const size = getPlanNodeInitialSize(data);
   return {
     id,
     type: "plan",
     position: { x, y },
     data,
+    initialWidth: size.width,
+    initialHeight: size.height,
     draggable: data.kind !== "anchor",
     selectable: data.kind !== "anchor",
     sourcePosition: data.kind === "metric" ? Position.Right : Position.Bottom,
@@ -268,6 +359,7 @@ function buildPlanGraph(
   expandedDimensions: Set<string>,
   toggleDimension: (name: string) => void,
 ): { nodes: Node<PlanNodeData>[]; edges: Edge[]; minHeight: number } {
+  const dimensions = plan.dimensions ?? [];
   const nodes: Node<PlanNodeData>[] = [];
   const edges: Edge[] = [];
 
@@ -282,7 +374,7 @@ function buildPlanGraph(
   const dispatchCenterX = dispatchX + 146;
   const dimensionsTopY = 214;
   const dimensionColumnWidth = 260;
-  const dimensionColumns = Math.max(plan.dimensions.length, 1);
+  const dimensionColumns = Math.max(dimensions.length, 1);
   const dimensionsGridWidth = (dimensionColumns - 1) * dimensionColumnWidth + 252;
   const dimensionsStartX = Math.round(Math.max(88, dispatchCenterX - dimensionsGridWidth / 2));
   const dimensionCardHeight = 208;
@@ -376,9 +468,9 @@ function buildPlanGraph(
   );
 
   let dimensionGridBottom = dimensionsTopY;
-  const activeDimensionName = plan.dimensions.find((dimension) => expandedDimensions.has(dimension.name))?.name ?? null;
+  const activeDimensionName = dimensions.find((dimension) => expandedDimensions.has(dimension.name))?.name ?? null;
 
-  plan.dimensions.forEach((dimension, dimensionIndex) => {
+  dimensions.forEach((dimension, dimensionIndex) => {
     const dimensionColumn = dimensionIndex % dimensionColumns;
     const dimensionRow = Math.floor(dimensionIndex / dimensionColumns);
     const dimensionX = Math.round(dimensionsStartX + dimensionColumn * dimensionColumnWidth);
@@ -391,9 +483,8 @@ function buildPlanGraph(
     nodes.push(buildNode(dimensionId, dimensionX, dimensionY, {
       kind: "dimension",
       title: dimension.name,
-      subtitle: `${dimension.sourceFile} · ${dimension.thresholdPass}/${dimension.thresholdWarn}`,
+      subtitle: dimension.sourceFile,
       status: hasHardMetric ? "hard" : "pass",
-      badgeText: `${dimension.thresholdPass}/${dimension.thresholdWarn}`,
       expanded,
       onToggle: () => {
         toggleDimension(dimension.name);
@@ -421,7 +512,7 @@ function buildPlanGraph(
     dimensionGridBottom = Math.max(dimensionGridBottom, dimensionY + dimensionCardHeight);
   });
 
-  const activeDimension = plan.dimensions.find((dimension) => expandedDimensions.has(dimension.name)) ?? null;
+  const activeDimension = dimensions.find((dimension) => expandedDimensions.has(dimension.name)) ?? null;
   let contentBottom = dimensionGridBottom;
 
   if (activeDimension) {
@@ -499,7 +590,7 @@ export function HarnessExecutionPlanFlow({
   loading,
   error,
   plan,
-  repoLabel,
+  repoLabel: _repoLabel,
   selectedTier,
   onTierChange,
   unsupportedMessage,
@@ -527,7 +618,7 @@ export function HarnessExecutionPlanFlow({
       return new Set<string>();
     }
 
-    return new Set(plan.dimensions.slice(0, 1).map((dimension) => dimension.name));
+    return new Set((plan.dimensions ?? []).slice(0, 1).map((dimension) => dimension.name));
   }, [compactMode, plan]);
 
   const expandedDimensions = useMemo(() => {
@@ -563,6 +654,7 @@ export function HarnessExecutionPlanFlow({
     [compactMode],
   );
   const flowKey = `${variant}:${planKey ?? "empty"}:${[...expandedDimensions].sort().join("|")}`;
+  const flowId = `harness-execution-plan-${flowKey.replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
 
   const content = (
     <>
@@ -570,9 +662,6 @@ export function HarnessExecutionPlanFlow({
         {!embedded ? (
           <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Entrix Fitness</div>
         ) : null}
-        <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2.5 py-1 text-[10px] text-desktop-text-secondary">
-          {repoLabel}
-        </div>
         <div className="rounded-full border border-desktop-border bg-desktop-bg-primary p-0.5">
           {(["fast", "normal", "deep"] as const).map((tier) => (
             <button
@@ -602,7 +691,7 @@ export function HarnessExecutionPlanFlow({
                 const base = current.planKey === planKey ? current.names : expandedDimensions;
                 return {
                   planKey,
-                  names: base.size > 0 ? new Set<string>() : new Set(plan.dimensions.slice(0, 1).map((dimension) => dimension.name)),
+                  names: base.size > 0 ? new Set<string>() : new Set((plan.dimensions ?? []).slice(0, 1).map((dimension) => dimension.name)),
                 };
               });
             }}
@@ -611,18 +700,10 @@ export function HarnessExecutionPlanFlow({
             {expandedDimensions.size > 0 ? "Hide metrics" : "Show metrics"}
           </button>
         ) : null}
-        {plan ? (
-          <>
-            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] text-emerald-700">pass = scoring path</span>
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] text-amber-700">warn = degraded dimension</span>
-            <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] text-red-700">hard = blocking gate</span>
-            <span className="rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-[10px] text-slate-700">blocked = report can stop</span>
-          </>
-        ) : null}
       </div>
 
       {loading ? (
-        <div className="mt-4 rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-4 py-5 text-[11px] text-desktop-text-secondary">
+        <div className="mt-4 rounded-sm border border-desktop-border bg-desktop-bg-primary/80 px-4 py-5 text-[11px] text-desktop-text-secondary">
           Building execution topology...
         </div>
       ) : null}
@@ -632,18 +713,18 @@ export function HarnessExecutionPlanFlow({
       ) : null}
 
       {error && !unsupportedMessage ? (
-        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-5 text-[11px] text-red-700">
+        <div className="mt-4 rounded-sm border border-red-200 bg-red-50 px-4 py-5 text-[11px] text-red-700">
           {error}
         </div>
       ) : null}
 
       {!unsupportedMessage && plan ? (
         <div className="mt-4">
-          <div className="overflow-hidden rounded-2xl border border-desktop-border bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.08),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.08),transparent_28%)]">
+          <div className="overflow-hidden rounded-sm border border-desktop-border bg-desktop-bg-primary">
             <div style={{ height: graph.minHeight }}>
               <ReactFlow
                 key={flowKey}
-                id={compactMode ? "harness-execution-plan-compact" : "harness-execution-plan-full"}
+                id={flowId}
                 nodes={graph.nodes}
                 edges={graph.edges}
                 nodeTypes={nodeTypes}
@@ -654,10 +735,14 @@ export function HarnessExecutionPlanFlow({
                 panOnDrag
                 minZoom={compactMinZoom}
                 maxZoom={1.2}
-                fitView
                 fitViewOptions={fitViewOptions}
                 proOptions={{ hideAttribution: true }}
               >
+                <ExecutionPlanViewportController
+                  flowId={flowId}
+                  layoutKey={flowKey}
+                  fitViewOptions={fitViewOptions}
+                />
                 <Background color="#d7dee7" gap={20} size={1} />
                 <Controls
                   showInteractive={false}
@@ -680,8 +765,8 @@ export function HarnessExecutionPlanFlow({
 
   return (
     <section className={variant === "compact"
-      ? "rounded-2xl border border-desktop-border bg-desktop-bg-primary/60 p-4"
-      : "rounded-2xl border border-desktop-border bg-desktop-bg-secondary/55 p-4 shadow-sm"}
+      ? "rounded-sm border border-desktop-border bg-desktop-bg-primary/60 p-4"
+      : "rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 p-4"}
     >
       {content}
     </section>

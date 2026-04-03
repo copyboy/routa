@@ -33,6 +33,11 @@ on:
         required: false
         default: true
         type: boolean
+      publish_crates:
+        description: "Publish Rust crates to crates.io"
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   resolve-version:
@@ -99,4 +104,19 @@ jobs:
     with:
       version: ${{ needs.resolve-version.outputs.version }}
       publish: ${{ github.event_name == 'push' || ((github.event.inputs.dry_run != 'true' && github.event.inputs.dry_run != true) && (github.event.inputs.publish_cli == 'true' || github.event.inputs.publish_cli == true)) }}
+    secrets: inherit
+
+  release-crates:
+    name: Publish Rust crates
+    needs: resolve-version
+    if: |
+      github.event_name == 'push' ||
+      (
+        (github.event.inputs.dry_run == 'false' || github.event.inputs.dry_run == false) &&
+        (github.event.inputs.publish_crates == 'true' || github.event.inputs.publish_crates == true)
+      )
+    uses: ./.github/workflows/cargo-release.yml
+    with:
+      version: ${{ needs.resolve-version.outputs.version }}
+      dry_run: false
     secrets: inherit

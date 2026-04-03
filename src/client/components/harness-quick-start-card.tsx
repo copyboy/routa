@@ -100,7 +100,7 @@ export function HarnessQuickStartCard({
 
       <div className="grid grid-cols-1 gap-2 lg:grid-cols-[1fr_auto]">
         {/* Left: Health Metrics */}
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
           {stats.map((stat) => (
             <StatItem key={stat.label} stat={stat} />
           ))}
@@ -129,4 +129,3 @@ export function HarnessQuickStartCard({
     </div>
   );
 }
-

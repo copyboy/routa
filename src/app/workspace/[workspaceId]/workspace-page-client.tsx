@@ -18,6 +18,7 @@ import { useWorkspaces } from "@/client/hooks/use-workspaces";
 import { useAcp } from "@/client/hooks/use-acp";
 import { useAgentsRpc } from "@/client/hooks/use-agents-rpc";
 import { useNotes } from "@/client/hooks/use-notes";
+import { desktopAwareFetch } from "@/client/utils/diagnostics";
 import { DesktopAppShell } from "@/client/components/desktop-app-shell";
 import { AgentInstallPanel } from "@/client/components/agent-install-panel";
 import { CompactStat } from "@/client/components/compact-stat";
@@ -77,7 +78,7 @@ export function WorkspacePageClient({
     setSessionsLoaded(false);
     (async () => {
       try {
-        const res = await fetch(`/api/sessions?workspaceId=${encodeURIComponent(workspaceId)}&limit=100`, { cache: "no-store" });
+        const res = await desktopAwareFetch(`/api/sessions?workspaceId=${encodeURIComponent(workspaceId)}&limit=100`, { cache: "no-store" });
         const data = await res.json();
         if (cancelled) return;
         setSessions(Array.isArray(data?.sessions) ? data.sessions : []);
@@ -102,7 +103,7 @@ export function WorkspacePageClient({
     (async () => {
       try {
         setTasks([]);
-        const res = await fetch(`/api/tasks?workspaceId=${encodeURIComponent(workspaceId)}`, {
+        const res = await desktopAwareFetch(`/api/tasks?workspaceId=${encodeURIComponent(workspaceId)}`, {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -128,7 +129,7 @@ export function WorkspacePageClient({
     (async () => {
       try {
         setBoards([]);
-        const res = await fetch(`/api/kanban/boards?workspaceId=${encodeURIComponent(workspaceId)}`, {
+        const res = await desktopAwareFetch(`/api/kanban/boards?workspaceId=${encodeURIComponent(workspaceId)}`, {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -153,7 +154,7 @@ export function WorkspacePageClient({
     setBgTasksLoaded(false);
     (async () => {
       try {
-        const res = await fetch(`/api/background-tasks?workspaceId=${encodeURIComponent(workspaceId)}`, { cache: "no-store" });
+        const res = await desktopAwareFetch(`/api/background-tasks?workspaceId=${encodeURIComponent(workspaceId)}`, { cache: "no-store" });
         const data = await res.json();
         if (cancelled) return;
         setBgTasks(Array.isArray(data?.tasks) ? data.tasks : []);
@@ -239,7 +240,7 @@ export function WorkspacePageClient({
       notesHook.notes
         .filter((n) => n.metadata?.type === "general")
         .map((n) =>
-          fetch(`/api/notes?noteId=${encodeURIComponent(n.id)}&workspaceId=${encodeURIComponent(workspaceId)}`, { method: "DELETE" })
+          desktopAwareFetch(`/api/notes?noteId=${encodeURIComponent(n.id)}&workspaceId=${encodeURIComponent(workspaceId)}`, { method: "DELETE" })
         )
     );
     handleRefresh();
@@ -250,7 +251,7 @@ export function WorkspacePageClient({
       notesHook.notes
         .filter((n) => n.metadata?.type === "task")
         .map((n) =>
-          fetch(`/api/notes?noteId=${encodeURIComponent(n.id)}&workspaceId=${encodeURIComponent(workspaceId)}`, { method: "DELETE" })
+          desktopAwareFetch(`/api/notes?noteId=${encodeURIComponent(n.id)}&workspaceId=${encodeURIComponent(workspaceId)}`, { method: "DELETE" })
         )
     );
     handleRefresh();

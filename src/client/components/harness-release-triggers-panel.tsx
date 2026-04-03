@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { HarnessUnsupportedState } from "@/client/components/harness-support-state";
 import { HarnessSectionCard, HarnessSectionStateFrame } from "@/client/components/harness-section-card";
 import type {
@@ -14,6 +16,7 @@ type ReleaseTriggersPanel = {
   loading?: boolean;
   error?: string | null;
   variant?: "full" | "compact";
+  hideHeader?: boolean;
 };
 
 type ReleaseDimensionTone = "danger" | "warning" | "info" | "success";
@@ -26,6 +29,7 @@ type ReleaseDimensionCard = {
   barValue: number;
   tone: ReleaseDimensionTone;
   rules: ReleaseTriggerRuleSummary[];
+  compactRuleLimit?: number;
 };
 
 const TONE_STYLES: Record<
@@ -173,6 +177,7 @@ function buildReleaseDimensionCards(rules: ReleaseTriggerRuleSummary[]): Release
       barValue: driftScore,
       tone: driftRules.length ? toneFromScore(driftScore) : "info",
       rules: driftRules,
+      compactRuleLimit: 2,
     },
     {
       key: "boundary",
@@ -273,7 +278,7 @@ function RuleDetailCard({
   const styles = TONE_STYLES[tone];
 
   return (
-    <div className={`rounded-xl border px-3 py-2.5 ${styles.detailSurface}`}>
+    <div className={`rounded-sm border px-3 py-2.5 ${styles.detailSurface}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="text-[11px] font-semibold text-desktop-text-primary">{formatTokenLabel(rule.name)}</div>
         <div className="flex flex-wrap gap-1">
@@ -333,9 +338,14 @@ function DimensionCard({
   showDetails: boolean;
 }) {
   const styles = TONE_STYLES[card.tone];
+  const isDriftLayer = card.key === "drift";
+  const [showAllDriftRules, setShowAllDriftRules] = useState(false);
+  const driftLimit = card.compactRuleLimit ?? 0;
+  const shouldCompactDrift = isDriftLayer && showDetails && card.rules.length > driftLimit && driftLimit > 0;
+  const visibleRules = shouldCompactDrift && !showAllDriftRules ? card.rules.slice(0, driftLimit) : card.rules;
 
   return (
-    <div className={`rounded-2xl border p-3 ${styles.border} bg-desktop-bg-secondary/70`}>
+    <div className={`rounded-sm border p-3 ${styles.border} bg-desktop-bg-secondary/70`}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
@@ -350,20 +360,44 @@ function DimensionCard({
         </div>
       </div>
 
-      <div className={`mt-2.5 h-1 w-full overflow-hidden rounded-full ${styles.accent}`}>
+      <div className={`mt-2.5 h-1 w-full overflow-hidden rounded-sm ${styles.accent}`}>
         <div
-          className={`h-full rounded-full ${styles.bar} transition-all`}
+          className={`h-full rounded-sm ${styles.bar} transition-all`}
           style={{ width: `${Math.round(card.barValue * 100)}%` }}
         />
       </div>
 
       {showDetails && card.rules.length > 0 && (
         <div className="mt-2.5 space-y-2">
-          {card.rules.map((rule) => (
+          {visibleRules.map((rule) => (
             <RuleDetailCard key={rule.name} rule={rule} tone={card.tone} />
           ))}
         </div>
       )}
+
+      {shouldCompactDrift && !showAllDriftRules ? (
+        <div className="mt-2">
+          <button
+            type="button"
+            className="rounded-sm border border-desktop-border bg-desktop-bg-primary/65 px-2.5 py-1 text-[10px] font-semibold text-desktop-text-primary"
+            onClick={() => setShowAllDriftRules(true)}
+          >
+            Show all {card.rules.length} rules
+          </button>
+        </div>
+      ) : null}
+
+      {shouldCompactDrift && showAllDriftRules ? (
+        <div className="mt-2">
+          <button
+            type="button"
+            className="rounded-sm border border-desktop-border bg-desktop-bg-primary/65 px-2.5 py-1 text-[10px] font-semibold text-desktop-text-primary"
+            onClick={() => setShowAllDriftRules(false)}
+          >
+            Collapse to preview
+          </button>
+        </div>
+      ) : null}
 
       {!showDetails && card.rules.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
@@ -393,6 +427,7 @@ export function HarnessReleaseTriggersPanel({
   loading = false,
   error = null,
   variant = "full",
+  hideHeader = false,
 }: ReleaseTriggersPanel) {
   const releaseTriggerFile = data?.releaseTriggerFile ?? null;
   const showDetails = variant === "full";
@@ -401,27 +436,18 @@ export function HarnessReleaseTriggersPanel({
     ? buildReleaseDimensionCards(releaseTriggerFile.rules)
     : [];
 
-  const blockReleaseCount = releaseTriggerFile?.rules.filter((rule) => rule.action === "block_release").length ?? 0;
-  const requireReviewCount = releaseTriggerFile?.rules.filter((rule) => rule.action === "require_human_review").length ?? 0;
-  const warnCount = releaseTriggerFile?.rules.filter((rule) => rule.action === "warn").length ?? 0;
-
   return (
     <HarnessSectionCard
       title="Release Surface Governance"
-      description="Layered triggers that guard what goes into each release: exposure surface, artifact drift, packaging boundary changes, and supply-chain capability drift."
+      hideHeader={hideHeader}
       variant={variant}
-      actions={releaseTriggerFile ? (
-        <span className="rounded-full border border-desktop-border bg-desktop-bg-primary/65 px-2.5 py-1 text-[10px] font-semibold text-desktop-text-primary">
-          {releaseTriggerFile.ruleCount} rules
-        </span>
-      ) : null}
     >
       {loading ? (
         <HarnessSectionStateFrame tone="warning">Loading release trigger policies...</HarnessSectionStateFrame>
       ) : null}
 
       {unsupportedMessage ? (
-        <HarnessUnsupportedState className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-5 text-[11px] text-amber-800" />
+        <HarnessUnsupportedState className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-5 text-[11px] text-amber-800" />
       ) : null}
 
       {error && !unsupportedMessage ? (
@@ -441,30 +467,10 @@ export function HarnessReleaseTriggersPanel({
       ) : null}
 
       {!loading && !error && !unsupportedMessage && releaseTriggerFile && releaseTriggerFile.rules.length ? (
-        <div className="mt-3 rounded-xl border border-desktop-border px-4 py-4">
-          <div className="mb-2.5 flex flex-wrap gap-2">
-            {blockReleaseCount > 0 && (
-              <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-semibold text-rose-700">
-                {formatCount(blockReleaseCount, "block")} release
-              </span>
-            )}
-            {requireReviewCount > 0 && (
-              <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-800">
-                {formatCount(requireReviewCount, "human review")}
-              </span>
-            )}
-            {warnCount > 0 && (
-              <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold text-sky-700">
-                {formatCount(warnCount, "warn")}
-              </span>
-            )}
-          </div>
-
-          <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-4">
-            {cards.map((card) => (
-              <DimensionCard key={card.key} card={card} showDetails={showDetails} />
-            ))}
-          </div>
+        <div className="mt-3 grid gap-2.5 md:grid-cols-2 xl:grid-cols-4">
+          {cards.map((card) => (
+            <DimensionCard key={card.key} card={card} showDetails={showDetails} />
+          ))}
         </div>
       ) : null}
     </HarnessSectionCard>

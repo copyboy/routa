@@ -1953,6 +1953,55 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/sessions/{sessionId}/reposlide-result:
+    get:
+      operationId: getRepoSlideSessionResult
+      summary: Read the RepoSlide result payload extracted from a session transcript
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: RepoSlide session result payload
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Session or RepoSlide result not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/sessions/{sessionId}/reposlide-result/download:
+    get:
+      operationId: downloadRepoSlideSessionResult
+      summary: Download the generated RepoSlide PPTX artifact for a completed session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: RepoSlide PPTX file
+          content:
+            application/vnd.openxmlformats-officedocument.presentationml.presentation:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: RepoSlide deck not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   # ── Shared Sessions ──
   /api/shared-sessions:
     get:
@@ -3372,6 +3421,35 @@ paths:
                     items:
                       type: object
 
+  /api/workspaces/{workspaceId}/codebases/{codebaseId}/reposlide:
+    get:
+      operationId: getRepoSlideLaunch
+      summary: Get RepoSlide launch context for an agent-driven deck generation session
+      parameters:
+        - name: workspaceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: codebaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: RepoSlide launch payload
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Workspace or codebase not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   # ── Codebases ──
   /api/codebases/{id}:
     patch:
@@ -4716,6 +4794,43 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "500":
           description: Failed to detect harness repo signals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/harness/automations:
+    get:
+      operationId: getHarnessAutomations
+      summary: Inspect repo-defined automation definitions, pending findings, and runtime schedule state
+      parameters:
+        - name: workspaceId
+          in: query
+          schema:
+            type: string
+        - name: codebaseId
+          in: query
+          schema:
+            type: string
+        - name: repoPath
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Repo-defined automation payload
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Invalid harness automation context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to read harness automations
           content:
             application/json:
               schema:

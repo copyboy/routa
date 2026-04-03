@@ -27,6 +27,8 @@ pub(super) fn tool_allowed_for_profile(name: &str, profile: Option<&str>) -> boo
                 | "list_cards_by_column"
                 | "update_card"
                 | "move_card"
+                | "request_previous_lane_handoff"
+                | "submit_lane_handoff"
         ),
         _ => true,
     }
@@ -344,6 +346,27 @@ fn build_tool_list_inner() -> Vec<serde_json::Value> {
             },
             "required": ["tasks"]
         })),
+        tool_def("request_previous_lane_handoff", "Ask the immediately previous Kanban lane to prepare environment, provide runtime context, or rerun a focused command for this card.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "taskId": { "type": "string", "description": "Card/task ID" },
+                "requestType": { "type": "string", "enum": ["environment_preparation", "runtime_context", "clarification", "rerun_command"] },
+                "request": { "type": "string", "description": "Concrete request for the previous lane" },
+                "sessionId": { "type": "string", "description": "Current ACP session ID" }
+            },
+            "required": ["taskId", "requestType", "request", "sessionId"]
+        })),
+        tool_def("submit_lane_handoff", "Submit the result of a lane handoff request after preparing runtime support for another Kanban lane.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "taskId": { "type": "string", "description": "Card/task ID" },
+                "handoffId": { "type": "string", "description": "Lane handoff request ID" },
+                "status": { "type": "string", "enum": ["completed", "blocked", "failed"] },
+                "summary": { "type": "string", "description": "Concise summary of what was prepared or why it is blocked" },
+                "sessionId": { "type": "string", "description": "Current ACP session ID" }
+            },
+            "required": ["taskId", "handoffId", "status", "summary", "sessionId"]
+        })),
     ]
 }
 
@@ -389,6 +412,8 @@ mod tests {
             "list_cards_by_column",
             "update_card",
             "move_card",
+            "request_previous_lane_handoff",
+            "submit_lane_handoff",
         ]
         .into_iter()
         .collect();

@@ -110,7 +110,7 @@ function getNodeToneClasses(tone: LoopTone) {
         badge: "border-sky-400 bg-sky-100 text-sky-800",
         fill: "bg-sky-100",
         fillActive: "bg-sky-200",
-        shadow: "shadow-sky-200/80",
+        shadow: "",
       };
     case "emerald":
       return {
@@ -118,7 +118,7 @@ function getNodeToneClasses(tone: LoopTone) {
         badge: "border-emerald-400 bg-emerald-100 text-emerald-800",
         fill: "bg-emerald-100",
         fillActive: "bg-emerald-200",
-        shadow: "shadow-emerald-200/80",
+        shadow: "",
       };
     case "amber":
       return {
@@ -126,7 +126,7 @@ function getNodeToneClasses(tone: LoopTone) {
         badge: "border-amber-400 bg-amber-100 text-amber-800",
         fill: "bg-amber-100",
         fillActive: "bg-amber-200",
-        shadow: "shadow-amber-200/80",
+        shadow: "",
       };
     case "violet":
       return {
@@ -134,7 +134,7 @@ function getNodeToneClasses(tone: LoopTone) {
         badge: "border-violet-400 bg-violet-100 text-violet-800",
         fill: "bg-violet-100",
         fillActive: "bg-violet-200",
-        shadow: "shadow-violet-200/80",
+        shadow: "",
       };
     default:
       return {
@@ -142,7 +142,7 @@ function getNodeToneClasses(tone: LoopTone) {
         badge: "border-desktop-border bg-desktop-bg-secondary text-desktop-text-secondary",
         fill: "bg-desktop-bg-secondary",
         fillActive: "bg-desktop-bg-primary/96",
-        shadow: "shadow-black/5",
+        shadow: "",
       };
   }
 }
@@ -211,10 +211,10 @@ function LoopNodeView({ data }: NodeProps<Node<LoopNodeData>>) {
           event.stopPropagation();
           data.onNavigate?.(direction);
         }}
-        className={`flex h-[132px] w-[168px] flex-col justify-between rounded-[24px] border px-4 py-3 text-left shadow-sm transition ${
+        className={`flex h-[132px] w-[168px] flex-col justify-between rounded-sm border px-4 py-3 text-left transition ${
           interactive ? "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-desktop-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white" : "cursor-not-allowed"
         } ${
-          data.active ? `${tone.fillActive} ${tone.border} ${tone.shadow}` : `${tone.fill} ${tone.border} shadow-black/0`
+          data.active ? `${tone.fillActive} ${tone.border} ${tone.shadow}` : `${tone.fill} ${tone.border}`
         } ${selectedClasses}`}
       >
         <div className="flex items-start justify-between gap-3">
@@ -240,13 +240,13 @@ function LoopNodeView({ data }: NodeProps<Node<LoopNodeData>>) {
           </div>
         ) : null}
         {data.unavailableReason ? (
-          <div
-            id={unavailableReasonId}
-            className="mt-2 min-h-[16px] max-w-[168px] rounded-xl border border-dashed border-slate-200 bg-white/70 px-2.5 py-2 text-[10px] leading-4 text-slate-500 truncate"
-            title={data.unavailableReason}
-          >
-            {data.unavailableReason}
-          </div>
+        <div
+          id={unavailableReasonId}
+          className="mt-2 min-h-[16px] max-w-[168px] rounded-sm border border-dashed border-slate-200 bg-white/70 px-2.5 py-2 text-[10px] leading-4 text-slate-500 truncate"
+          title={data.unavailableReason}
+        >
+          {data.unavailableReason}
+        </div>
         ) : null}
       </button>
     </div>
@@ -825,7 +825,7 @@ export function HarnessGovernanceLoopGraph({
       ) : null}
 
       {!hasContext && !unsupportedMessage ? (
-        <div className="mt-4 rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-4 py-5 text-[11px] text-desktop-text-secondary">
+        <div className="mt-4 rounded-sm border border-desktop-border bg-desktop-bg-primary/80 px-4 py-5 text-[11px] text-desktop-text-secondary">
           Select a repository to render the governance loop.
         </div>
       ) : null}
@@ -833,7 +833,7 @@ export function HarnessGovernanceLoopGraph({
       {hasContext && !unsupportedMessage && graphIssues.length > 0 ? (
         <div className="mt-4 space-y-2">
           {graphIssues.map((issue) => (
-            <div key={issue} className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-[11px] text-amber-800">
+            <div key={issue} className="rounded-sm border border-amber-200 bg-amber-50 px-3 py-3 text-[11px] text-amber-800">
               {issue}
             </div>
           ))}
@@ -842,15 +842,7 @@ export function HarnessGovernanceLoopGraph({
 
       {hasContext && !unsupportedMessage ? (
         <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <div className="relative overflow-hidden rounded-2xl border border-desktop-border bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.98))]">
-              <div className="pointer-events-none absolute right-3 top-2 z-10 rounded-xl border border-desktop-border bg-white/90 px-2.5 py-1.5 text-[10px] text-slate-700 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <span className="shrink-0 text-desktop-text-secondary">Legend:</span>
-                  <span className="flex items-center gap-1.5 text-[10px]"><span className="h-2.5 w-2.5 rounded-[3px] border border-sky-300 bg-sky-100" />Internal</span>
-                  <span className="flex items-center gap-1.5 text-[10px]"><span className="h-2.5 w-2.5 rounded-[3px] border border-violet-300 bg-violet-100" />Push</span>
-                  <span className="flex items-center gap-1.5 text-[10px]"><span className="h-2.5 w-2.5 rounded-[3px] border border-amber-300 bg-amber-100" />External</span>
-                </div>
-              </div>
+            <div className="relative overflow-hidden rounded-sm border border-desktop-border bg-desktop-bg-primary">
               <div style={{ height: graph.minHeight }}>
                 <ReactFlow
                   nodes={graph.nodes}
@@ -880,14 +872,14 @@ export function HarnessGovernanceLoopGraph({
                 <div>{contextPanel}</div>
               ) : (
                 <div className="space-y-3">
-                  <div className="rounded-xl border border-desktop-border bg-desktop-bg-primary/70 px-3 py-2.5">
+                  <div className="rounded-sm border border-desktop-border bg-desktop-bg-primary/70 px-3 py-2.5">
                     <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">Node details</div>
                     <div className="mt-1 text-sm font-semibold text-desktop-text-primary">
                       {graph.nodes.find((node) => node.id === activeSelectedNodeId)?.data.title ?? "阶段详情"}
                     </div>
                   </div>
                   {detailSections.map((section: LoopDetailSection) => (
-                    <div key={section.title} className="rounded-xl border border-desktop-border bg-desktop-bg-primary/80 p-3">
+                    <div key={section.title} className="rounded-sm border border-desktop-border bg-desktop-bg-primary/80 p-3">
                       <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">{section.title}</div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {section.items.map((item: string) => (

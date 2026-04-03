@@ -42,6 +42,7 @@ When starting work on this repository, read in this order:
 - Apply the same pattern to oversized API routes: thin top-level route, extract workflow branches (session creation, streaming, provider dispatch, etc.).
 - Split route refactors by workflow branch before shared helpers; avoid premature generic `utils`.
 - Before large behavior refactors, add or extend characterization tests that lock routing/lifecycle/persistence/recovery behavior.
+- All UI-facing strings must go through the i18n system (e.g., `t('key')`). Do not hardcode English or Chinese literals in components.
 
 ## Testing and Debugging
 

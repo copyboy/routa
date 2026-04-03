@@ -40,13 +40,15 @@ const SOURCE_LABELS: Record<SpecialistConfig["source"], string> = {
 };
 
 const desktopInputCls =
-  "w-full rounded-xl border border-desktop-border bg-desktop-bg-primary px-3 py-2 text-sm text-desktop-text-primary outline-none transition focus:border-desktop-accent/60 focus:ring-2 focus:ring-desktop-accent/20 placeholder:text-desktop-text-muted";
-const desktopLabelCls = "text-[11px] font-semibold uppercase tracking-[0.16em] text-desktop-text-muted";
-const sectionTitleCls = "text-[11px] font-semibold uppercase tracking-[0.16em] text-desktop-text-muted";
+  "w-full rounded-lg border border-desktop-border bg-desktop-bg-primary px-2.5 py-1.5 text-[12px] leading-5 text-desktop-text-primary outline-none transition focus:border-desktop-accent/60 focus:ring-2 focus:ring-desktop-accent/20 placeholder:text-desktop-text-muted";
+const desktopLabelCls = "text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-muted";
+const sectionTitleCls = "text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-muted";
 const secondaryButtonCls =
-  "inline-flex items-center justify-center rounded-xl border border-desktop-border bg-desktop-bg-secondary px-3 py-2 text-xs font-medium text-desktop-text-secondary transition hover:bg-desktop-bg-active hover:text-desktop-text-primary disabled:opacity-40";
+  "inline-flex items-center justify-center rounded-lg border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1.5 text-[11px] font-medium text-desktop-text-secondary transition hover:bg-desktop-bg-active hover:text-desktop-text-primary disabled:opacity-40";
 const primaryButtonCls =
-  "inline-flex items-center justify-center rounded-xl bg-desktop-accent px-3 py-2 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-40";
+  "inline-flex items-center justify-center rounded-lg bg-desktop-accent px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40";
+const metaChipCls =
+  "inline-flex items-center gap-1 rounded-full border border-desktop-border bg-desktop-bg-primary/50 px-2 py-0.5 text-[10px] font-medium text-desktop-text-secondary";
 
 export function SpecialistsTab({ modelDefs }: SpecialistsTabProps) {
   const { t } = useTranslation();
@@ -212,29 +214,57 @@ export function SpecialistsTab({ modelDefs }: SpecialistsTabProps) {
   };
 
   return (
-    <div className="space-y-5 p-6">
+    <div
+      className="flex h-full min-h-0 flex-col rounded-xl border border-desktop-border bg-desktop-bg-secondary/60"
+      data-testid="specialists-tab-root"
+    >
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-desktop-border px-3 py-2.5">
+        <div className="min-w-0">
+          <p className={sectionTitleCls}>Execution roles</p>
+          <h1 className="mt-0.5 text-[13px] font-semibold text-desktop-text-primary">Specialists</h1>
+          <p className="mt-1 max-w-3xl text-[11px] leading-5 text-desktop-text-secondary">
+            Create and manage custom specialists, prompts, and model bindings without leaving the split editor.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <div className={metaChipCls}>
+            <span className="opacity-70">Purpose:</span>
+            <span className="font-semibold">Focused execution personas</span>
+          </div>
+          <div className={metaChipCls}>
+            <span className="opacity-70">Binding:</span>
+            <span className="font-semibold">Prompt + model pairing</span>
+          </div>
+        </div>
+      </div>
+
       {error ? (
-        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-          {error}
+        <div className="shrink-0 border-b border-desktop-border px-3 py-2.5">
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
+            {error}
+          </div>
         </div>
       ) : null}
 
-      <div className="grid items-start gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
-        <aside className="self-start rounded-[24px] border border-desktop-border bg-desktop-bg-secondary p-4">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className={sectionTitleCls}>Catalog</p>
-                <p className="mt-1 text-sm text-desktop-text-secondary">{specialists.length} total specialists</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {loading ? <span className="text-xs text-desktop-text-muted">Loading...</span> : null}
-                <button onClick={handleSync} disabled={syncing || saving} className={secondaryButtonCls}>
-                  {syncing ? "Syncing..." : "Sync bundled"}
-                </button>
-              </div>
+      <div className="grid min-h-0 flex-1 gap-3 p-3 xl:grid-cols-[300px_minmax(0,1fr)]">
+        <aside
+          className="flex min-h-[320px] min-w-0 flex-col overflow-hidden rounded-lg border border-desktop-border bg-desktop-bg-secondary"
+          data-testid="specialists-tab-catalog"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-desktop-border px-3 py-2.5">
+            <div className="min-w-0">
+              <p className={sectionTitleCls}>Catalog</p>
+              <p className="mt-0.5 text-[11px] text-desktop-text-secondary">{specialists.length} total specialists</p>
             </div>
+            <div className="flex items-center gap-2">
+              {loading ? <span className="text-[10px] text-desktop-text-muted">Loading...</span> : null}
+              <button onClick={handleSync} disabled={syncing || saving} className={secondaryButtonCls}>
+                {syncing ? "Syncing..." : "Sync bundled"}
+              </button>
+            </div>
+          </div>
 
+          <div className="flex shrink-0 flex-col gap-2 border-b border-desktop-border px-3 py-2.5">
             <input
               type="text"
               value={searchQuery}
@@ -243,14 +273,14 @@ export function SpecialistsTab({ modelDefs }: SpecialistsTabProps) {
               className={desktopInputCls}
             />
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {SPECIALIST_CATEGORY_OPTIONS.map((option) => {
                 const active = selectedCategory === option.id;
                 return (
                   <button
                     key={option.id}
                     onClick={() => setSelectedCategory(option.id)}
-                    className={`rounded-xl px-3 py-2 text-xs font-medium transition ${
+                    className={`rounded-lg px-2.5 py-1 text-[10px] font-medium transition ${
                       active
                         ? "bg-desktop-bg-active text-desktop-accent ring-1 ring-inset ring-desktop-accent/30"
                         : "bg-desktop-bg-primary text-desktop-text-secondary hover:bg-desktop-bg-active hover:text-desktop-text-primary"
@@ -261,61 +291,67 @@ export function SpecialistsTab({ modelDefs }: SpecialistsTabProps) {
                 );
               })}
             </div>
+          </div>
 
-            <div className="max-h-[720px] space-y-2 overflow-y-auto pr-1">
-              {visibleSpecialists.map((specialist) => {
-                const active = selectedId === specialist.id;
-                return (
-                  <button
-                    key={specialist.id}
-                    onClick={() => setSelectedId(specialist.id)}
-                    className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
-                      active
-                        ? "border-desktop-accent/40 bg-desktop-bg-active"
-                        : "border-desktop-border bg-desktop-bg-primary/70 hover:bg-desktop-bg-active/70"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-desktop-text-primary">{specialist.name}</div>
-                        <div className="mt-1 truncate font-mono text-[11px] text-desktop-text-muted">{specialist.id}</div>
-                      </div>
-                      <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${ROLE_CHIP[specialist.role]}`}>
-                        {specialist.role}
-                      </span>
+          <div
+            className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 py-2 desktop-scrollbar-thin"
+            data-testid="specialists-tab-catalog-list"
+          >
+            {visibleSpecialists.map((specialist) => {
+              const active = selectedId === specialist.id;
+              return (
+                <button
+                  key={specialist.id}
+                  onClick={() => setSelectedId(specialist.id)}
+                  className={`w-full rounded-lg border px-2.5 py-2 text-left transition ${
+                    active
+                      ? "border-desktop-accent/40 bg-desktop-bg-active"
+                      : "border-desktop-border bg-desktop-bg-primary/70 hover:bg-desktop-bg-active/70"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-[12px] font-medium text-desktop-text-primary">{specialist.name}</div>
+                      <div className="mt-0.5 truncate font-mono text-[10px] text-desktop-text-muted">{specialist.id}</div>
                     </div>
-                    <div className="mt-2 flex items-center gap-2 text-[11px] text-desktop-text-secondary">
-                      <span>{SOURCE_LABELS[specialist.source]}</span>
-                      <span>•</span>
-                      <span>{TIER_LABELS[specialist.defaultModelTier]}</span>
-                    </div>
-                  </button>
-                );
-              })}
+                    <span className={`rounded-md px-1.5 py-0.5 text-[9px] font-semibold ${ROLE_CHIP[specialist.role]}`}>
+                      {specialist.role}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-2 text-[10px] text-desktop-text-secondary">
+                    <span>{SOURCE_LABELS[specialist.source]}</span>
+                    <span>•</span>
+                    <span>{TIER_LABELS[specialist.defaultModelTier]}</span>
+                  </div>
+                </button>
+              );
+            })}
 
-              {!loading && visibleSpecialists.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-desktop-border px-4 py-8 text-center text-sm text-desktop-text-secondary">
-                  No specialists found.
-                </div>
-              ) : null}
-            </div>
+            {!loading && visibleSpecialists.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-desktop-border px-3 py-6 text-center text-[11px] text-desktop-text-secondary">
+                No specialists found.
+              </div>
+            ) : null}
           </div>
         </aside>
 
-        <section className="rounded-[24px] border border-desktop-border bg-desktop-bg-secondary p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-desktop-border pb-4">
+        <section
+          className="flex min-h-[480px] min-w-0 flex-col overflow-hidden rounded-lg border border-desktop-border bg-desktop-bg-secondary"
+          data-testid="specialists-tab-editor"
+        >
+          <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-desktop-border px-3 py-2.5">
             <div className="min-w-0">
               <p className={sectionTitleCls}>{editingId ? `${t.common.edit} ${t.settings.specialists}` : `${t.common.new} ${t.settings.specialists}`}</p>
-              <h3 className="mt-1 text-xl font-semibold text-desktop-text-primary">
+              <h3 className="mt-0.5 text-[14px] font-semibold text-desktop-text-primary">
                 {editingId ? form.name || editingId : "New specialist profile"}
               </h3>
-              <p className="mt-2 text-sm text-desktop-text-secondary">
+              <p className="mt-1 text-[11px] leading-5 text-desktop-text-secondary">
                 {readOnlySelection
                   ? "Bundled and built-in specialists are visible here for inspection. Duplicate them into a custom specialist before editing."
                   : "Manage the specialist identity, runtime tier, and system prompt from one panel."}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               {selectedSpecialist ? (
                 <button onClick={duplicateSelected} className={secondaryButtonCls}>
                   Duplicate
@@ -332,9 +368,9 @@ export function SpecialistsTab({ modelDefs }: SpecialistsTabProps) {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid min-h-0 flex-1 gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_220px]">
+            <div className="min-h-0 space-y-3 overflow-y-auto pr-1 desktop-scrollbar-thin">
+              <div className="grid gap-3 md:grid-cols-2">
                 <Field label="ID">
                   <input
                     type="text"
@@ -362,13 +398,13 @@ export function SpecialistsTab({ modelDefs }: SpecialistsTabProps) {
                   value={form.description}
                   onChange={(event) => setForm({ ...form, description: event.target.value })}
                   disabled={readOnlySelection}
-                  rows={3}
+                  rows={2}
                   placeholder="Short description shown in the catalog"
                   className={`${desktopInputCls} disabled:opacity-60`}
                 />
               </Field>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-2">
                 <Field label="Role">
                   <Select
                     value={form.role}
@@ -417,9 +453,9 @@ export function SpecialistsTab({ modelDefs }: SpecialistsTabProps) {
                   value={form.systemPrompt}
                   onChange={(event) => setForm({ ...form, systemPrompt: event.target.value })}
                   disabled={readOnlySelection}
-                  rows={15}
+                  rows={12}
                   placeholder="Define the specialist contract"
-                  className={`${desktopInputCls} min-h-[320px] font-mono text-[13px] leading-6 disabled:opacity-60`}
+                  className={`${desktopInputCls} min-h-[240px] font-mono text-[12px] leading-5 disabled:opacity-60`}
                 />
               </Field>
 
@@ -428,14 +464,14 @@ export function SpecialistsTab({ modelDefs }: SpecialistsTabProps) {
                   value={form.roleReminder}
                   onChange={(event) => setForm({ ...form, roleReminder: event.target.value })}
                   disabled={readOnlySelection}
-                  rows={4}
+                  rows={3}
                   placeholder="Short runtime reminder"
                   className={`${desktopInputCls} disabled:opacity-60`}
                 />
               </Field>
             </div>
 
-            <div className="space-y-4">
+            <div className="grid auto-rows-max content-start gap-2 sm:grid-cols-2 xl:grid-cols-1">
               <InspectorCard label="Source" value={selectedSpecialist ? SOURCE_LABELS[selectedSpecialist.source] : "New"} />
               <InspectorCard label="Category" value={selectedSpecialist ? getSpecialistCategory(selectedSpecialist.id) : "custom"} />
               <InspectorCard label="Writable" value={readOnlySelection ? "No" : "Yes"} />
@@ -457,7 +493,7 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1">
       <label className={desktopLabelCls}>{label}</label>
       {children}
     </div>
@@ -474,12 +510,12 @@ function InspectorCard({
   badgeClass?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-desktop-border bg-desktop-bg-primary/70 px-4 py-4">
+    <div className="rounded-lg border border-desktop-border bg-desktop-bg-primary/70 px-3 py-2.5">
       <div className={sectionTitleCls}>{label}</div>
       {badgeClass ? (
-        <span className={`mt-3 inline-flex rounded-md px-2 py-1 text-[11px] font-semibold ${badgeClass}`}>{value}</span>
+        <span className={`mt-2 inline-flex rounded-md px-2 py-1 text-[10px] font-semibold ${badgeClass}`}>{value}</span>
       ) : (
-        <div className="mt-3 text-sm font-medium text-desktop-text-primary">{value}</div>
+        <div className="mt-2 text-[12px] font-medium text-desktop-text-primary">{value}</div>
       )}
     </div>
   );

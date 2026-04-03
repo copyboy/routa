@@ -45,7 +45,7 @@ function DimensionDensityTooltip({ active, payload }: TooltipContentProps<ValueT
   };
 
   return (
-    <div className="rounded-xl border border-desktop-border bg-white/95 px-3 py-2 text-[11px] shadow-lg dark:bg-slate-950/95">
+    <div className="rounded-sm border border-desktop-border bg-white/95 px-3 py-2 text-[11px] dark:bg-slate-950/95">
       <div className="font-semibold text-desktop-text-primary">{datum.label}</div>
       <div className="mt-1 text-desktop-text-secondary">{datum.fileName}</div>
       <div className="mt-2 text-desktop-text-primary">score {datum.score}</div>
@@ -73,7 +73,7 @@ export function HarnessFitnessFilesDashboard({
   const content = (
     <>
       {unsupportedMessage ? (
-        <HarnessUnsupportedState className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-[11px] text-amber-800" />
+        <HarnessUnsupportedState className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-4 text-[11px] text-amber-800" />
       ) : null}
 
       {loading ? (
@@ -84,7 +84,7 @@ export function HarnessFitnessFilesDashboard({
 
       {!unsupportedMessage && !loading && !error ? (
         <div className="mt-3" data-testid="harness-fitness-files-dashboard">
-          <section className="rounded-2xl border border-desktop-border bg-white/80 p-4 shadow-sm dark:bg-white/6">
+          <section className="rounded-sm border border-desktop-border bg-desktop-bg-primary/80 p-4 dark:bg-white/6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">Dimension radar</div>
@@ -124,7 +124,7 @@ export function HarnessFitnessFilesDashboard({
                 </ResponsiveContainer>
               </div>
             ) : (
-              <div className="mt-4 rounded-xl border border-dashed border-desktop-border px-3 py-5 text-sm text-desktop-text-secondary">
+              <div className="mt-4 rounded-sm border border-dashed border-desktop-border px-3 py-5 text-sm text-desktop-text-secondary">
                 No dimension files found.
               </div>
             )}
@@ -141,11 +141,7 @@ export function HarnessFitnessFilesDashboard({
   return (
     <HarnessSectionCard
       title="Entrix Fitness"
-      description="Entrix fitness manifest and dimension scoring surfaces."
       variant="full"
-      actions={
-        loading ? <span className="text-[10px] text-desktop-text-secondary">Loading...</span> : null
-      }
     >
       {content}
     </HarnessSectionCard>

@@ -388,6 +388,155 @@ fn api_port() -> u16 {
         .unwrap_or(3210)
 }
 
+const DEFAULT_WORKSPACE_ID: &str = "default";
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn desktop_workspace_navigation_js(port: u16, route_suffix: &str) -> String {
+    format!(
+        r#"
+            (function() {{
+                const match = window.location.pathname.match(/\/workspace\/([^\/]+)/);
+                const workspaceId = match ? match[1] : '{default_workspace_id}';
+                window.location.href = `http://127.0.0.1:{port}/workspace/${{workspaceId}}{route_suffix}`;
+            }})();
+        "#,
+        default_workspace_id = DEFAULT_WORKSPACE_ID,
+        port = port,
+        route_suffix = route_suffix,
+    )
+}
+
+fn render_startup_error_html(api_url: &str, db_path: &str, error: &str) -> String {
+    let escaped_api_url = escape_html(api_url);
+    let escaped_db_path = escape_html(db_path);
+    let escaped_error = escape_html(error);
+
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Routa Desktop Startup Error</title>
+    <style>
+      :root {{
+        color-scheme: light dark;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }}
+      body {{
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 24px;
+      }}
+      .panel {{
+        width: min(760px, 100%);
+        background: rgba(15, 23, 42, 0.94);
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        border-radius: 18px;
+        padding: 28px;
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.45);
+      }}
+      h1 {{
+        margin: 0 0 12px;
+        font-size: 28px;
+        line-height: 1.2;
+      }}
+      p {{
+        margin: 0 0 16px;
+        color: #cbd5e1;
+        line-height: 1.6;
+      }}
+      dl {{
+        margin: 20px 0 0;
+        display: grid;
+        gap: 14px;
+      }}
+      dt {{
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #94a3b8;
+        margin-bottom: 6px;
+      }}
+      dd {{
+        margin: 0;
+      }}
+      code {{
+        display: block;
+        white-space: pre-wrap;
+        word-break: break-word;
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: rgba(15, 23, 42, 0.72);
+        color: #f8fafc;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.5;
+      }}
+      button {{
+        margin-top: 22px;
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 14px;
+        background: #2563eb;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }}
+    </style>
+  </head>
+  <body>
+    <main class="panel">
+      <h1>Routa Desktop could not start its backend</h1>
+      <p>
+        The desktop window was not connected to a fresh Rust backend. This usually means another
+        process is already using the desktop port, or startup failed before the app could safely
+        switch to the local HTTP server.
+      </p>
+      <dl>
+        <div>
+          <dt>API URL</dt>
+          <dd><code>{escaped_api_url}</code></dd>
+        </div>
+        <div>
+          <dt>Database Path</dt>
+          <dd><code>{escaped_db_path}</code></dd>
+        </div>
+        <div>
+          <dt>Error</dt>
+          <dd><code>{escaped_error}</code></dd>
+        </div>
+      </dl>
+      <button type="button" onclick="window.location.reload()">Reload</button>
+    </main>
+  </body>
+</html>"#
+    )
+}
+
+fn show_startup_error(window: &tauri::WebviewWindow, api_url: &str, db_path: &str, error: &str) {
+    let html = render_startup_error_html(api_url, db_path, error);
+    let serialized_html = serde_json::to_string(&html)
+        .unwrap_or_else(|_| "\"<h1>Routa Desktop startup failed</h1>\"".to_string());
+    let js = format!("document.open(); document.write({serialized_html}); document.close();");
+    let _ = window.eval(&js);
+}
+
 fn start_local_next_server(host: &str, port: u16) -> Result<Child, String> {
     let repo_root = detect_repo_root().ok_or_else(|| {
         "Unable to detect repository root for desktop local API server".to_string()
@@ -840,14 +989,7 @@ pub fn run() {
                         // Navigate to workspace dashboard
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let port = api_port();
-                            // Get current workspace ID from URL or use default
-                            let js = format!(r#"
-                                (function() {{
-                                    const match = window.location.pathname.match(/\/workspace\/([^\/]+)/);
-                                    const workspaceId = match ? match[1] : '8844519a-5f3c-437c-aac4-286d2e7517a7';
-                                    window.location.href = `http://127.0.0.1:{}/workspace/${{workspaceId}}`;
-                                }})();
-                            "#, port);
+                            let js = desktop_workspace_navigation_js(port, "");
                             let _ = window.eval(&js);
                             println!("[menu] Navigating to Dashboard");
                         }
@@ -856,13 +998,7 @@ pub fn run() {
                         // Navigate to Kanban board
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let port = api_port();
-                            let js = format!(r#"
-                                (function() {{
-                                    const match = window.location.pathname.match(/\/workspace\/([^\/]+)/);
-                                    const workspaceId = match ? match[1] : '8844519a-5f3c-437c-aac4-286d2e7517a7';
-                                    window.location.href = `http://127.0.0.1:{}/workspace/${{workspaceId}}/kanban`;
-                                }})();
-                            "#, port);
+                            let js = desktop_workspace_navigation_js(port, "/kanban");
                             let _ = window.eval(&js);
                             println!("[menu] Navigating to Kanban");
                         }
@@ -937,6 +1073,10 @@ pub fn run() {
                         }
                         Err(e) => {
                             eprintln!("[rust-server] {}", e);
+                            if let Some(window) = app.get_webview_window("main") {
+                                let db_path = resolve_db_path(app.handle());
+                                show_startup_error(&window, &api_url, &db_path, &e);
+                            }
                         }
                     }
                 }

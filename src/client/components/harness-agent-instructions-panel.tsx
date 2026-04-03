@@ -11,6 +11,7 @@ import { MarkdownViewer } from "@/client/components/markdown/markdown-viewer";
 import { HarnessSectionCard, HarnessSectionStateFrame } from "@/client/components/harness-section-card";
 import { HarnessUnsupportedState } from "@/client/components/harness-support-state";
 import type { InstructionsResponse } from "@/client/hooks/use-harness-settings-data";
+import { desktopAwareFetch } from "@/client/utils/diagnostics";
 import { RefreshCw } from "lucide-react";
 
 
@@ -44,6 +45,7 @@ type HarnessAgentInstructionsPanelProps = {
   error?: string | null;
   variant?: "full" | "compact";
   onAuditRerun?: () => void;
+  hideHeader?: boolean;
 };
 
 const AUDIT_PRINCIPLE_META = {
@@ -163,7 +165,7 @@ function AuditScoreCard({
   maxScore: number;
 }) {
   return (
-    <div className={`group relative rounded-lg border px-2.5 py-2 ${getScoreCardClass(value, maxScore)}`}>
+    <div className={`group relative rounded-sm border px-2.5 py-2 ${getScoreCardClass(value, maxScore)}`}>
       <div className="flex items-center gap-1.5">
         <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">{label}</div>
         {description ? (
@@ -191,13 +193,14 @@ export function HarnessAgentInstructionsPanel({
   workspaceId,
   codebaseId,
   repoPath,
-  repoLabel,
+  repoLabel: _repoLabel,
   unsupportedMessage,
   data,
   loading,
   error,
   variant = "full",
   onAuditRerun,
+  hideHeader = false,
 }: HarnessAgentInstructionsPanelProps) {
   const hasExternalState = loading !== undefined || error !== undefined || data !== undefined;
   const [instructionsState, setInstructionsState] = useState<InstructionsState>({
@@ -248,7 +251,7 @@ export function HarnessAgentInstructionsPanel({
         );
         query.set("includeAudit", includeAudit ? "1" : "0");
 
-        const response = await fetch(`/api/harness/instructions?${query.toString()}`);
+        const response = await desktopAwareFetch(`/api/harness/instructions?${query.toString()}`);
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           throw new Error(typeof payload?.details === "string" ? payload.details : "Failed to load guidance document");
@@ -379,23 +382,6 @@ export function HarnessAgentInstructionsPanel({
     }));
   };
 
-  const headerActions = (
-    <div className="flex flex-wrap gap-2 text-[10px]">
-      <span className="rounded-full border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1 text-desktop-text-secondary">
-        {repoLabel}
-      </span>
-      {resolvedInstructionsState.data?.fallbackUsed ? (
-        <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-800">
-          fallback AGENTS.md
-        </span>
-      ) : resolvedInstructionsState.data ? (
-        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-700">
-          preferred CLAUDE.md
-        </span>
-      ) : null}
-    </div>
-  );
-
   const rerunUnavailableReason = resolvedInstructionsState.loading
     ? "Audit is currently running."
     : unsupportedMessage
@@ -408,13 +394,12 @@ export function HarnessAgentInstructionsPanel({
   return (
     <HarnessSectionCard
       title="Instruction file - CLAUDE.md"
-      actions={headerActions}
-      description="Repository-level instruction file that defines governance and automation preferences for harness analysis."
+      hideHeader={hideHeader}
       variant={variant}
     >
 
       {showAuditPanel ? (
-        <div className="mt-3 rounded-xl border border-desktop-border bg-desktop-bg-secondary/50 px-3 py-3">
+        <div className="mt-3 rounded-sm border border-desktop-border bg-desktop-bg-secondary/50 px-3 py-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
               Instruction audit
@@ -465,7 +450,7 @@ export function HarnessAgentInstructionsPanel({
               Audit has not been run yet in this view. Click Re-run audit to generate a fresh summary.
             </div>
           ) : auditSummary.status === "error" ? (
-            <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-[11px] text-red-700">
+            <div className="mt-2 rounded-sm border border-red-200 bg-red-50 px-2.5 py-2 text-[11px] text-red-700">
               {auditSummary.error ?? "Audit execution failed."}
             </div>
           ) : compactMode ? (
@@ -523,7 +508,7 @@ export function HarnessAgentInstructionsPanel({
       ) : null}
 
       {unsupportedMessage ? (
-        <HarnessUnsupportedState className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-5 text-[11px] text-amber-800" />
+        <HarnessUnsupportedState className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-5 text-[11px] text-amber-800" />
       ) : null}
 
       {resolvedInstructionsState.error && !unsupportedMessage ? (
@@ -534,7 +519,7 @@ export function HarnessAgentInstructionsPanel({
         <div className="mt-3">
           <div className={`grid gap-4 ${contentGridClass}`}>
           <div className={`flex ${contentPanelHeightClass} min-h-0 flex-col`}>
-            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-2 py-2 harness-instructions-tree">
+            <div className="min-h-0 flex-1 overflow-auto rounded-sm border border-desktop-border bg-desktop-bg-primary/80 px-2 py-2 harness-instructions-tree">
               <UncontrolledTreeEnvironment
                 dataProvider={treeDataProvider}
                 getItemTitle={(item) => item.data.title}
@@ -575,7 +560,7 @@ export function HarnessAgentInstructionsPanel({
           </div>
 
           <div className={`flex ${contentPanelHeightClass} min-h-0 flex-col`}>
-            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-desktop-border bg-desktop-bg-primary/80 px-4 py-3">
+            <div className="min-h-0 flex-1 overflow-auto rounded-sm border border-desktop-border bg-desktop-bg-primary/80 px-4 py-3">
               <MarkdownViewer
                 content={selectedSection?.content ?? resolvedInstructionsState.data.source}
                 className="text-[12px] leading-6 text-desktop-text-primary"

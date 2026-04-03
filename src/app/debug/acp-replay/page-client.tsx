@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useTranslation } from "@/i18n";
 
 type ReplayEvent = {
   sessionId?: string;
@@ -11,6 +12,10 @@ type ReplayEvent = {
 };
 
 export function AcpReplayDebugPageClient() {
+  const { t } = useTranslation();
+  const loadHistoryFailedMessage = t.debug.loadHistoryFailed;
+  const parseSseFailedMessage = t.debug.parseSseFailed;
+  const eventSourceDisconnectedMessage = t.debug.eventSourceDisconnected;
   const searchParams = useSearchParams();
   const initialSessionId = searchParams.get("sessionId") ?? "";
   const initialLastEventId = searchParams.get("lastEventId") ?? "";
@@ -44,7 +49,7 @@ export function AcpReplayDebugPageClient() {
       })
       .catch((fetchError: unknown) => {
         if (!closed) {
-          setError(fetchError instanceof Error ? fetchError.message : "Failed to load history");
+          setError(fetchError instanceof Error ? fetchError.message : loadHistoryFailedMessage);
         }
       });
 
@@ -57,12 +62,12 @@ export function AcpReplayDebugPageClient() {
         setStatus("streaming");
         setEvents((current) => [...current, nextEvent]);
       } catch (parseError) {
-        setError(parseError instanceof Error ? parseError.message : "Failed to parse SSE payload");
+        setError(parseError instanceof Error ? parseError.message : parseSseFailedMessage);
       }
     };
     source.onerror = () => {
       setStatus("error");
-      setError("EventSource disconnected");
+      setError(eventSourceDisconnectedMessage);
       source.close();
     };
 
@@ -71,7 +76,14 @@ export function AcpReplayDebugPageClient() {
       controller.abort();
       source.close();
     };
-  }, [sessionId, lastEventId, refreshKey]);
+  }, [
+    sessionId,
+    lastEventId,
+    refreshKey,
+    loadHistoryFailedMessage,
+    parseSseFailedMessage,
+    eventSourceDisconnectedMessage,
+  ]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -95,10 +107,10 @@ export function AcpReplayDebugPageClient() {
 
   return (
     <main style={{ padding: 24, fontFamily: "monospace" }}>
-      <h1>ACP Replay Debug</h1>
+      <h1>{t.debug.acpReplayTitle}</h1>
       <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12, maxWidth: 720 }}>
         <label>
-          Session ID
+          {t.debug.sessionId}
           <input
             value={sessionId}
             onChange={(event) => setSessionId(event.target.value)}
@@ -106,28 +118,28 @@ export function AcpReplayDebugPageClient() {
           />
         </label>
         <label>
-          Last Event ID
+          {t.debug.lastEventId}
           <input
             value={lastEventId}
             onChange={(event) => setLastEventId(event.target.value)}
             style={{ display: "block", width: "100%", marginTop: 4 }}
           />
         </label>
-        <button type="submit" style={{ width: 160 }}>Reconnect</button>
+        <button type="submit" style={{ width: 160 }}>{t.debug.reconnect}</button>
       </form>
 
       <section style={{ marginTop: 24 }}>
-        <p><strong>Status:</strong> {status}</p>
-        {error ? <p><strong>Error:</strong> {error}</p> : null}
+        <p><strong>{t.debug.status}:</strong> {status}</p>
+        {error ? <p><strong>{t.debug.error}:</strong> {error}</p> : null}
       </section>
 
       <section style={{ marginTop: 24 }}>
-        <h2>History Snapshot</h2>
+        <h2>{t.debug.historySnapshot}</h2>
         <pre>{JSON.stringify(history, null, 2)}</pre>
       </section>
 
       <section style={{ marginTop: 24 }}>
-        <h2>Replay Events</h2>
+        <h2>{t.debug.replayEvents}</h2>
         <pre>{JSON.stringify(events, null, 2)}</pre>
       </section>
     </main>

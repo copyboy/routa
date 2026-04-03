@@ -5,6 +5,7 @@ import { HarnessAgentHookWorkbench } from "@/client/components/harness-agent-hoo
 import { HarnessSectionCard, HarnessSectionStateFrame } from "@/client/components/harness-section-card";
 import { HarnessUnsupportedState } from "@/client/components/harness-support-state";
 import type { AgentHooksResponse } from "@/client/hooks/use-harness-settings-data";
+import { desktopAwareFetch } from "@/client/utils/diagnostics";
 
 type AgentHookPanelProps = {
   workspaceId: string;
@@ -66,7 +67,7 @@ export function HarnessAgentHookPanel({
         }
         query.set("repoPath", repoPath);
 
-        const response = await fetch(`/api/harness/agent-hooks?${query.toString()}`);
+        const response = await desktopAwareFetch(`/api/harness/agent-hooks?${query.toString()}`);
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           throw new Error(typeof payload?.details === "string" ? payload.details : "Failed to load agent hooks");
@@ -100,16 +101,13 @@ export function HarnessAgentHookPanel({
     ? { loading: loading ?? false, error: error ?? null, data: data ?? null }
     : agentHooksState;
 
-  const description = "Policy hooks that configure agent-side runtime behavior.";
-  const systemAction = <span className="text-[10px] text-desktop-text-secondary">Hook systems</span>;
-
   const agentHookStateFrame = () => {
     if (resolvedState.loading) {
       return <HarnessSectionStateFrame>Loading agent hooks...</HarnessSectionStateFrame>;
     }
 
     if (unsupportedMessage) {
-      return <HarnessUnsupportedState className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-[11px] text-amber-800" />;
+      return <HarnessUnsupportedState className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-4 text-[11px] text-amber-800" />;
     }
 
     if (resolvedState.error) {
@@ -139,7 +137,7 @@ export function HarnessAgentHookPanel({
   }
 
   return (
-    <HarnessSectionCard title="Hook systems" description={description} actions={systemAction} variant={variant}>
+    <HarnessSectionCard title="Agent hook system" variant={variant}>
       {agentHookStateFrame()}
     </HarnessSectionCard>
   );

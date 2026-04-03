@@ -1,21 +1,19 @@
 # page-id: workspace
 # route: /workspace/default/overview
 # source-page: src/app/workspace/[workspaceId]/overview/page.tsx
-# url: http://127.0.0.1:58768/workspace/default/overview
+# url: http://127.0.0.1:60038/workspace/default/overview
 # title: Routa - Multi-Agent Coordinator
-# generated-at: 2026-04-01T12:41:10.061Z
+# generated-at: 2026-04-02T01:48:37.258Z
 # generator: playwright
 # playwright-version: 1.58.2
 - banner:
-  - img "Routa"
-  - text: Routa
   - button "Default Workspace"
   - button "Docker fixture" [disabled]
-  - button "EN"
-  - button "中文"
-  - button "Light" [pressed]
-  - button "Dark"
+  - link "MCP ready":
+    - /url: /settings/mcp?tab=tools
 - complementary:
+  - img "Routa"
+  - text: Routa
   - button "Close sidebar":
     - img
   - navigation:
@@ -39,8 +37,7 @@
       - /url: /settings/workflows
     - link "Specialists":
       - /url: /settings/specialists
-  - link "Settings":
-    - /url: /settings
+  - button "Settings"
   - link "Debug":
     - /url: /traces
 - main:
