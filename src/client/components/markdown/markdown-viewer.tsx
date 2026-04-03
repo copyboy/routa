@@ -81,6 +81,12 @@ function hasCanonicalStoryBlocks(content: string): boolean {
   return false;
 }
 
+function stripCanonicalStoryBlocks(content: string): string {
+  return content.replace(CANONICAL_STORY_BLOCK_RE, (match, code) => {
+    return isCanonicalStoryBlock(code) ? "" : match;
+  });
+}
+
 function splitSpecialBlocks(content: string): ContentSegment[] {
   const segments: ContentSegment[] = [];
   let lastIndex = 0;
@@ -154,6 +160,8 @@ interface MarkdownViewerProps {
   className?: string;
   /** Called when a file path is clicked in the rendered content */
   onFileClick?: (path: string) => void;
+  /** Hide canonical story renderer and only render canonical YAML as plain markdown */
+  hideCanonicalStory?: boolean;
 }
 
 export function MarkdownViewer({
@@ -161,18 +169,24 @@ export function MarkdownViewer({
   isStreaming = false,
   className = "",
   onFileClick,
+  hideCanonicalStory = false,
 }: MarkdownViewerProps) {
+  const processedContent = useMemo(
+    () => (hideCanonicalStory ? stripCanonicalStoryBlocks(content) : content),
+    [content, hideCanonicalStory],
+  );
   // ── Special blocks: Mermaid + HTML previews ─────────────────────────
   const hasSpecial = useMemo(
-    () => !isStreaming && (hasMermaidBlocks(content) || hasHtmlBlocks(content) || hasCanonicalStoryBlocks(content)),
-    [content, isStreaming]
+    () => !isStreaming && (hasMermaidBlocks(content) || hasHtmlBlocks(content)
+      || (hasCanonicalStoryBlocks(content) && !hideCanonicalStory)),
+    [content, hideCanonicalStory, isStreaming],
   );
 
-  const complexity = useMemo(() => detectComplexity(content), [content]);
+  const complexity = useMemo(() => detectComplexity(processedContent), [processedContent]);
   const html = useMemo(() => {
     if (complexity === "simple") return "";
-    return markdownToHtml(content);
-  }, [content, complexity]);
+    return markdownToHtml(processedContent);
+  }, [processedContent, complexity]);
 
   if (hasSpecial) {
     const segments = splitSpecialBlocks(content);
@@ -186,6 +200,9 @@ export function MarkdownViewer({
             return <HtmlPreviewRenderer key={i} code={seg.code} className="my-2" />;
           }
           if (seg.type === "canonical-story") {
+            if (hideCanonicalStory) {
+              return null;
+            }
             return <CanonicalStoryRenderer key={i} parseResult={seg.parseResult} className="my-2" />;
           }
           return (
@@ -195,6 +212,7 @@ export function MarkdownViewer({
               isStreaming={false}
               className=""
               onFileClick={onFileClick}
+              hideCanonicalStory={hideCanonicalStory}
             />
           );
         })}
@@ -206,7 +224,7 @@ export function MarkdownViewer({
   if (complexity === "simple") {
     return (
       <div className={`markdown-viewer simple-content ${className}`}>
-        <p className="m-0 whitespace-pre-wrap">{content}</p>
+        <p className="m-0 whitespace-pre-wrap">{processedContent}</p>
       </div>
     );
   }

@@ -185,6 +185,7 @@ export function KanbanTab({
   const [isDeleting, setIsDeleting] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
   const detailSplitContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isTaskDetailFullscreen, setIsTaskDetailFullscreen] = useState(false);
   const sessionBackfillInFlightRef = useRef(new Set<string>());
   const emptySessionRecoveryRef = useRef<string | null>(null);
 
@@ -604,6 +605,7 @@ export function KanbanTab({
     setActiveTaskId(task.id);
     const latestSession = getPreferredTaskSessionId(task);
     setActiveSessionId(latestSession ?? null);
+    setIsTaskDetailFullscreen(false);
 
     if (task.codebaseIds?.length === 0 && defaultCodebase) {
       try {
@@ -622,6 +624,7 @@ export function KanbanTab({
   const openSession = useCallback((sessionId: string | null, task?: TaskInfo | null) => {
     setActiveTaskId(null);
     setActiveSessionId(sessionId);
+    setIsTaskDetailFullscreen(false);
     // Select the session in ACP
     if (sessionId && acp && (
       task ? canSelectTaskSessionInAcp(task, sessionId, sessionMap) : sessionMap.has(sessionId)
@@ -633,6 +636,7 @@ export function KanbanTab({
   const closeTaskDetail = useCallback(() => {
     setActiveTaskId(null);
     setActiveSessionId(null);
+    setIsTaskDetailFullscreen(false);
   }, []);
 
   useEffect(() => {
@@ -1295,6 +1299,8 @@ export function KanbanTab({
         closeTaskDetail={closeTaskDetail}
         sessionMap={sessionMap}
         workspaceId={workspaceId}
+        isTaskDetailFullscreen={isTaskDetailFullscreen}
+        onToggleTaskDetailFullscreen={setIsTaskDetailFullscreen}
       />
 
       {/* Settings Modal */}

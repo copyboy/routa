@@ -205,7 +205,7 @@ export function KanbanDescriptionEditor({
   };
 
   return (
-    <div className={`rounded-2xl border border-slate-200 bg-slate-50/70 dark:border-slate-700 dark:bg-[#0d1018] ${compact ? "" : ""}`}>
+    <div className={`border-b border-slate-200/70 dark:border-slate-700 ${compact ? "" : ""}`}>
       <div className={`flex items-center justify-between border-b border-slate-200/70 dark:border-slate-700 ${compact ? "px-3 py-2" : "px-4 py-2.5"}`}>
         <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
           {isEditing ? t.kanban.editingMarkdown : t.kanban.renderedMarkdown}
@@ -272,7 +272,11 @@ export function KanbanDescriptionEditor({
       ) : (
         <div className={compact ? "px-3 py-2.5" : "px-4 py-3"}>
           {value.trim() ? (
-            <MarkdownViewer content={value} className="text-slate-700 dark:text-slate-300" />
+            <MarkdownViewer
+              content={value}
+              className="text-slate-700 dark:text-slate-300"
+              hideCanonicalStory
+            />
           ) : (
             <div className="text-sm text-slate-400 dark:text-slate-500">{t.kanban.noDescriptionYet}</div>
           )}

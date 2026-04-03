@@ -95,4 +95,29 @@ foo: bar
     expect(screen.queryByTestId("canonical-story-renderer-invalid")).toBeNull();
     expect(screen.getByText("foo: bar")).toBeTruthy();
   });
+
+  it("hides canonical YAML blocks when hideCanonicalStory is enabled", () => {
+    render(
+      <MarkdownViewer
+        content={`Context before.
+
+\`\`\`yaml
+story:
+  version: 1
+  title: Card title
+  problem_statement: |
+    Example canonical block.
+\`\`\`
+
+Context after.`}
+        hideCanonicalStory
+      />,
+    );
+
+    const rootText = screen.getByRole("paragraph");
+    expect(rootText.textContent ?? "").toContain("Context before.");
+    expect(rootText.textContent ?? "").toContain("Context after.");
+    expect(screen.queryByText("story:")).toBeNull();
+    expect(screen.queryByText("Card title")).toBeNull();
+  });
 });

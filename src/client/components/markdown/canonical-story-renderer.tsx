@@ -229,7 +229,7 @@ export function CanonicalStoryRenderer({
           </div>
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
             <span>{t.kanbanDetail.version} {story.version}</span>
-            <span>{t.language}: {story.language}</span>
+            <span>{t.settings.language}: {story.language}</span>
             <span>{t.kanbanDetail.acceptanceCriteria}: {story.acceptance_criteria.length}</span>
             <span>
               {t.kanbanDetail.independentStoryCheck}: {formatStatus(story.dependencies_and_sequencing.independent_story_check, t)}
@@ -362,7 +362,7 @@ export function CanonicalStoryRenderer({
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs leading-6 text-slate-500 dark:text-slate-400">
             <span>{t.kanbanDetail.version} {story.version}</span>
-            <span>{t.language}: {story.language}</span>
+            <span>{t.settings.language}: {story.language}</span>
             <span>{t.kanbanDetail.acceptanceCriteria}: {story.acceptance_criteria.length}</span>
             <span>
               {t.kanbanDetail.independentStoryCheck}: {formatStatus(story.dependencies_and_sequencing.independent_story_check, t)}

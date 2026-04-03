@@ -143,7 +143,7 @@ export function KanbanBoardSurface({
   return (
     <>
       {moveError && (
-        <div className="shrink-0 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/10 dark:text-rose-300">
+        <div className="shrink-0 border border-rose-200/80 bg-rose-50/70 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/10 dark:text-rose-300">
           <div className="flex items-start justify-between gap-3">
             <div className="leading-6">{moveError}</div>
             <button
@@ -156,7 +156,7 @@ export function KanbanBoardSurface({
           </div>
         </div>
       )}
-      <div className="shrink-0 rounded-2xl border border-slate-200/70 bg-white px-4 py-2 dark:border-[#1c1f2e] dark:bg-[#12141c]">
+      <div className="shrink-0 border border-slate-200/70 bg-white px-4 py-2 dark:border-[#1c1f2e] dark:bg-[#12141c]">
         <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
           <div className="flex min-w-0 flex-1 flex-col gap-1.5 lg:flex-row lg:items-center lg:gap-2">
             <div className="flex min-w-0 flex-wrap items-center gap-2 xl:max-w-[56rem]">
@@ -245,16 +245,16 @@ export function KanbanBoardSurface({
 
           {onAgentPrompt ? (
             <div className="flex min-w-0 flex-1 items-center justify-center">
-              <div className="group relative flex w-full max-w-3xl items-center rounded-2xl border border-slate-200 bg-white shadow-sm transition-colors focus-within:border-amber-400/80 focus-within:ring-2 focus-within:ring-amber-400/15 dark:border-slate-700 dark:bg-[#12141c]">
-                <div className="shrink-0 border-r border-slate-200 dark:border-slate-700">
-                  <AcpProviderDropdown
-                    providers={availableProviders}
+                <div className="group relative flex w-full max-w-3xl items-center border border-slate-200 bg-white transition-colors focus-within:border-amber-400/80 focus-within:ring-2 focus-within:ring-amber-400/15 dark:border-slate-700 dark:bg-[#12141c]">
+                  <div className="shrink-0 border-r border-slate-200 dark:border-slate-700">
+                    <AcpProviderDropdown
+                      providers={availableProviders}
                     selectedProvider={acp?.selectedProvider ?? ""}
                     onProviderChange={(providerId) => acp?.setProvider(providerId)}
                     disabled={!acp?.connected || availableProviders.length === 0}
                     ariaLabel={kanbanTaskAgentCopy.providerAriaLabel}
                     dataTestId="kanban-agent-provider"
-                    buttonClassName="flex h-8 items-center gap-1.5 rounded-l-2xl rounded-r-none bg-transparent px-2.5 text-[12px] font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-800/40"
+                    buttonClassName="flex h-8 items-center gap-1.5 border-r border-slate-200 bg-transparent px-2.5 text-[12px] font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-r-slate-700 dark:text-slate-200 dark:hover:bg-slate-800/40"
                     labelClassName="max-w-[120px] truncate"
                   />
                 </div>
@@ -339,7 +339,7 @@ export function KanbanBoardSurface({
                         await moveTask(dragTaskId, column.id);
                         setDragTaskId(null);
                       }}
-                      className={`flex h-full min-h-26.25 shrink-0 flex-col rounded-2xl border border-slate-200/70 bg-white p-3 dark:border-[#1c1f2e] dark:bg-[#12141c] ${widthClass}`}
+                      className={`flex h-full min-h-26.25 shrink-0 flex-col border border-slate-200/70 bg-white p-3 dark:border-[#1c1f2e] dark:bg-[#12141c] ${widthClass}`}
                       data-testid="kanban-column"
                     >
                       <div className="mb-3 space-y-2">
@@ -393,7 +393,7 @@ export function KanbanBoardSurface({
 
         {agentPanelOpen && agentSessionId && acp && (
           <aside
-            className="flex h-full w-lg min-w-md flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white dark:border-[#1c1f2e] dark:bg-[#12141c]"
+            className="flex h-full w-lg min-w-md flex-col overflow-hidden border border-slate-200/70 bg-white dark:border-[#1c1f2e] dark:bg-[#12141c]"
             data-testid="kanban-agent-panel"
           >
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-[#191c28]">
@@ -523,7 +523,7 @@ function A2ASessionPane({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto bg-gradient-to-br from-white via-sky-50/40 to-amber-50/30 p-5 dark:from-[#12141c] dark:via-[#101824] dark:to-[#17131c]">
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
-          <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-5 shadow-sm dark:border-[#232736] dark:bg-[#121620]">
+      <section className="border border-slate-200/80 p-5 dark:border-[#232736]">
             <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-600 dark:text-sky-300">A2A Run</div>
             <div className="mt-2 text-xl font-semibold text-slate-950 dark:text-slate-50">
               {laneSession?.externalTaskId ?? laneSession?.contextId ?? currentSessionId ?? "A2A task"}
@@ -535,7 +535,7 @@ function A2ASessionPane({
               {metadata.map((entry) => (
                 <div
                   key={entry.label}
-                  className="rounded-2xl border border-slate-200 bg-slate-50/90 px-3 py-2.5 dark:border-slate-700 dark:bg-[#0d1018]"
+                  className="border-b border-slate-200 px-3 py-2.5 dark:border-slate-700"
                 >
                   <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
                     {entry.label}
@@ -589,6 +589,8 @@ export function KanbanTaskDetailOverlay({
   closeTaskDetail,
   sessionMap,
   workspaceId,
+  isTaskDetailFullscreen,
+  onToggleTaskDetailFullscreen,
 }: {
   activeSessionId: string | null;
   activeTaskId: string | null;
@@ -615,6 +617,8 @@ export function KanbanTaskDetailOverlay({
   closeTaskDetail: () => void;
   sessionMap: Map<string, SessionInfo>;
   workspaceId: string;
+  isTaskDetailFullscreen?: boolean;
+  onToggleTaskDetailFullscreen?: (nextFullscreen: boolean) => void;
 }) {
   if (!activeSessionId && !activeTaskId) return null;
 
@@ -626,7 +630,7 @@ export function KanbanTaskDetailOverlay({
   );
   const selectedLaneSession = getTaskLaneSession(activeTask, activeSessionId);
   const isA2ASessionPane = Boolean(activeTask && isA2ATaskSession(activeTask, activeSessionId));
-  const hasSessionPane = Boolean(showEmptySessionPane || isA2ASessionPane || (activeSessionId && acp));
+  const hasSessionPane = Boolean(!isTaskDetailFullscreen && (showEmptySessionPane || isA2ASessionPane || (activeSessionId && acp)));
   const selectTaskSession = (task: TaskInfo, sessionId: string) => {
     setActiveSessionId(sessionId);
     if (acp && canSelectTaskSessionInAcp(task, sessionId, sessionMap)) {
@@ -636,7 +640,7 @@ export function KanbanTaskDetailOverlay({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6 animate-in fade-in duration-150">
-      <div className="relative h-[88vh] w-full max-w-7xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-[#1c1f2e] dark:bg-[#12141c] animate-in zoom-in-95 duration-150">
+      <div className="relative h-[88vh] w-full max-w-7xl overflow-hidden border border-slate-200 bg-white shadow-sm dark:border-[#1c1f2e] dark:bg-[#12141c] animate-in zoom-in-95 duration-150">
         <div ref={detailSplitContainerRef} className="flex h-full">
           {activeTaskId && (() => {
             const task = activeTask;
@@ -676,6 +680,8 @@ export function KanbanTaskDetailOverlay({
                   onSelectSession={(sessionId) => {
                     selectTaskSession(task, sessionId);
                   }}
+                  isFullscreen={isTaskDetailFullscreen}
+                  onToggleFullscreen={onToggleTaskDetailFullscreen}
                 />
               </div>
             );
@@ -735,7 +741,7 @@ export function KanbanTaskDetailOverlay({
                 style={activeTaskId ? { width: `${(1 - detailSplitRatio) * 100}%` } : undefined}
               >
                 {activeTask && !isA2ASessionPane && (
-                  <div className="shrink-0 border-b border-slate-200/80 bg-slate-50/80 p-2 dark:border-[#202433] dark:bg-[#10131a]">
+                  <div className="shrink-0 border-b border-slate-200/80 p-2 dark:border-[#202433]">
                     <KanbanCardActivityBar
                       task={activeTask}
                       sessions={combinedSessions}

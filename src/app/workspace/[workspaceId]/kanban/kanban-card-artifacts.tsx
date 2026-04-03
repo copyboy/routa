@@ -177,7 +177,7 @@ export function KanbanCardArtifacts({
   const missingRequiredArtifacts = requiredArtifacts.filter((type) => (coverage.get(type) ?? 0) === 0);
 
   return (
-    <section className={`border border-slate-200/80 bg-white shadow-sm dark:border-[#232736] dark:bg-[#121620] ${compact ? "rounded-2xl p-3" : "rounded-3xl p-4"}`}>
+    <section className={compact ? "space-y-2 py-2" : "space-y-2 py-2.5"}>
       <div className={compact ? "mb-2" : "mb-3"}>
         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
           {t.kanban.artifactsTitle}
@@ -221,15 +221,15 @@ export function KanbanCardArtifacts({
         </div>
 
         {loading ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500 dark:border-slate-700 dark:bg-[#0d1018] dark:text-slate-400">
+          <div className={`border-l-2 px-3 py-2.5 text-sm text-slate-500 dark:border-l-slate-700 dark:text-slate-400 ${compact ? "leading-5" : "leading-6"}`}>
             {t.kanban.loadingArtifacts}
           </div>
         ) : loadError ? (
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/10 dark:text-rose-300">
+          <div className={`border-l-2 border-rose-300 px-3 py-2 text-sm text-rose-700 dark:border-rose-700/80 dark:text-rose-300 ${compact ? "leading-5" : "leading-6"}`}>
             {loadError}
           </div>
         ) : artifacts.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500 dark:border-slate-700 dark:bg-[#0d1018] dark:text-slate-400">
+          <div className={`border-l-2 border-slate-300 px-3 py-2.5 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400 ${compact ? "leading-5" : "leading-6"}`}>
             {t.kanban.noArtifactsYet}
           </div>
         ) : (
@@ -243,7 +243,7 @@ export function KanbanCardArtifacts({
               return (
                 <article
                   key={artifact.id}
-                  className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-[#0d1018]"
+                  className="space-y-2 border-b border-slate-200/80 py-2.5 last:border-b-0 dark:border-slate-700/60"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -282,12 +282,16 @@ export function KanbanCardArtifacts({
                       width={1200}
                       height={800}
                       unoptimized
-                      className="mt-3 max-h-56 w-full rounded-xl border border-slate-200 object-cover dark:border-slate-700"
+                      className="mt-3 max-h-56 w-full border border-slate-200 object-cover dark:border-slate-700"
                     />
                   ) : artifact.type === "code_diff" && artifact.content ? (
                     <div className="mt-3 space-y-2">
                       {diffChunks.map((chunk, index) => (
-                        <details key={`${artifact.id}-${chunk.filename}-${index}`} open className="group rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-[#121620]">
+                        <details
+                          key={`${artifact.id}-${chunk.filename}-${index}`}
+                          open
+                          className="group border border-slate-200 dark:border-slate-700"
+                        >
                           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 [&::-webkit-details-marker]:hidden">
                             <span className="truncate font-medium">{chunk.filename}</span>
                             <span className="shrink-0 font-mono">
@@ -310,7 +314,7 @@ export function KanbanCardArtifacts({
                       ))}
                     </div>
                   ) : artifact.content ? (
-                    <pre className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-700 dark:border-slate-700 dark:bg-[#121620] dark:text-slate-300">
+                    <pre className="mt-3 overflow-x-auto border border-slate-200 px-3 py-2 text-xs leading-5 text-slate-700 dark:border-slate-700 dark:text-slate-300">
                       {artifact.content}
                     </pre>
                   ) : null}

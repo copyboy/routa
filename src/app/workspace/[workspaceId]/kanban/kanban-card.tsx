@@ -252,7 +252,7 @@ export function KanbanCard({
       role="button"
       tabIndex={0}
       aria-label={`${t.kanban.openCard} ${task.title}`}
-      className="group relative flex cursor-grab flex-col gap-3 rounded-[1.35rem] border border-slate-200/80 bg-white/95 p-3.5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)] transition duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_24px_48px_-28px_rgba(15,23,42,0.55)] active:cursor-grabbing focus:outline-none focus:ring-2 focus:ring-amber-400/50 dark:border-[#262938] dark:bg-[#0d1018] dark:shadow-[0_18px_40px_-28px_rgba(0,0,0,0.8)] dark:hover:border-[#34384a]"
+      className="group relative flex cursor-grab flex-col gap-3 border border-slate-200/80 bg-white/90 p-3.5 transition duration-150 hover:border-slate-300 hover:bg-white active:cursor-grabbing focus:outline-none focus:ring-2 focus:ring-amber-400/50 dark:border-[#262938] dark:bg-[#0d1018] dark:hover:border-[#34384a]"
       data-testid="kanban-card"
     >
       <div
