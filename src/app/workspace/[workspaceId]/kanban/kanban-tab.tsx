@@ -168,6 +168,8 @@ export function KanbanTab({
   const [showDeleteCodebaseConfirm, setShowDeleteCodebaseConfirm] = useState(false);
   const [deletingCodebase, setDeletingCodebase] = useState(false);
   const [deletingWorktreeIds, setDeletingWorktreeIds] = useState<string[]>([]);
+  const [deletingBranchNames, setDeletingBranchNames] = useState<string[]>([]);
+  const [branchActionError, setBranchActionError] = useState<string | null>(null);
   const [worktreeActionError, setWorktreeActionError] = useState<string | null>(null);
   // Live branch info for selected codebase
   const [liveBranchInfo, setLiveBranchInfo] = useState<{ current: string; branches: string[] } | null>(null);
@@ -937,6 +939,7 @@ export function KanbanTab({
   async function fetchCodebaseWorktrees(codebase: CodebaseData) {
     // Reset live branch info
     setLiveBranchInfo(null);
+    setBranchActionError(null);
 
     try {
       const res = await fetch(
@@ -958,6 +961,80 @@ export function KanbanTab({
       }
     } catch { /* ignore */ }
   }
+
+  const deleteIssueBranches = useCallback(async (branches: string[]) => {
+    if (!selectedCodebase || branches.length === 0) return;
+
+    const uniqueBranches = [...new Set(branches)];
+    setBranchActionError(null);
+    setDeletingBranchNames((current) => [...new Set([...current, ...uniqueBranches])]);
+
+    let latestBranchInfo: { current: string; branches: string[] } | null = null;
+    const failures: string[] = [];
+    try {
+      for (const branch of uniqueBranches) {
+        const response = await fetch("/api/clone/branches", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            repoPath: selectedCodebase.repoPath,
+            branch,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !(data as { success?: boolean }).success) {
+          failures.push((data as { error?: string }).error ?? `Failed to delete branch '${branch}'`);
+          continue;
+        }
+
+        const nextCurrentBranch: string = latestBranchInfo?.current ?? liveBranchInfo?.current ?? selectedCodebase.branch ?? "";
+        const nextBranches: string[] = latestBranchInfo?.branches ?? liveBranchInfo?.branches ?? [];
+        latestBranchInfo = {
+          current: typeof (data as { current?: string }).current === "string"
+            ? (data as { current: string }).current
+            : nextCurrentBranch,
+          branches: Array.isArray((data as { branches?: unknown[] }).branches)
+            ? (data as { branches: string[] }).branches
+            : nextBranches,
+        };
+      }
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : "Failed to delete branches");
+    } finally {
+      setDeletingBranchNames((current) => current.filter((name) => !uniqueBranches.includes(name)));
+    }
+
+    if (latestBranchInfo) {
+      setLiveBranchInfo(latestBranchInfo);
+    }
+    if (failures.length > 0) {
+      setBranchActionError(
+        t.kanbanModals.removeBranchesFailed
+          .replace("{count}", String(failures.length))
+          .replace("{branches}", failures.join("; ")),
+      );
+    }
+  }, [liveBranchInfo, selectedCodebase, t.kanbanModals.removeBranchesFailed]);
+
+  const handleDeleteIssueBranch = useCallback(async (branch: string) => {
+    const confirmed = window.confirm(
+      t.kanbanModals.removeBranchConfirm.replace("{branch}", branch),
+    );
+    if (!confirmed) return;
+
+    await deleteIssueBranches([branch]);
+  }, [deleteIssueBranches, t.kanbanModals.removeBranchConfirm]);
+
+  const handleDeleteIssueBranches = useCallback(async (branches: string[]) => {
+    if (branches.length === 0) return;
+
+    const confirmed = window.confirm(
+      t.kanbanModals.clearIssueBranchesConfirm.replace("{count}", String(branches.length)),
+    );
+    if (!confirmed) return;
+
+    await deleteIssueBranches(branches);
+  }, [deleteIssueBranches, t.kanbanModals.clearIssueBranchesConfirm]);
 
   const handleDeleteCodebaseWorktrees = useCallback(async (worktrees: WorktreeInfo[]) => {
     if (worktrees.length === 0) return;
@@ -1481,6 +1558,10 @@ export function KanbanTab({
         handleDeleteCodebaseWorktrees={handleDeleteCodebaseWorktrees}
         deletingWorktreeIds={deletingWorktreeIds}
         liveBranchInfo={liveBranchInfo}
+        branchActionError={branchActionError}
+        handleDeleteIssueBranch={handleDeleteIssueBranch}
+        handleDeleteIssueBranches={handleDeleteIssueBranches}
+        deletingBranchNames={deletingBranchNames}
         handleReclone={handleReclone}
         recloning={recloning}
         recloneSuccess={recloneSuccess}
@@ -1491,6 +1572,8 @@ export function KanbanTab({
           setCodebaseWorktrees([]);
           setEditingCodebase(false);
           setLiveBranchInfo(null);
+          setBranchActionError(null);
+          setDeletingBranchNames([]);
           setRecloneError(null);
           setRecloneSuccess(null);
         }}

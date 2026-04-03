@@ -72,6 +72,10 @@ describe("KanbanCodebaseModal", () => {
         handleDeleteCodebaseWorktrees={handleDeleteCodebaseWorktrees}
         deletingWorktreeIds={[]}
         liveBranchInfo={null}
+        branchActionError={null}
+        handleDeleteIssueBranch={vi.fn()}
+        handleDeleteIssueBranches={vi.fn()}
+        deletingBranchNames={[]}
         handleReclone={vi.fn()}
         recloning={false}
         recloneSuccess={null}
@@ -97,5 +101,65 @@ describe("KanbanCodebaseModal", () => {
       "wt-newer",
       "wt-older",
     ]);
+  });
+
+  it("renders repo branches and highlights issue branches with worktrees", () => {
+    const handleDeleteIssueBranch = vi.fn();
+    const handleDeleteIssueBranches = vi.fn();
+
+    render(
+      <KanbanCodebaseModal
+        selectedCodebase={codebase}
+        editingCodebase={false}
+        codebases={[codebase]}
+        editRepoSelection={null}
+        onRepoSelectionChange={vi.fn()}
+        editError={null}
+        recloneError={null}
+        editSaving={false}
+        replacingAll={false}
+        setShowReplaceAllConfirm={vi.fn()}
+        handleCancelEditCodebase={vi.fn()}
+        codebaseWorktrees={[
+          createWorktree("wt-1", "issue/bf7f4dea", "2025-01-01T00:00:00.000Z"),
+        ]}
+        worktreeActionError={null}
+        localTasks={[]}
+        handleDeleteCodebaseWorktrees={vi.fn()}
+        deletingWorktreeIds={[]}
+        liveBranchInfo={{
+          current: "main",
+          branches: ["main", "issue/bf7f4dea", "issue/3487c6ee-js-hello-world", "feature/polish"],
+        }}
+        branchActionError={null}
+        handleDeleteIssueBranch={handleDeleteIssueBranch}
+        handleDeleteIssueBranches={handleDeleteIssueBranches}
+        deletingBranchNames={[]}
+        handleReclone={vi.fn()}
+        recloning={false}
+        recloneSuccess={null}
+        onStartEditCodebase={vi.fn()}
+        onRequestRemoveCodebase={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/Branches|分支列表/)).toBeTruthy();
+    expect(screen.getByText(/Issue branches \(2\)|Issue 分支（2）/)).toBeTruthy();
+    expect(screen.getAllByText("issue/bf7f4dea").length).toBeGreaterThan(0);
+    expect(screen.getByText("issue/3487c6ee-js-hello-world")).toBeTruthy();
+    expect(screen.getByText("feature/polish")).toBeTruthy();
+    expect(screen.getAllByText(/current|当前/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/worktree|工作树/).length).toBeGreaterThan(0);
+
+    const branchDeleteButtons = screen.getAllByRole("button", { name: /Remove branch|删除分支/ });
+    expect(branchDeleteButtons).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /Clear issue/i })).toBeTruthy();
+
+    fireEvent.click(branchDeleteButtons[0]!);
+    expect(handleDeleteIssueBranch).toHaveBeenCalledWith("issue/3487c6ee-js-hello-world");
+
+    fireEvent.click(screen.getByRole("button", { name: /Clear issue|清理 issue/ }));
+    expect(handleDeleteIssueBranches).toHaveBeenCalledWith(["issue/3487c6ee-js-hello-world"]);
   });
 });

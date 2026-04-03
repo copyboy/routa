@@ -162,6 +162,32 @@ pub fn checkout_branch(repo_path: &str, branch: &str) -> bool {
         .unwrap_or(false)
 }
 
+pub fn delete_branch(repo_path: &str, branch: &str) -> Result<(), String> {
+    let current_branch = get_current_branch(repo_path).unwrap_or_default();
+    if current_branch == branch {
+        return Err(format!("Cannot delete the current branch '{}'", branch));
+    }
+
+    if !list_local_branches(repo_path)
+        .iter()
+        .any(|candidate| candidate == branch)
+    {
+        return Err(format!("Branch '{}' not found", branch));
+    }
+
+    let output = Command::new("git")
+        .args(["branch", "-D", branch])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 pub fn fetch_remote(repo_path: &str) -> bool {
     Command::new("git")
         .args(["fetch", "--all", "--prune"])

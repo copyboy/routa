@@ -3,6 +3,7 @@
 //! GET   /api/clone/branches?repoPath=... - Get branch info
 //! POST  /api/clone/branches - Fetch remote branches then return all
 //! PATCH /api/clone/branches - Checkout a branch
+//! DELETE /api/clone/branches - Delete a local branch
 
 use axum::{extract::Query, routing::get, Json, Router};
 use serde::Deserialize;
@@ -12,7 +13,13 @@ use crate::git;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(get_branches).post(fetch_branches).patch(checkout))
+    Router::new().route(
+        "/",
+        get(get_branches)
+            .post(fetch_branches)
+            .patch(checkout)
+            .delete(delete_branch),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -171,5 +178,54 @@ async fn checkout(Json(body): Json<CheckoutBody>) -> Result<Json<serde_json::Val
         "branch": info.current,
         "branches": info.branches,
         "status": status,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteBranchBody {
+    repo_path: Option<String>,
+    branch: Option<String>,
+}
+
+async fn delete_branch(
+    Json(body): Json<DeleteBranchBody>,
+) -> Result<Json<serde_json::Value>, ServerError> {
+    let repo_path = body
+        .repo_path
+        .ok_or_else(|| ServerError::BadRequest("Missing repoPath".into()))?;
+    let branch = body
+        .branch
+        .ok_or_else(|| ServerError::BadRequest("Missing branch".into()))?;
+
+    if !std::path::Path::new(&repo_path).exists() {
+        return Err(ServerError::NotFound("Repository not found".into()));
+    }
+
+    let branch_info = tokio::task::spawn_blocking({
+        let rp = repo_path.clone();
+        let br = branch.clone();
+        move || {
+            git::delete_branch(&rp, &br)?;
+            Ok::<_, String>(git::get_branch_info(&rp))
+        }
+    })
+    .await
+    .map_err(|e| ServerError::Internal(e.to_string()))?
+    .map_err(|message| {
+        if message.contains("current branch") {
+            ServerError::Conflict(message)
+        } else if message.contains("not found") {
+            ServerError::NotFound(message)
+        } else {
+            ServerError::Internal(message)
+        }
+    })?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "deletedBranch": branch,
+        "current": branch_info.current,
+        "branches": branch_info.branches,
     })))
 }

@@ -209,6 +209,31 @@ export function checkoutBranch(repoPath: string, branch: string): boolean {
 }
 
 /**
+ * Delete a local branch. Refuses to delete the currently checked out branch.
+ */
+export function deleteBranch(repoPath: string, branch: string): { success: boolean; error?: string } {
+  const currentBranch = getCurrentBranch(repoPath);
+  if (currentBranch === branch) {
+    return { success: false, error: `Cannot delete the current branch '${branch}'` };
+  }
+
+  const localBranches = listBranches(repoPath);
+  if (!localBranches.includes(branch)) {
+    return { success: false, error: `Branch '${branch}' not found` };
+  }
+
+  try {
+    gitExecSync(`git branch -D ${shellQuote(branch)}`, repoPath);
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : `Failed to delete branch '${branch}'`,
+    };
+  }
+}
+
+/**
  * Get short repo status summary.
  */
 export interface RepoStatus {

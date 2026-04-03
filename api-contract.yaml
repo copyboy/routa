@@ -3057,6 +3057,23 @@ paths:
       responses:
         "200":
           description: Checked out
+    delete:
+      operationId: deleteBranch
+      summary: Delete local branch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repoPath:
+                  type: string
+                branch:
+                  type: string
+      responses:
+        "200":
+          description: Deleted
 
   # ── A2A ──
   /api/a2a/sessions:

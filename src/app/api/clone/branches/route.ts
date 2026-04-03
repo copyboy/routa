@@ -8,9 +8,13 @@
  *   Body: { repoPath: string }
  *   Returns: { current, local, remote, status }
  *
- * PATCH /api/clone/branches - Checkout a branch
+ * PATCH /api/clone/branches - Checkout a branch or reset local changes
  *   Body: { repoPath: string, branch: string }
  *   Returns: { success, branch, branches }
+ *
+ * DELETE /api/clone/branches - Delete a local branch
+ *   Body: { repoPath: string, branch: string }
+ *   Returns: { success, deletedBranch, current, branches }
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -22,6 +26,7 @@ import {
   fetchRemote,
   getBranchStatus,
   checkoutBranch,
+  deleteBranch,
   pullBranch,
   getBranchInfo,
   getRepoStatus,
@@ -140,5 +145,54 @@ export async function PATCH(request: NextRequest) {
     branch: branchInfo.current,
     branches: branchInfo.branches,
     status,
+  });
+}
+
+export async function DELETE(request: NextRequest) {
+  const body = await request.json();
+  const { repoPath, branch } = body as {
+    repoPath?: string;
+    branch?: string;
+  };
+
+  if (!repoPath) {
+    return NextResponse.json(
+      { error: "Missing repoPath" },
+      { status: 400 }
+    );
+  }
+  if (!fs.existsSync(repoPath)) {
+    return NextResponse.json(
+      { error: "Repository not found" },
+      { status: 404 }
+    );
+  }
+  if (!branch) {
+    return NextResponse.json(
+      { error: "Missing branch" },
+      { status: 400 }
+    );
+  }
+
+  const result = deleteBranch(repoPath, branch);
+  if (!result.success) {
+    const status = result.error?.includes("current branch")
+      ? 409
+      : result.error?.includes("not found")
+        ? 404
+        : 500;
+    return NextResponse.json(
+      { error: result.error ?? `Failed to delete branch '${branch}'` },
+      { status }
+    );
+  }
+
+  const branchInfo = getBranchInfo(repoPath);
+
+  return NextResponse.json({
+    success: true,
+    deletedBranch: branch,
+    current: branchInfo.current,
+    branches: branchInfo.branches,
   });
 }

@@ -6,7 +6,7 @@ import type { CodebaseData } from "@/client/hooks/use-workspaces";
 import { RepoPicker, type RepoSelection } from "@/client/components/repo-picker";
 import { useTranslation } from "@/i18n";
 import type { TaskInfo, WorktreeInfo } from "../types";
-import { RefreshCw, TriangleAlert, Info } from "lucide-react";
+import { RefreshCw, TriangleAlert, Info, Trash2 } from "lucide-react";
 
 
 export interface KanbanCodebaseModalProps {
@@ -27,6 +27,10 @@ export interface KanbanCodebaseModalProps {
   handleDeleteCodebaseWorktrees: (worktrees: WorktreeInfo[]) => void | Promise<void>;
   deletingWorktreeIds: string[];
   liveBranchInfo: { current: string; branches: string[] } | null;
+  branchActionError: string | null;
+  handleDeleteIssueBranch: (branch: string) => void | Promise<void>;
+  handleDeleteIssueBranches: (branches: string[]) => void | Promise<void>;
+  deletingBranchNames: string[];
   handleReclone: () => void | Promise<void>;
   recloning: boolean;
   recloneSuccess: string | null;
@@ -53,6 +57,10 @@ export function KanbanCodebaseModal({
   handleDeleteCodebaseWorktrees,
   deletingWorktreeIds,
   liveBranchInfo,
+  branchActionError,
+  handleDeleteIssueBranch,
+  handleDeleteIssueBranches,
+  deletingBranchNames,
   handleReclone,
   recloning,
   recloneSuccess,
@@ -72,6 +80,21 @@ export function KanbanCodebaseModal({
     [codebaseWorktrees]
   );
   const deletingWorktreeIdSet = useMemo(() => new Set(deletingWorktreeIds), [deletingWorktreeIds]);
+  const deletingBranchSet = useMemo(() => new Set(deletingBranchNames), [deletingBranchNames]);
+  const worktreeBranchSet = useMemo(
+    () => new Set(codebaseWorktrees.map((worktree) => worktree.branch).filter(Boolean)),
+    [codebaseWorktrees],
+  );
+  const currentBranch = liveBranchInfo?.current?.trim() ?? selectedCodebase?.branch ?? "";
+  const repoBranches = liveBranchInfo?.branches ?? [];
+  const fallbackBranches = selectedCodebase?.branch ? [selectedCodebase.branch] : [];
+  const sortedBranches = Array.from(new Set([...repoBranches, ...fallbackBranches].filter(Boolean)))
+    .sort((left, right) => compareBranches(left, right, currentBranch, worktreeBranchSet));
+  const issueBranches = sortedBranches.filter((branch) => isIssueBranch(branch));
+  const removableIssueBranches = issueBranches.filter(
+    (branch) => branch !== currentBranch && !worktreeBranchSet.has(branch),
+  );
+  const otherBranches = sortedBranches.filter((branch) => !isIssueBranch(branch));
   const selectedWorktrees = useMemo(
     () => sortedWorktrees.filter((worktree) => selectedWorktreeIds.includes(worktree.id)),
     [selectedWorktreeIds, sortedWorktrees]
@@ -206,6 +229,85 @@ export function KanbanCodebaseModal({
               )}
             </div>
             <div>
+              <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-[#171922]">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    {t.kanbanModals.branches} ({sortedBranches.length})
+                  </div>
+                  <div className="text-[11px] text-slate-400 dark:text-slate-500">{t.kanbanModals.branchesHint}</div>
+                </div>
+                {branchActionError && (
+                  <div className="mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600 dark:border-rose-900/40 dark:bg-rose-900/10 dark:text-rose-300">
+                    {branchActionError}
+                  </div>
+                )}
+
+                {sortedBranches.length === 0 ? (
+                  <div className="text-xs text-slate-400 dark:text-slate-500">{t.kanbanModals.noBranches}</div>
+                ) : (
+                  <div className="space-y-3">
+                    {issueBranches.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                            {t.kanbanModals.issueBranches.replace("{count}", String(issueBranches.length))}
+                          </div>
+                          {removableIssueBranches.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteIssueBranches(removableIssueBranches)}
+                              disabled={removableIssueBranches.some((branch) => deletingBranchSet.has(branch))}
+                              className="rounded-lg border border-rose-200 px-2.5 py-1 text-[10px] font-medium text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900/40 dark:text-rose-300 dark:hover:bg-rose-900/10"
+                            >
+                              {removableIssueBranches.some((branch) => deletingBranchSet.has(branch))
+                                ? t.kanbanModals.removing
+                                : t.kanbanModals.clearIssueBranches.replace("{count}", String(removableIssueBranches.length))}
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {issueBranches.map((branch) => (
+                            <BranchChip
+                              key={branch}
+                              branch={branch}
+                              currentBranch={currentBranch}
+                              hasWorktree={worktreeBranchSet.has(branch)}
+                              issueBranch
+                              deleting={deletingBranchSet.has(branch)}
+                              onDelete={
+                                branch !== currentBranch && !worktreeBranchSet.has(branch)
+                                  ? () => void handleDeleteIssueBranch(branch)
+                                  : undefined
+                              }
+                              labels={t.kanbanModals}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {otherBranches.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                          {t.kanbanModals.otherBranches.replace("{count}", String(otherBranches.length))}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {otherBranches.map((branch) => (
+                            <BranchChip
+                              key={branch}
+                              branch={branch}
+                              currentBranch={currentBranch}
+                              hasWorktree={worktreeBranchSet.has(branch)}
+                              labels={t.kanbanModals}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   {t.kanbanModals.worktrees} ({codebaseWorktrees.length})
@@ -360,6 +462,96 @@ export function KanbanCodebaseModal({
 function formatTimestamp(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+}
+
+function isIssueBranch(branch: string): boolean {
+  return branch.startsWith("issue/");
+}
+
+function compareBranches(
+  left: string,
+  right: string,
+  currentBranch: string,
+  worktreeBranchSet: Set<string>,
+): number {
+  const leftScore = getBranchPriority(left, currentBranch, worktreeBranchSet);
+  const rightScore = getBranchPriority(right, currentBranch, worktreeBranchSet);
+
+  if (leftScore !== rightScore) {
+    return rightScore - leftScore;
+  }
+
+  return left.localeCompare(right);
+}
+
+function getBranchPriority(
+  branch: string,
+  currentBranch: string,
+  worktreeBranchSet: Set<string>,
+): number {
+  let score = 0;
+  if (branch === currentBranch) score += 100;
+  if (worktreeBranchSet.has(branch)) score += 20;
+  if (isIssueBranch(branch)) score += 10;
+  return score;
+}
+
+function BranchChip({
+  branch,
+  currentBranch,
+  hasWorktree,
+  issueBranch = false,
+  deleting = false,
+  onDelete,
+  labels,
+}: {
+  branch: string;
+  currentBranch: string;
+  hasWorktree: boolean;
+  issueBranch?: boolean;
+  deleting?: boolean;
+  onDelete?: () => void;
+  labels: {
+    currentBranchLabel: string;
+    worktreeBranchLabel: string;
+    removeBranchLabel: string;
+  };
+}) {
+  const isCurrent = branch === currentBranch;
+
+  return (
+    <div
+      className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] ${
+        issueBranch
+          ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-300"
+          : "border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-[#12141c] dark:text-slate-300"
+      }`}
+    >
+      <span className="truncate font-mono">{branch}</span>
+      {isCurrent && (
+        <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
+          {labels.currentBranchLabel}
+        </span>
+      )}
+      {hasWorktree && (
+        <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">
+          {labels.worktreeBranchLabel}
+        </span>
+      )}
+      {onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={deleting}
+          className="rounded-full p-0.5 text-rose-500 transition hover:bg-rose-100 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-rose-900/20 dark:hover:text-rose-300"
+          aria-label={labels.removeBranchLabel.replace("{branch}", branch)}
+          title={labels.removeBranchLabel.replace("{branch}", branch)}
+        >
+          <Trash2 className={`h-3 w-3 ${deleting ? "animate-pulse" : ""}`} />
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function KanbanDeleteCodebaseModal({

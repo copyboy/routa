@@ -9,6 +9,7 @@ export {
   getBranchInfo,
   getBranchStatus,
   checkoutBranch,
+  deleteBranch,
   pullBranch,
   resetLocalChanges,
   getRemoteUrl,
