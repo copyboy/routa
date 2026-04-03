@@ -228,6 +228,7 @@ const zh: TranslationDictionary = {
         checkCICD: "检查 CI/CD 流程",
       },
       architectureQuality: {
+        navigationLabel: "架构",
         title: "架构质量",
         description: "基于 ArchUnitTS 的后端边界与循环依赖实时结果。",
         statusLabel: "状态",

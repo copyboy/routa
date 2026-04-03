@@ -36,6 +36,7 @@ import { loadRepoSelection, saveRepoSelection } from "@/client/utils/repo-select
 
 type SectionId =
   | "overview"
+  | "architecture-quality"
   | "spec-sources"
   | "agent-instructions"
   | "design-decisions"
@@ -91,6 +92,7 @@ function clamp(value: number, min: number, max: number) {
 
 function resolveSectionId(value: string | null | undefined): SectionId {
   switch (value) {
+    case "architecture-quality":
     case "spec-sources":
     case "agent-instructions":
     case "design-decisions":
@@ -135,6 +137,7 @@ export default function HarnessConsolePage() {
   const searchParams = useSearchParams();
   const workspacesHook = useWorkspaces();
   const sectionFromUrl = resolveSectionId(searchParams.get(HARNESS_SECTION_QUERY_KEY));
+  const architectureSectionActive = sectionFromUrl === "architecture-quality";
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
   const workspaceId = selectedWorkspaceId || workspacesHook.workspaces[0]?.id || "";
   const { codebases } = useCodebases(workspaceId);
@@ -229,6 +232,7 @@ export default function HarnessConsolePage() {
     codebaseId: activeRepoCodebaseId,
     repoPath: activeRepoPath,
     selectedTier,
+    enableArchitecture: architectureSectionActive,
   });
 
   const resolvedCodeownersState = useMemo(
@@ -375,6 +379,12 @@ export default function HarnessConsolePage() {
 
   const sectionStatuses = useMemo((): Map<SectionId, SectionStatus | null> => {
     const map = new Map<SectionId, SectionStatus | null>();
+    map.set("architecture-quality", architectureState.data
+      ? {
+          label: `${architectureState.data.failedRuleCount}/${architectureState.data.ruleCount} rules`,
+          tone: architectureState.data.summaryStatus === "fail" ? "warning" : "success",
+        }
+      : null);
     map.set("spec-sources", specSourcesState.data ? { label: `${specSourcesState.data.sources?.length ?? 0} sources` } : null);
     map.set("agent-instructions", instructionsState.data ? { label: instructionsState.data.fileName, tone: instructionsState.data.fallbackUsed ? "warning" : "success" } : null);
     map.set("design-decisions", designDecisionsState.data ? { label: `${designDecisionsState.data.sources?.length ?? 0} docs` } : null);
@@ -395,6 +405,7 @@ export default function HarnessConsolePage() {
     automationsState.data,
     designDecisionsState.data,
     automationRuleCount,
+    architectureState.data,
     dimensionSpecs.length,
     hookCount,
     hooksState.data,
@@ -408,6 +419,13 @@ export default function HarnessConsolePage() {
 
   const sections = useMemo((): SectionDef[] => [
     { id: "overview", label: t.settings.harness.overview, shortLabel: "Overview", code: "OV" },
+    {
+      id: "architecture-quality",
+      label: t.settings.harness.architectureQuality.title,
+      shortLabel: t.settings.harness.architectureQuality.navigationLabel,
+      code: "AQ",
+      group: "signal",
+    },
     { id: "spec-sources", label: t.settings.harness.specSources, shortLabel: "Specs", code: "SP", group: "intent" },
     { id: "agent-instructions", label: t.settings.harness.agentInstructions, shortLabel: "Instructions", code: "AI", group: "intent" },
     { id: "design-decisions", label: t.settings.harness.designDecisions, shortLabel: "ADR", code: "DD", group: "intent" },
@@ -827,6 +845,18 @@ export default function HarnessConsolePage() {
     switch (sectionId) {
       case "overview":
         return renderOverview();
+      case "architecture-quality":
+        return (
+          <HarnessArchitectureQualityPanel
+            repoLabel={selectedRepoLabel}
+            unsupportedMessage={unsupportedRepoMessage}
+            data={architectureState.data}
+            loading={architectureState.loading}
+            error={architectureState.error}
+            onRefresh={reloadArchitecture}
+            embedded
+          />
+        );
       case "spec-sources":
         return <HarnessSpecSourcesPanel {...sharedProps} data={specSourcesState.data} loading={specSourcesState.loading} error={specSourcesState.error} hideHeader />;
       case "agent-instructions":
@@ -853,15 +883,6 @@ export default function HarnessConsolePage() {
       case "entrix-fitness":
         return (
           <div className="space-y-4">
-            <HarnessArchitectureQualityPanel
-              repoLabel={selectedRepoLabel}
-              unsupportedMessage={unsupportedRepoMessage}
-              data={architectureState.data}
-              loading={architectureState.loading}
-              error={architectureState.error}
-              onRefresh={reloadArchitecture}
-              embedded
-            />
             <HarnessFitnessFilesDashboard
               specFiles={specFiles}
               selectedSpec={visibleSpec}

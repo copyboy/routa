@@ -232,6 +232,7 @@ const en: TranslationDictionary = {
         checkCICD: "Check CI/CD Pipelines",
       },
       architectureQuality: {
+        navigationLabel: "Architecture",
         title: "Architecture Quality",
         description: "Live ArchUnitTS-backed backend boundary and cycle findings for the current repository.",
         statusLabel: "Status",

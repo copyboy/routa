@@ -233,6 +233,7 @@ export interface TranslationDictionary {
         checkCICD: string;
       };
       architectureQuality: {
+        navigationLabel: string;
         title: string;
         description: string;
         statusLabel: string;

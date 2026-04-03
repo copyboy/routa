@@ -297,6 +297,7 @@ type HarnessSettingsDataArgs = {
   codebaseId?: string;
   repoPath?: string;
   selectedTier: TierValue;
+  enableArchitecture?: boolean;
 };
 
 type InstructionRefreshState = {
@@ -617,6 +618,7 @@ export function useHarnessSettingsData({
   codebaseId,
   repoPath,
   selectedTier,
+  enableArchitecture = false,
 }: HarnessSettingsDataArgs) {
   const hasRepoContext = Boolean(workspaceId || codebaseId || repoPath);
   const baseQuery = useMemo(
@@ -728,6 +730,10 @@ export function useHarnessSettingsData({
       setArchitectureState(emptyQueryState());
       return;
     }
+    if (!enableArchitecture) {
+      setArchitectureState(emptyQueryState());
+      return;
+    }
 
     let cancelled = false;
     const fetchArchitecture = async () => {
@@ -760,7 +766,7 @@ export function useHarnessSettingsData({
     return () => {
       cancelled = true;
     };
-  }, [architectureRefreshToken, baseQuery]);
+  }, [architectureRefreshToken, baseQuery, enableArchitecture]);
 
   useEffect(() => {
     if (!baseQuery) {
