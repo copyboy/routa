@@ -46,6 +46,23 @@ type PrimaryFinding = {
   summary: string;
 };
 
+type ArchitectureDrilldown =
+  | {
+    kind: "rule";
+    label: string;
+    ruleId: string;
+  }
+  | {
+    kind: "boundary-cluster";
+    label: string;
+    clusterLabel: string;
+  }
+  | {
+    kind: "cycle-cluster";
+    label: string;
+    clusterLabel: string;
+  };
+
 function formatSignedDelta(value: number): string {
   if (value > 0) {
     return `+${value}`;
@@ -230,6 +247,24 @@ function summarizeComparison(copy: {
   ].join(" · ");
 }
 
+function matchesBoundaryCluster(summary: string, clusterLabel: string): boolean {
+  const [sourceBucket, targetBucket] = clusterLabel.split(" -> ");
+  return Boolean(sourceBucket && targetBucket && summary.includes(sourceBucket) && summary.includes(targetBucket));
+}
+
+function matchesDrilldown(violation: FlattenedViolation, drilldown: ArchitectureDrilldown | null): boolean {
+  if (!drilldown) {
+    return true;
+  }
+  if (drilldown.kind === "rule") {
+    return violation.ruleId === drilldown.ruleId;
+  }
+  if (drilldown.kind === "boundary-cluster") {
+    return violation.suite === "boundaries" && matchesBoundaryCluster(violation.summary, drilldown.clusterLabel);
+  }
+  return violation.suite === "cycles" && violation.summary.includes(drilldown.clusterLabel);
+}
+
 export function HarnessArchitectureQualityPanel({
   repoLabel: _repoLabel,
   unsupportedMessage,
@@ -243,6 +278,7 @@ export function HarnessArchitectureQualityPanel({
   const copy = t.settings.harness.architectureQuality;
   const actionLabel = data ? t.common.refresh : copy.runScanLabel;
   const [detailView, setDetailView] = useState<ArchitectureDetailView>("summary");
+  const [drilldown, setDrilldown] = useState<ArchitectureDrilldown | null>(null);
 
   const failedRules = useMemo(
     () => (data?.reports ?? []).flatMap((report) => report.results.filter((result) => result.status === "fail")),
@@ -317,6 +353,10 @@ export function HarnessArchitectureQualityPanel({
     () => summarizeComparison(copy, data?.comparison ?? null),
     [copy, data?.comparison],
   );
+  const filteredViolations = useMemo(
+    () => flattenedViolations.filter((violation) => matchesDrilldown(violation, drilldown)),
+    [drilldown, flattenedViolations],
+  );
   const detailViews = useMemo(() => ([
     { id: "summary", label: copy.summaryViewLabel },
     { id: "boundaries", label: copy.boundariesViewLabel },
@@ -329,6 +369,11 @@ export function HarnessArchitectureQualityPanel({
     : data?.summaryStatus === "skipped"
       ? copy.statusSkipped
       : copy.statusPass;
+
+  const openViolationDrilldown = (nextDrilldown: ArchitectureDrilldown) => {
+    setDrilldown(nextDrilldown);
+    setDetailView("violations");
+  };
 
   const content = (
     <>
@@ -434,16 +479,42 @@ export function HarnessArchitectureQualityPanel({
                   <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">{copy.primaryFindingsTitle}</div>
                   {primaryFindings.length > 0 ? (
                     <div className="mt-2 grid gap-2 xl:grid-cols-3">
-                      {primaryFindings.map((finding) => (
-                        <div key={finding.id} className="rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 px-3 py-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">{finding.eyebrow}</div>
-                            <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2 py-0.5 text-[10px] font-semibold text-desktop-text-primary">{finding.metric}</div>
-                          </div>
-                          <div className="mt-2 text-[12px] font-semibold text-desktop-text-primary" title={finding.title}>{finding.title}</div>
-                          <div className="mt-1 truncate font-mono text-[10px] text-desktop-text-secondary" title={finding.summary}>{finding.summary}</div>
-                        </div>
-                      ))}
+                      {primaryFindings.map((finding) => {
+                        const onOpen = finding.id === "boundary-leak"
+                          ? () => openViolationDrilldown({
+                            kind: "boundary-cluster",
+                            label: `${copy.boundaryLeaksTitle}: ${finding.title}`,
+                            clusterLabel: finding.title,
+                          })
+                          : finding.id === "cycle-hotspot"
+                            ? () => openViolationDrilldown({
+                              kind: "cycle-cluster",
+                              label: `${copy.cycleHotspotsTitle}: ${finding.title}`,
+                              clusterLabel: finding.title,
+                            })
+                            : () => openViolationDrilldown({
+                              kind: "rule",
+                              label: `${copy.failedRulesTitle}: ${finding.title}`,
+                              ruleId: failedRules[0]?.id ?? "",
+                            });
+
+                        return (
+                          <button
+                            key={finding.id}
+                            type="button"
+                            onClick={onOpen}
+                            className="rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 px-3 py-3 text-left transition-colors hover:border-desktop-accent/60 hover:bg-desktop-bg-active/60"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">{finding.eyebrow}</div>
+                              <div className="rounded-full border border-desktop-border bg-desktop-bg-primary px-2 py-0.5 text-[10px] font-semibold text-desktop-text-primary">{finding.metric}</div>
+                            </div>
+                            <div className="mt-2 text-[12px] font-semibold text-desktop-text-primary" title={finding.title}>{finding.title}</div>
+                            <div className="mt-1 truncate font-mono text-[10px] text-desktop-text-secondary" title={finding.summary}>{finding.summary}</div>
+                            <div className="mt-2 text-[10px] font-medium text-desktop-accent">{copy.openDetailsLabel}</div>
+                          </button>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="mt-2 rounded-sm border border-dashed border-desktop-border px-3 py-4 text-[11px] text-desktop-text-secondary">
@@ -483,7 +554,10 @@ export function HarnessArchitectureQualityPanel({
                   <button
                     type="button"
                     className="text-[11px] font-medium text-desktop-accent hover:underline"
-                    onClick={() => setDetailView("violations")}
+                    onClick={() => {
+                      setDrilldown(null);
+                      setDetailView("violations");
+                    }}
                   >
                     {copy.violationsViewLabel}
                   </button>
@@ -491,7 +565,16 @@ export function HarnessArchitectureQualityPanel({
                 {failedRules.length > 0 ? (
                   <div className="mt-2 space-y-2">
                     {failedRules.map((rule) => (
-                      <div key={rule.id} className="rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 px-3 py-2">
+                      <button
+                        key={rule.id}
+                        type="button"
+                        onClick={() => openViolationDrilldown({
+                          kind: "rule",
+                          label: `${copy.failedRulesTitle}: ${rule.title}`,
+                          ruleId: rule.id,
+                        })}
+                        className="w-full rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 px-3 py-2 text-left transition-colors hover:border-desktop-accent/60 hover:bg-desktop-bg-active/60"
+                      >
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-[11px] font-semibold text-desktop-text-primary">{rule.title}</span>
                           <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800">
@@ -504,7 +587,8 @@ export function HarnessArchitectureQualityPanel({
                         <div className="mt-1 truncate font-mono text-[10px] text-desktop-text-secondary" title={summarizeRule(rule)}>
                           {summarizeRule(rule)}
                         </div>
-                      </div>
+                        <div className="mt-2 text-[10px] font-medium text-desktop-accent">{copy.openDetailsLabel}</div>
+                      </button>
                     ))}
                   </div>
                 ) : (
@@ -523,7 +607,16 @@ export function HarnessArchitectureQualityPanel({
                 {boundaryLeakClusters.length > 0 ? (
                   <div className="mt-2 space-y-2">
                     {boundaryLeakClusters.slice(0, 10).map((cluster) => (
-                      <div key={cluster.label} className="rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 px-3 py-2">
+                      <button
+                        key={cluster.label}
+                        type="button"
+                        onClick={() => openViolationDrilldown({
+                          kind: "boundary-cluster",
+                          label: `${copy.boundaryLeaksTitle}: ${cluster.label}`,
+                          clusterLabel: cluster.label,
+                        })}
+                        className="w-full rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 px-3 py-2 text-left transition-colors hover:border-desktop-accent/60 hover:bg-desktop-bg-active/60"
+                      >
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-[11px] font-semibold text-desktop-text-primary">{cluster.label}</span>
                           <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] text-rose-700">
@@ -533,7 +626,8 @@ export function HarnessArchitectureQualityPanel({
                         <div className="mt-1 truncate font-mono text-[10px] text-desktop-text-secondary" title={cluster.sample}>
                           {cluster.sample}
                         </div>
-                      </div>
+                        <div className="mt-2 text-[10px] font-medium text-desktop-accent">{copy.openDetailsLabel}</div>
+                      </button>
                     ))}
                   </div>
                 ) : (
@@ -548,7 +642,16 @@ export function HarnessArchitectureQualityPanel({
                 {boundaryFailedRules.length > 0 ? (
                   <div className="mt-2 space-y-2">
                     {boundaryFailedRules.map((rule) => (
-                      <div key={rule.id} className="rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 px-3 py-2">
+                      <button
+                        key={rule.id}
+                        type="button"
+                        onClick={() => openViolationDrilldown({
+                          kind: "rule",
+                          label: `${copy.failedRulesTitle}: ${rule.title}`,
+                          ruleId: rule.id,
+                        })}
+                        className="w-full rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 px-3 py-2 text-left transition-colors hover:border-desktop-accent/60 hover:bg-desktop-bg-active/60"
+                      >
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] font-semibold text-desktop-text-primary">{rule.title}</span>
                           <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] text-rose-700">
@@ -558,7 +661,8 @@ export function HarnessArchitectureQualityPanel({
                         <div className="mt-1 truncate font-mono text-[10px] text-desktop-text-secondary" title={summarizeRule(rule)}>
                           {summarizeRule(rule)}
                         </div>
-                      </div>
+                        <div className="mt-2 text-[10px] font-medium text-desktop-accent">{copy.openDetailsLabel}</div>
+                      </button>
                     ))}
                   </div>
                 ) : (
@@ -577,7 +681,16 @@ export function HarnessArchitectureQualityPanel({
                 {cycleHotspotClusters.length > 0 ? (
                   <div className="mt-2 space-y-2">
                     {cycleHotspotClusters.slice(0, 10).map((cluster) => (
-                      <div key={cluster.label} className="rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 px-3 py-2">
+                      <button
+                        key={cluster.label}
+                        type="button"
+                        onClick={() => openViolationDrilldown({
+                          kind: "cycle-cluster",
+                          label: `${copy.cycleHotspotsTitle}: ${cluster.label}`,
+                          clusterLabel: cluster.label,
+                        })}
+                        className="w-full rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 px-3 py-2 text-left transition-colors hover:border-desktop-accent/60 hover:bg-desktop-bg-active/60"
+                      >
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-[11px] font-semibold text-desktop-text-primary">{cluster.label}</span>
                           <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800">
@@ -587,7 +700,8 @@ export function HarnessArchitectureQualityPanel({
                         <div className="mt-1 truncate font-mono text-[10px] text-desktop-text-secondary" title={cluster.sample}>
                           {cluster.sample}
                         </div>
-                      </div>
+                        <div className="mt-2 text-[10px] font-medium text-desktop-accent">{copy.openDetailsLabel}</div>
+                      </button>
                     ))}
                   </div>
                 ) : (
@@ -602,7 +716,16 @@ export function HarnessArchitectureQualityPanel({
                 {cycleFailedRules.length > 0 ? (
                   <div className="mt-2 space-y-2">
                     {cycleFailedRules.map((rule) => (
-                      <div key={rule.id} className="rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 px-3 py-2">
+                      <button
+                        key={rule.id}
+                        type="button"
+                        onClick={() => openViolationDrilldown({
+                          kind: "rule",
+                          label: `${copy.failedRulesTitle}: ${rule.title}`,
+                          ruleId: rule.id,
+                        })}
+                        className="w-full rounded-sm border border-desktop-border bg-desktop-bg-secondary/40 px-3 py-2 text-left transition-colors hover:border-desktop-accent/60 hover:bg-desktop-bg-active/60"
+                      >
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] font-semibold text-desktop-text-primary">{rule.title}</span>
                           <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800">
@@ -612,7 +735,8 @@ export function HarnessArchitectureQualityPanel({
                         <div className="mt-1 truncate font-mono text-[10px] text-desktop-text-secondary" title={summarizeRule(rule)}>
                           {summarizeRule(rule)}
                         </div>
-                      </div>
+                        <div className="mt-2 text-[10px] font-medium text-desktop-accent">{copy.openDetailsLabel}</div>
+                      </button>
                     ))}
                   </div>
                 ) : (
@@ -626,8 +750,24 @@ export function HarnessArchitectureQualityPanel({
 
           {detailView === "violations" ? (
             <div className="rounded-sm border border-desktop-border bg-desktop-bg-primary/80 px-3 py-3" data-testid="architecture-view-violations">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">{copy.topViolationsTitle}</div>
-              {flattenedViolations.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary">{copy.topViolationsTitle}</div>
+                {drilldown ? (
+                  <div className="flex flex-wrap items-center gap-2" data-testid="architecture-violations-focus">
+                    <span className="rounded-full border border-desktop-accent/30 bg-desktop-bg-active px-2 py-0.5 text-[10px] font-medium text-desktop-text-primary">
+                      {copy.focusedViewLabel}: {drilldown.label}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-[10px] font-medium text-desktop-accent hover:underline"
+                      onClick={() => setDrilldown(null)}
+                    >
+                      {copy.clearFocusLabel}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              {filteredViolations.length > 0 ? (
                 <div className="mt-2 overflow-x-auto overflow-y-auto rounded-sm border border-desktop-border desktop-scrollbar-thin">
                   <table className="w-full min-w-[640px] border-collapse text-left text-[11px]">
                     <thead>
@@ -639,7 +779,7 @@ export function HarnessArchitectureQualityPanel({
                       </tr>
                     </thead>
                     <tbody>
-                      {flattenedViolations.slice(0, 24).map((violation, index) => (
+                      {filteredViolations.slice(0, 24).map((violation, index) => (
                         <tr key={`${violation.ruleId}-${violation.kindLabel}-${index}`} className="border-b border-desktop-border/70">
                           <td className="px-3 py-2 text-desktop-text-primary">
                             <div className="font-medium">{violation.ruleTitle}</div>
@@ -657,7 +797,7 @@ export function HarnessArchitectureQualityPanel({
                 </div>
               ) : (
                 <div className="mt-2 rounded-sm border border-dashed border-desktop-border px-3 py-4 text-[11px] text-desktop-text-secondary">
-                  {copy.noViolations}
+                  {drilldown ? copy.noMatchingViolations : copy.noViolations}
                 </div>
               )}
             </div>

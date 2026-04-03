@@ -50,10 +50,14 @@ vi.mock("@/i18n", () => ({
             boundariesViewLabel: "Boundary Leaks",
             cyclesViewLabel: "Cycle Hotspots",
             violationsViewLabel: "Violations",
+            focusedViewLabel: "Focused View",
+            clearFocusLabel: "Clear",
+            openDetailsLabel: "Open details",
             noFailedRules: "No failing architecture rules.",
             noBoundaryLeaks: "No boundary leaks.",
             noCycleHotspots: "No cycle hotspots.",
             noViolations: "No violations.",
+            noMatchingViolations: "No violations matched the current focus.",
             noPrimaryFindings: "No primary findings.",
             ruleColumn: "Rule",
             suiteColumn: "Suite",
@@ -214,6 +218,32 @@ describe("HarnessArchitectureQualityPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Violations" }));
     expect(screen.getByTestId("architecture-view-violations")).not.toBeNull();
+    expect(screen.getByText("Backend core modules should stay acyclic")).not.toBeNull();
+  });
+
+  it("drills into focused violations from summary findings", () => {
+    render(
+      <HarnessArchitectureQualityPanel
+        repoLabel="repo"
+        data={sampleData}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    const boundaryFinding = screen.getByText("src/core/session-transcript.ts -> src/client/components").closest("button");
+    expect(boundaryFinding).not.toBeNull();
+
+    fireEvent.click(boundaryFinding!);
+
+    expect(screen.getByTestId("architecture-view-violations")).not.toBeNull();
+    expect(screen.getByTestId("architecture-violations-focus")).not.toBeNull();
+    expect(screen.getByText(/Focused View:/)).not.toBeNull();
+    expect(screen.getAllByText("Core must not depend on client modules")).toHaveLength(2);
+    expect(screen.queryByText("Backend core modules should stay acyclic")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
     expect(screen.getByText("Backend core modules should stay acyclic")).not.toBeNull();
   });
 });
