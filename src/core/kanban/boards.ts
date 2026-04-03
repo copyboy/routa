@@ -104,6 +104,15 @@ const LEGACY_SPECIALIST_IDS_BY_STAGE: Partial<Record<KanbanColumnStage, string[]
   done: ["gate", "verifier", "claude-code", "kanban-workflow"],
 };
 
+function getStepIdentity(step: ReturnType<typeof getKanbanAutomationSteps>[number]): string {
+  return [
+    step.transport ?? "acp",
+    step.specialistId ?? "",
+    step.specialistName ?? "",
+    step.role ?? "",
+  ].join("::");
+}
+
 export function applyRecommendedAutomationToColumns(columns: KanbanColumn[]): KanbanColumn[] {
   return columns.map((column) => {
     const recommended = RECOMMENDED_AUTOMATION_BY_STAGE[column.stage];
@@ -123,14 +132,15 @@ export function applyRecommendedAutomationToColumns(columns: KanbanColumn[]): Ka
 
     const currentAutomation = normalizeKanbanAutomation(column.automation) ?? column.automation;
     const currentSteps = getKanbanAutomationSteps(currentAutomation);
-    const recommendedStepSpecialistIds = getKanbanAutomationSteps(recommended)
+    const recommendedSteps = getKanbanAutomationSteps(recommended);
+    const recommendedStepSpecialistIds = recommendedSteps
       .map((step) => step.specialistId)
       .filter((value): value is string => Boolean(value));
-    const recommendedStepSpecialistNames = getKanbanAutomationSteps(recommended)
+    const recommendedStepSpecialistNames = recommendedSteps
       .map((step) => step.specialistName)
       .filter((value): value is string => Boolean(value));
     const legacySpecialistId = currentAutomation.specialistId;
-    const hasCustomSteps = getKanbanAutomationSteps(currentAutomation).some((step) => {
+    const hasCustomSteps = currentSteps.some((step) => {
       if (step.specialistId) {
         return !legacySpecialists.includes(step.specialistId)
           && !recommendedStepSpecialistIds.includes(step.specialistId);
@@ -140,11 +150,14 @@ export function applyRecommendedAutomationToColumns(columns: KanbanColumn[]): Ka
       }
       return false;
     });
+    const matchesRecommendedStepSequence = currentSteps.length === recommendedSteps.length
+      && currentSteps.every((step, index) => getStepIdentity(step) === getStepIdentity(recommendedSteps[index]!));
     const shouldMigrateLegacySpecialist = Boolean(
       legacySpecialistId && legacySpecialists.includes(legacySpecialistId),
     );
     const shouldMigrateRecommendedSpecialist = Boolean(
-      (currentAutomation.specialistId && currentAutomation.specialistId === recommendedPrimaryStep?.specialistId)
+      matchesRecommendedStepSequence
+      || (currentAutomation.specialistId && currentAutomation.specialistId === recommendedPrimaryStep?.specialistId)
       || (!currentAutomation.specialistId
         && currentAutomation.specialistName
         && currentAutomation.specialistName === recommendedPrimaryStep?.specialistName),
@@ -156,6 +169,7 @@ export function applyRecommendedAutomationToColumns(columns: KanbanColumn[]): Ka
 
     if (
       hasCustomSteps
+      || ((column.automation.steps?.length ?? 0) > 0 && !matchesRecommendedStepSequence)
       || (
         (currentAutomation.specialistId || currentAutomation.specialistName)
         && !shouldMigrateLegacySpecialist

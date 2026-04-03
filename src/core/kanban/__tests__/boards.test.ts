@@ -146,7 +146,7 @@ describe("applyRecommendedAutomationToColumns", () => {
     expect(columns[0].automation?.requiredArtifacts).toEqual(["screenshot", "test_results"]);
   });
 
-  it("refreshes the review lane to the system-owned qa and approval steps", () => {
+  it("preserves a customized review lane that uses review guard directly", () => {
     const columns = applyRecommendedAutomationToColumns([
       {
         ...DEFAULT_KANBAN_COLUMNS[3],
@@ -167,9 +167,42 @@ describe("applyRecommendedAutomationToColumns", () => {
     ]);
 
     expect(columns[0].automation?.steps?.map((step) => step.specialistId)).toEqual([
-      "kanban-qa-frontend",
       "kanban-review-guard",
     ]);
-    expect(columns[0].automation?.requiredArtifacts).toEqual(["screenshot", "test_results"]);
+    expect(columns[0].automation?.requiredArtifacts).toEqual(["screenshot"]);
+  });
+
+  it("preserves a review lane whose first step was changed from qa to review guard", () => {
+    const columns = applyRecommendedAutomationToColumns([
+      {
+        ...DEFAULT_KANBAN_COLUMNS[3],
+        automation: {
+          enabled: true,
+          steps: [
+            {
+              id: "qa-frontend",
+              role: "GATE",
+              specialistId: "kanban-review-guard",
+              specialistName: "Review Guard",
+            },
+            {
+              id: "review-guard",
+              role: "GATE",
+              specialistId: "kanban-review-guard",
+              specialistName: "Review Guard",
+            },
+          ],
+          specialistId: "kanban-review-guard",
+          specialistName: "Review Guard",
+          requiredArtifacts: ["screenshot", "test_results"],
+          autoAdvanceOnSuccess: false,
+        },
+      },
+    ]);
+
+    expect(columns[0].automation?.steps?.map((step) => step.specialistId)).toEqual([
+      "kanban-review-guard",
+      "kanban-review-guard",
+    ]);
   });
 });
