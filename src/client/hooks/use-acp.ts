@@ -35,6 +35,8 @@ import {
 import { loadDockerOpencodeAuthJson } from "../components/settings-panel";
 import type { McpServerProfile } from "@/core/mcp/mcp-server-profiles";
 
+const ACP_SELECTED_PROVIDER_STORAGE_KEY = "routa.acp.selectedProvider";
+
 const BUILTIN_PROVIDER_FALLBACKS: AcpProviderInfo[] = [
   {
     id: "claude",
@@ -94,6 +96,32 @@ function getInitialProviderFallbacks(): AcpProviderInfo[] {
       (provider) => !disabledProviders.includes(provider.id)
     )
   );
+}
+
+export function loadSelectedAcpProvider(): string {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return "opencode";
+  }
+  try {
+    const stored = window.localStorage.getItem(ACP_SELECTED_PROVIDER_STORAGE_KEY)?.trim();
+    return stored || "opencode";
+  } catch {
+    return "opencode";
+  }
+}
+
+export function saveSelectedAcpProvider(provider: string): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    const normalized = provider.trim();
+    if (!normalized) {
+      window.localStorage.removeItem(ACP_SELECTED_PROVIDER_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(ACP_SELECTED_PROVIDER_STORAGE_KEY, normalized);
+  } catch {
+    // Ignore storage failures so ACP selection still works in-memory.
+  }
 }
 
 function formatConnectionIssue(issue: AcpConnectionIssue): string {
@@ -197,7 +225,7 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
     sessionId: null,
     updates: [],
     providers: getInitialProviderFallbacks(),
-    selectedProvider: "opencode",
+    selectedProvider: loadSelectedAcpProvider(),
     loading: false,
     error: null,
     authError: null,
@@ -288,11 +316,21 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
       const firstAvailable = allLocalProviders.find((p) => p.status === "available");
 
       setState((s) => ({
-        ...s,
-        connected: true,
-        providers: allLocalProviders,
-        selectedProvider: firstAvailable?.id ?? s.selectedProvider,
-        loading: false,
+        ...(function () {
+          const persistedProvider = loadSelectedAcpProvider();
+          const preferredProvider = allLocalProviders.find((provider) =>
+            provider.id === persistedProvider && provider.status !== "unavailable"
+          )?.id;
+          const nextSelectedProvider = preferredProvider ?? firstAvailable?.id ?? s.selectedProvider;
+          saveSelectedAcpProvider(nextSelectedProvider);
+          return {
+            ...s,
+            connected: true,
+            providers: allLocalProviders,
+            selectedProvider: nextSelectedProvider,
+            loading: false,
+          };
+        })(),
       }));
 
       // Background task 1: Check local provider status
@@ -504,6 +542,7 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
   );
 
   const setProvider = useCallback((provider: string) => {
+    saveSelectedAcpProvider(provider);
     setState((s) => ({ ...s, selectedProvider: provider }));
   }, []);
 
@@ -651,7 +690,7 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
       sessionId: null,
       updates: [],
       providers: [],
-      selectedProvider: "opencode",
+      selectedProvider: loadSelectedAcpProvider(),
       loading: false,
       error: null,
       authError: null,
