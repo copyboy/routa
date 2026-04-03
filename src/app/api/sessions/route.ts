@@ -18,6 +18,9 @@ export async function GET(request: NextRequest) {
 
   const workspaceId = request.nextUrl.searchParams.get("workspaceId");
   const parentSessionId = request.nextUrl.searchParams.get("parentSessionId");
+  const rawLimit = request.nextUrl.searchParams.get("limit");
+  const parsedLimit = rawLimit ? Number.parseInt(rawLimit, 10) : Number.NaN;
+  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null;
 
   let sessions = store.listSessions();
   if (workspaceId) {
@@ -29,7 +32,7 @@ export async function GET(request: NextRequest) {
     sessions = sessions.filter((s) => s.parentSessionId === parentSessionId);
     // When querying children, include sessions that haven't sent a prompt yet
     return NextResponse.json(
-      { sessions },
+      { sessions: limit ? sessions.slice(0, limit) : sessions },
       { headers: { "Cache-Control": "no-store" } }
     );
   }
@@ -38,8 +41,7 @@ export async function GET(request: NextRequest) {
   sessions = sessions.filter((s) => s.firstPromptSent !== false);
 
   return NextResponse.json(
-    { sessions },
+    { sessions: limit ? sessions.slice(0, limit) : sessions },
     { headers: { "Cache-Control": "no-store" } }
   );
 }
-
