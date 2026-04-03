@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createArtifact } from "@/core/models/artifact";
 import { createTask, TaskStatus, VerificationVerdict, type Task } from "@/core/models/task";
 import { InMemoryArtifactStore } from "@/core/store/artifact-store";
+import type { TaskDeliveryReadiness } from "@/core/kanban/task-delivery-readiness";
 
 const notify = vi.fn();
 const removeCardJob = vi.fn();
@@ -10,8 +11,12 @@ const enqueueKanbanTaskSession = vi.fn();
 const processKanbanColumnTransition = vi.fn();
 const archiveActiveTaskSession = vi.fn<(task: Task) => void>();
 const prepareTaskForColumnChange = vi.fn<(fromColumnId?: string, task?: Task) => boolean>(() => false);
-const buildTaskDeliveryReadiness = vi.fn();
-const buildTaskDeliveryTransitionError = vi.fn(() => null);
+const buildTaskDeliveryReadiness = vi.fn<
+  (task: Task, currentSystem: typeof system) => Promise<TaskDeliveryReadiness>
+>();
+const buildTaskDeliveryTransitionError = vi.fn<
+  (readiness: TaskDeliveryReadiness, targetColumnName: string, targetColumnId: string) => string | null
+>(() => null);
 let capturedEnqueueTask: Task | undefined;
 
 const taskStore = {
@@ -66,8 +71,13 @@ vi.mock("@/core/kanban/task-session-transition", () => ({
 }));
 
 vi.mock("@/core/kanban/task-delivery-readiness", () => ({
-  buildTaskDeliveryReadiness: (...args: unknown[]) => buildTaskDeliveryReadiness(...args),
-  buildTaskDeliveryTransitionError: (...args: unknown[]) => buildTaskDeliveryTransitionError(...args),
+  buildTaskDeliveryReadiness: (task: Task, currentSystem: typeof system) =>
+    buildTaskDeliveryReadiness(task, currentSystem),
+  buildTaskDeliveryTransitionError: (
+    readiness: TaskDeliveryReadiness,
+    targetColumnName: string,
+    targetColumnId: string,
+  ) => buildTaskDeliveryTransitionError(readiness, targetColumnName, targetColumnId),
 }));
 
 vi.mock("@/core/kanban/workflow-orchestrator-singleton", () => ({
