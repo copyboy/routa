@@ -1064,11 +1064,11 @@ fn build_reposlide_prompt(
 
 fn resolve_reposlide_skill_repo_path() -> Option<String> {
     let cwd = std::env::current_dir().ok()?;
-    let candidate = cwd.join("tools").join("ppt-template");
+    let candidate = cwd.join("tools").join("office-skills");
     let skill_file = candidate
         .join(".agents")
         .join("skills")
-        .join("slide-skill")
+        .join("slide")
         .join("SKILL.md");
 
     if skill_file.is_file() {
