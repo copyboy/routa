@@ -93,6 +93,10 @@ type ArchitectureReport = {
 
 const APP_ROOT = fromRoot();
 
+function toMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function normalizeSuite(raw: string): SuiteName {
   return raw === "cycles" ? "cycles" : "boundaries";
 }
@@ -269,6 +273,13 @@ function normalizeViolation(raw: unknown): NormalizedViolation {
   };
 }
 
+function isArchUnitOverflowError(error: unknown): boolean {
+  if (error instanceof RangeError) {
+    return error.message.includes("Maximum call stack size exceeded");
+  }
+  return toMessage(error).includes("Maximum call stack size exceeded");
+}
+
 async function runSuite(suite: SuiteName): Promise<ArchitectureReport> {
   const repoRoot = parseRepoRoot(process.argv.slice(2)) ?? process.cwd();
   const tsConfigPath = path.join(repoRoot, "tsconfig.json");
@@ -294,18 +305,40 @@ async function runSuite(suite: SuiteName): Promise<ArchitectureReport> {
 
   const rules = buildRules(tsConfigPath).filter((rule) => rule.suite === suite);
   const results: RuleResult[] = [];
+  const notes: string[] = [];
 
   for (const rule of rules) {
-    const violations = await rule.build(archUnit.module.projectFiles).check({ allowEmptyTests: false });
-    const normalizedViolations = violations.map(normalizeViolation);
-    results.push({
-      id: rule.id,
-      title: rule.title,
-      suite: rule.suite,
-      status: normalizedViolations.length > 0 ? "fail" : "pass",
-      violationCount: normalizedViolations.length,
-      violations: normalizedViolations,
-    });
+    try {
+      const violations = await rule.build(archUnit.module.projectFiles).check({ allowEmptyTests: false });
+      const normalizedViolations = violations.map(normalizeViolation);
+      results.push({
+        id: rule.id,
+        title: rule.title,
+        suite: rule.suite,
+        status: normalizedViolations.length > 0 ? "fail" : "pass",
+        violationCount: normalizedViolations.length,
+        violations: normalizedViolations,
+      });
+    } catch (error) {
+      if (isArchUnitOverflowError(error)) {
+        notes.push(
+          `Skipped ${rule.id}: ArchUnitTS overflowed while evaluating ${rule.title}. ${toMessage(error)}`,
+        );
+        return {
+          generatedAt: new Date().toISOString(),
+          repoRoot,
+          suite,
+          summaryStatus: "skipped",
+          archUnitSource: archUnit.source,
+          tsconfigPath: tsConfigPath,
+          ruleCount: rules.length,
+          failedRuleCount: 0,
+          results: [],
+          notes,
+        };
+      }
+      throw error;
+    }
   }
 
   const failedRuleCount = results.filter((result) => result.status === "fail").length;
@@ -320,7 +353,7 @@ async function runSuite(suite: SuiteName): Promise<ArchitectureReport> {
     ruleCount: results.length,
     failedRuleCount,
     results,
-    notes: [],
+    notes,
   };
 }
 

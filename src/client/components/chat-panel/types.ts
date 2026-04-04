@@ -3,57 +3,12 @@
  */
 
 import type { AcpProviderInfo } from "../../acp-client";
+import type { ChatMessage, MessageRole, PlanEntry, UsageInfo } from "@/core/chat-message";
 import type { WorkspaceData } from "../../hooks/use-workspaces";
 import type { RepoSelection } from "../repo-picker";
 
 // ─── Message Types ─────────────────────────────────────────────────────
-
-export type MessageRole = "user" | "assistant" | "thought" | "tool" | "plan" | "info" | "terminal";
-
-export interface PlanEntry {
-  content: string;
-  priority?: "high" | "medium" | "low";
-  status?: "pending" | "in_progress" | "completed";
-}
-
-export interface ChatMessage {
-  id: string;
-  role: MessageRole;
-  content: string;
-  timestamp: Date;
-  toolName?: string;
-  toolStatus?: string;
-  toolCallId?: string;
-  toolKind?: string;
-  /** Raw input parameters for tool calls */
-  toolRawInput?: Record<string, unknown>;
-  /** Raw output payload for tool calls before string formatting */
-  toolRawOutput?: unknown;
-  /** Task ID for delegated tasks (delegate_task_to_agent) */
-  delegatedTaskId?: string;
-  /** Completion summary when a delegated task completes */
-  completionSummary?: string;
-  /** Raw update payload for debug/info display */
-  rawData?: Record<string, unknown>;
-  planEntries?: PlanEntry[];
-  usageUsed?: number;
-  usageSize?: number;
-  costAmount?: number;
-  costCurrency?: string;
-  // Terminal fields
-  terminalId?: string;
-  terminalCommand?: string;
-  terminalArgs?: string[];
-  terminalInteractive?: boolean;
-  terminalExited?: boolean;
-  terminalExitCode?: number | null;
-}
-
-export interface UsageInfo {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-}
+export type { ChatMessage, MessageRole, PlanEntry, UsageInfo };
 
 // ─── SetupView Props ───────────────────────────────────────────────────
 
