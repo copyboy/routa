@@ -1018,6 +1018,15 @@ fn analyze_java_normal(
     // Extract package declaration
     let package_name = extract_java_package(root_node, source_bytes);
 
+    // Extract import dependencies (DEPENDS_ON relationships)
+    extract_java_import_dependencies(
+        root_node,
+        source_bytes,
+        &package_name,
+        nodes,
+        edges,
+    );
+
     // Extract all AST nodes
     extract_java_ast_nodes(
         root_node,
@@ -1042,6 +1051,74 @@ fn extract_java_package(node: Node, source: &[u8]) -> Option<String> {
         }
     }
     None
+}
+
+fn extract_java_import_dependencies(
+    node: Node,
+    source: &[u8],
+    package_name: &Option<String>,
+    nodes: &mut BTreeMap<String, GraphNode>,
+    edges: &mut BTreeSet<(String, String, EdgeKind, String, bool)>,
+) {
+    for child in node.children(&mut node.walk()) {
+        if child.kind() == "import_declaration" {
+            // Extract import path
+            for i in 0..child.child_count() {
+                if let Some(import_node) = child.child(i) {
+                    if import_node.kind() == "scoped_identifier" || import_node.kind() == "identifier" {
+                        let import_path = import_node.utf8_text(source).unwrap_or("").trim();
+                        if !import_path.is_empty() {
+                            // Extract the package from the import (e.g., java.util.List -> java.util)
+                            let imported_package = if let Some(last_dot) = import_path.rfind('.') {
+                                &import_path[..last_dot]
+                            } else {
+                                import_path
+                            };
+
+                            // Create package node for imported package if it's external
+                            if imported_package.starts_with("java.")
+                                || imported_package.starts_with("javax.")
+                                || imported_package.starts_with("org.")
+                                || imported_package.starts_with("com.")
+                            {
+                                let target_package_id = format!("package:{}", imported_package);
+
+                                // Add external package node
+                                nodes.entry(target_package_id.clone()).or_insert_with(|| GraphNode {
+                                    id: target_package_id.clone(),
+                                    path: imported_package.to_string(),
+                                    language: "java".to_string(),
+                                    kind: NodeKind::Package,
+                                    name: Some(imported_package.to_string()),
+                                    package_name: Some(imported_package.to_string()),
+                                    parent_id: None,
+                                    start_line: None,
+                                    end_line: None,
+                                });
+
+                                // Add DEPENDS_ON edge from current package to imported package
+                                if let Some(current_pkg) = package_name {
+                                    let source_package_id = format!("package:{}", current_pkg);
+
+                                    // Only add edge if it's a different package
+                                    if current_pkg != imported_package {
+                                        edges.insert((
+                                            source_package_id,
+                                            target_package_id,
+                                            EdgeKind::DependsOn,
+                                            import_path.to_string(),
+                                            false, // External dependency
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn extract_java_ast_nodes(
@@ -1788,5 +1865,44 @@ public class Test {
         assert!(!graph.nodes.iter().any(|n| n.kind == NodeKind::Class));
         assert!(!graph.nodes.iter().any(|n| n.kind == NodeKind::Method));
         assert!(!graph.nodes.iter().any(|n| n.kind == NodeKind::Field));
+    }
+
+    #[test]
+    fn normal_mode_extracts_import_dependencies() {
+        let dir = TempDir::new().unwrap();
+        write_file(
+            &dir,
+            "src/main/java/com/example/Service.java",
+            r#"package com.example;
+
+import java.util.List;
+import java.util.ArrayList;
+import javax.servlet.http.HttpServlet;
+
+public class Service {
+    private List<String> items = new ArrayList<>();
+}"#,
+        );
+
+        let graph = analyze_directory(dir.path(), AnalysisLang::Java, AnalysisDepth::Normal);
+
+        // Should have DEPENDS_ON edges
+        let depends_on_edges: Vec<_> = graph
+            .edges
+            .iter()
+            .filter(|e| e.kind == EdgeKind::DependsOn)
+            .collect();
+
+        assert!(depends_on_edges.len() >= 2); // At least java.util dependencies
+
+        // Check that external packages are created
+        assert!(graph.nodes.iter().any(|n| n.kind == NodeKind::Package
+            && n.name.as_deref() == Some("java.util")));
+        assert!(graph.nodes.iter().any(|n| n.kind == NodeKind::Package
+            && n.name.as_deref() == Some("javax.servlet.http")));
+
+        // Check specific DEPENDS_ON edge
+        assert!(depends_on_edges.iter().any(|e|
+            e.from.contains("com.example") && e.to.contains("java.util")));
     }
 }
