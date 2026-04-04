@@ -1,3 +1,10 @@
+---
+name: docx
+description: Use this skill for creating, editing, and reviewing DOCX files, including generation, formatting, content controls, tracked changes, comments, accessibility checks, redaction, rendering, and diff-based QA workflows.
+metadata:
+  short-description: DOCX workflows
+---
+
 # DOCX Skill (Read • Create • Edit • Redline • Comment)
 
 Use this skill when you need to create or modify `.docx` files **in this container environment** and verify them visually.
