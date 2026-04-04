@@ -1,5 +1,6 @@
 //! `routa fitness` — repository fitness and fluency assessment entrypoints.
 
+mod arch_dsl;
 mod fluency;
 
 use clap::{Args, Subcommand, ValueEnum};
@@ -8,6 +9,7 @@ use std::path::{Path, PathBuf};
 use self::fluency::{
     evaluate_harness_fluency, format_text_report, EvaluateOptions, FluencyMode, ReportFraming,
 };
+use self::arch_dsl::{run as run_arch_dsl, ArchDslArgs};
 
 const DEFAULT_MODEL_RELATIVE_PATH: &str = "docs/fitness/harness-fluency.model.yaml";
 const AGENT_ORCHESTRATOR_MODEL_RELATIVE_PATH: &str =
@@ -16,6 +18,8 @@ const DEFAULT_SNAPSHOT_RELATIVE_PATH: &str = "docs/fitness/reports/harness-fluen
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum FitnessAction {
+    /// Validate the architecture-rule DSL and execute supported rule engines
+    ArchDsl(ArchDslArgs),
     /// Evaluate the Harness Fluency maturity model
     Fluency(FluencyArgs),
 }
@@ -126,6 +130,7 @@ impl FluencyFraming {
 
 pub fn run(action: FitnessAction) -> Result<(), String> {
     match action {
+        FitnessAction::ArchDsl(args) => run_arch_dsl(&args),
         FitnessAction::Fluency(args) => run_fluency(&args),
     }
 }
@@ -398,6 +403,7 @@ mod tests {
             FitnessAction::Fluency(args) => {
                 assert_eq!(args.framing, FluencyFraming::Harnessability);
             }
+            FitnessAction::ArchDsl(_) => panic!("expected fluency subcommand"),
         }
     }
 }

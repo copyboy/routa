@@ -17,6 +17,8 @@ metrics:
     run_when_changed:
       - src/core/**
       - src/app/api/**
+      - architecture/rules/backend-core.archdsl.yaml
+      - scripts/fitness/architecture-rule-dsl.ts
       - scripts/fitness/check-backend-architecture.ts
       - docs/fitness/backend-architecture.md
     description: "TypeScript backend core 边界约束（src/core / src/app/api）通过 ArchUnitTS 做本地 advisory 检查。"
@@ -30,6 +32,8 @@ metrics:
     execution_scope: local
     run_when_changed:
       - src/core/**
+      - architecture/rules/backend-core.archdsl.yaml
+      - scripts/fitness/architecture-rule-dsl.ts
       - scripts/fitness/check-backend-architecture.ts
       - docs/fitness/backend-architecture.md
     description: "TypeScript backend core 循环依赖通过 ArchUnitTS 做本地 advisory 检查。"
@@ -61,6 +65,7 @@ metrics:
 
 ## Runtime Contract
 
+- 规则模型默认从 `architecture/rules/backend-core.archdsl.yaml` 读取
 - 默认从 `~/test/ArchUnitTS` 加载本地 ArchUnitTS checkout
 - 可通过 `ROUTA_ARCHUNITTS_PATH` 覆盖加载路径
 - 若本地源码不存在，或存在但依赖未安装，则 metric 记为 `skipped`
@@ -68,13 +73,15 @@ metrics:
 ## Local Commands
 
 ```bash
+npm run test:arch:dsl
 npm run test:arch:backend-core -- --suite boundaries
 npm run test:arch:backend-core -- --suite cycles
 npm run test:arch:backend-core -- --suite boundaries --json
+cargo run -p routa-cli -- fitness arch-dsl --json
 ```
 
 ## Known Limits
 
 - 当前只覆盖 TypeScript backend core，不覆盖 Rust backend
 - 结果还未进入专用 UI 面板，第一阶段主要用于 entrix advisory evidence
-- 规则集合仍是硬编码脚本，不是独立 DSL；后续若继续推进，应再抽出 machine-readable rule layer
+- Rust CLI 已经支持同 DSL 的 graph 执行，但当前 backend-core fitness metric 仍以 TypeScript `ArchUnitTS` 路径为主

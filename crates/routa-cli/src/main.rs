@@ -5,9 +5,9 @@
 
 mod commands;
 
-use crate::commands::acp::AcpAction;
-use crate::commands::fitness::FitnessAction;
-use crate::commands::harness::HarnessAction;
+use crate::commands::{
+    acp::AcpAction, fitness::FitnessAction, graph::GraphAction, harness::HarnessAction,
+};
 use clap::{Parser, Subcommand};
 
 /// Routa.js CLI — Multi-agent coordination platform
@@ -180,13 +180,16 @@ enum Commands {
         #[command(subcommand)]
         action: FitnessAction,
     },
-
     /// Detect Harness build/test surfaces from docs/harness/*.yml
     Harness {
         #[command(subcommand)]
         action: HarnessAction,
     },
-
+    /// Analyze code dependency graphs using TreeSitter
+    Graph {
+        #[command(subcommand)]
+        action: GraphAction,
+    },
     /// Run YAML-defined agent workflows
     Workflow {
         #[command(subcommand)]
@@ -731,8 +734,21 @@ enum ReviewAction {
     },
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    commands::set_full_path_env();
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap_or_else(|error| {
+            eprintln!("Error: failed to initialize tokio runtime: {}", error);
+            std::process::exit(1);
+        });
+
+    runtime.block_on(async_main());
+}
+
+async fn async_main() {
     let cli = Cli::parse();
 
     // Initialize tracing
@@ -745,10 +761,6 @@ async fn main() {
 
     let result = if let Some(prompt_text) = cli.prompt {
         // ── Quick prompt mode: routa -p "requirement" ───────────────
-        // Resolve full shell PATH so child processes can be found
-        let full_path = routa_core::shell_env::full_path();
-        std::env::set_var("PATH", full_path);
-
         let state = commands::init_state(&cli.db).await;
         commands::prompt::run(&state, &prompt_text, &cli.workspace_id, &cli.provider).await
     } else if let Some(command) = cli.command {
@@ -759,48 +771,43 @@ async fn main() {
                 static_dir,
             } => commands::server::run(host, port, cli.db, static_dir).await,
 
-            Commands::Acp { action } => {
-                match action {
-                    AcpAction::Serve {
-                        workspace_id,
-                        provider,
-                    } => {
-                        // Resolve full shell PATH so child processes can be found
-                        let full_path = routa_core::shell_env::full_path();
-                        std::env::set_var("PATH", full_path);
-                        let state = commands::init_state(&cli.db).await;
-                        commands::acp_serve::run(&state, &workspace_id, &provider).await
-                    }
-                    AcpAction::Install { agent_id, dist } => {
-                        let state = commands::init_state(&cli.db).await;
-                        commands::acp::install(&state, &agent_id, dist.as_deref()).await
-                    }
-                    AcpAction::Uninstall { agent_id } => {
-                        let state = commands::init_state(&cli.db).await;
-                        commands::acp::uninstall(&state, &agent_id).await
-                    }
-                    AcpAction::List => {
-                        let state = commands::init_state(&cli.db).await;
-                        commands::acp::list(&state).await
-                    }
-                    AcpAction::Installed => {
-                        let state = commands::init_state(&cli.db).await;
-                        commands::acp::list_installed(&state).await
-                    }
-                    AcpAction::RuntimeStatus => {
-                        let state = commands::init_state(&cli.db).await;
-                        commands::acp::runtime_status(&state).await
-                    }
-                    AcpAction::EnsureNode => {
-                        let state = commands::init_state(&cli.db).await;
-                        commands::acp::ensure_node(&state).await
-                    }
-                    AcpAction::EnsureUv => {
-                        let state = commands::init_state(&cli.db).await;
-                        commands::acp::ensure_uv(&state).await
-                    }
+            Commands::Acp { action } => match action {
+                AcpAction::Serve {
+                    workspace_id,
+                    provider,
+                } => {
+                    let state = commands::init_state(&cli.db).await;
+                    commands::acp_serve::run(&state, &workspace_id, &provider).await
                 }
-            }
+                AcpAction::Install { agent_id, dist } => {
+                    let state = commands::init_state(&cli.db).await;
+                    commands::acp::install(&state, &agent_id, dist.as_deref()).await
+                }
+                AcpAction::Uninstall { agent_id } => {
+                    let state = commands::init_state(&cli.db).await;
+                    commands::acp::uninstall(&state, &agent_id).await
+                }
+                AcpAction::List => {
+                    let state = commands::init_state(&cli.db).await;
+                    commands::acp::list(&state).await
+                }
+                AcpAction::Installed => {
+                    let state = commands::init_state(&cli.db).await;
+                    commands::acp::list_installed(&state).await
+                }
+                AcpAction::RuntimeStatus => {
+                    let state = commands::init_state(&cli.db).await;
+                    commands::acp::runtime_status(&state).await
+                }
+                AcpAction::EnsureNode => {
+                    let state = commands::init_state(&cli.db).await;
+                    commands::acp::ensure_node(&state).await
+                }
+                AcpAction::EnsureUv => {
+                    let state = commands::init_state(&cli.db).await;
+                    commands::acp::ensure_uv(&state).await
+                }
+            },
 
             Commands::Install(args) => {
                 let state = commands::init_state(&cli.db).await;
@@ -1267,6 +1274,7 @@ async fn main() {
             } => commands::scan::run(project_dir.as_deref(), &output_dir, strict),
 
             Commands::Fitness { action } => commands::fitness::run(action),
+            Commands::Graph { action } => commands::graph::run(action),
             Commands::Harness { action } => commands::harness::run(action),
 
             Commands::Workflow { action } => {
@@ -1355,10 +1363,6 @@ async fn main() {
             }
 
             Commands::Team { action } => {
-                // Resolve full shell PATH so child processes can be found
-                let full_path = routa_core::shell_env::full_path();
-                std::env::set_var("PATH", full_path);
-
                 let state = commands::init_state(&cli.db).await;
                 match action {
                     TeamAction::Run {
