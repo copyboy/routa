@@ -36,6 +36,13 @@ function createUserPromptSubmitPayload(prompt: string) {
   });
 }
 
+function createBypassEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    [CONTROL_PLANE_BYPASS_ENV]: "1",
+  };
+}
+
 describe("agent hook policy", () => {
   it("detects protected control-plane paths", () => {
     expect(getProtectedPathLabel(".husky/pre-push", "/repo")).toBe(".husky");
@@ -102,9 +109,7 @@ describe("agent hook policy", () => {
       createPreToolUsePayload("Bash", {
         command: "git config --local core.hooksPath /tmp/test-hooks",
       }),
-      {
-        [CONTROL_PLANE_BYPASS_ENV]: "1",
-      } as NodeJS.ProcessEnv,
+      createBypassEnv(),
     );
 
     expect(decision).toBeNull();
