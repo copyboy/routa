@@ -800,6 +800,8 @@ export const enExtended: ExtendedTranslationDictionarySections = {
     deleteTaskTitle: "Delete Task",
     deleteTaskConfirm: "Are you sure you want to delete",
     deleteTaskGithubNote: "Note: This will only delete the local task. The GitHub issue",
+    moveBlockedTitle: "Cannot Move Card",
+    moveBlockedHint: "This manual move is blocked by the current lane workflow. Finish or rerun the remaining step before moving the card again.",
     more: "more",
   },
 

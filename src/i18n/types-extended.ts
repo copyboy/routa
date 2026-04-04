@@ -806,6 +806,8 @@ export interface ExtendedTranslationDictionarySections extends TailTranslationDi
     deleteTaskTitle: string;
     deleteTaskConfirm: string;
     deleteTaskGithubNote: string;
+    moveBlockedTitle: string;
+    moveBlockedHint: string;
     more: string;
   };
 

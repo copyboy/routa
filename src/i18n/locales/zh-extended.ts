@@ -800,6 +800,8 @@ export const zhExtended: ExtendedTranslationDictionarySections = {
     deleteTaskTitle: "删除任务",
     deleteTaskConfirm: "确定要删除",
     deleteTaskGithubNote: "注意：此操作仅删除本地任务。GitHub Issue",
+    moveBlockedTitle: "无法移动卡片",
+    moveBlockedHint: "这次手动移动被当前 lane 的工作流阻止了。请先完成或重新运行剩余步骤，再尝试移动卡片。",
     more: "更多",
   },
 

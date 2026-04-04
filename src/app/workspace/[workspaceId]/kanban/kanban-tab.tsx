@@ -46,6 +46,7 @@ import {
   KanbanCodebaseModal,
   KanbanDeleteCodebaseModal,
   KanbanDeleteTaskModal,
+  KanbanMoveBlockedModal,
   KanbanReplaceAllReposModal,
 } from "./kanban-tab-modals";
 import {
@@ -188,6 +189,7 @@ export function KanbanTab({
   const [deleteConfirmTask, setDeleteConfirmTask] = useState<TaskInfo | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [moveBlockedMessage, setMoveBlockedMessage] = useState<string | null>(null);
   const detailSplitContainerRef = useRef<HTMLDivElement | null>(null);
   const [isTaskDetailFullscreen, setIsTaskDetailFullscreen] = useState(false);
   const sessionBackfillInFlightRef = useRef(new Set<string>());
@@ -1340,6 +1342,7 @@ export function KanbanTab({
     if (!movingTask) return;
     await ensureBoardAutoProviderPersisted();
     setMoveError(null);
+    setMoveBlockedMessage(null);
 
     let shouldCleanupWorktree = false;
     if (targetColumnId === "done" && movingTask.worktreeId) {
@@ -1389,7 +1392,13 @@ export function KanbanTab({
       onRefresh();
     } catch (error) {
       console.error(error);
-      setMoveError(error instanceof Error ? error.message : "Failed to move task");
+      const message = error instanceof Error ? error.message : "Failed to move task";
+      if (message.startsWith("Cannot move ")) {
+        setMoveBlockedMessage(message);
+        setMoveError(null);
+      } else {
+        setMoveError(message);
+      }
       setLocalTasks(tasks);
     }
   }
@@ -1666,6 +1675,10 @@ export function KanbanTab({
         isDeleting={isDeleting}
         onCancel={cancelDeleteTask}
         onConfirm={executeDeleteTask}
+      />
+      <KanbanMoveBlockedModal
+        message={moveBlockedMessage}
+        onClose={() => setMoveBlockedMessage(null)}
       />
     </div>
   );

@@ -1207,7 +1207,7 @@ describe.skip("KanbanTab card detail manual runs", () => {
     expect(screen.getByText(/This gate is injected into the ACP prompt/i)).toBeTruthy();
   });
 
-  it("shows a visible error when moving to a gated lane without required artifacts", async () => {
+  it("shows a blocking modal when moving to a gated lane without required artifacts", async () => {
     const gatedBoard: KanbanBoardInfo = {
       ...board,
       columns: [
@@ -1270,7 +1270,72 @@ describe.skip("KanbanTab card detail manual runs", () => {
     fireEvent.dragStart(screen.getByTestId("kanban-card"), { dataTransfer });
     fireEvent.drop(screen.getAllByTestId("kanban-column")[1]!);
 
-    expect(await screen.findByText(/missing required artifacts: screenshot/i)).toBeTruthy();
+    expect(await screen.findByText("Cannot Move Card")).toBeTruthy();
+    expect(screen.getByText(/missing required artifacts: screenshot/i)).toBeTruthy();
+    expect(screen.getByText(/This manual move is blocked by the current lane workflow/i)).toBeTruthy();
+  });
+
+  it("shows a blocking modal when manual drag-drop is blocked by remaining lane steps", async () => {
+    const reviewBoard: KanbanBoardInfo = {
+      ...board,
+      columns: [
+        {
+          id: "review",
+          name: "Review",
+          position: 0,
+          stage: "review",
+        },
+        {
+          id: "done",
+          name: "Done",
+          position: 1,
+          stage: "done",
+        },
+      ],
+    };
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/tasks/task-1" && init?.method === "PATCH") {
+        return {
+          ok: false,
+          json: async () => ({
+            error: 'Cannot move "feat(kanban): Add Story Readiness gate for Todo → Dev transitions" out of Review yet: QA Frontend is still active and Review Guard must run next in the same lane.',
+          }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <KanbanTab
+        workspaceId="workspace-1"
+        boards={[reviewBoard]}
+        tasks={[{
+          ...createTask("task-1", "feat(kanban): Add Story Readiness gate for Todo → Dev transitions"),
+          columnId: "review",
+          status: "REVIEW_REQUIRED",
+          triggerSessionId: "session-review-1",
+        }]}
+        sessions={[]}
+        providers={[]}
+        specialists={[]}
+        codebases={[]}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    const dataTransfer = {
+      setData: vi.fn(),
+      effectAllowed: "move",
+    };
+
+    fireEvent.dragStart(screen.getByTestId("kanban-card"), { dataTransfer });
+    fireEvent.drop(screen.getAllByTestId("kanban-column")[1]!);
+
+    expect(await screen.findByText("Cannot Move Card")).toBeTruthy();
+    expect(screen.getByText(/QA Frontend is still active and Review Guard must run next in the same lane/i)).toBeTruthy();
   });
 
   it("switches the right-side run tabs above the session pane", async () => {

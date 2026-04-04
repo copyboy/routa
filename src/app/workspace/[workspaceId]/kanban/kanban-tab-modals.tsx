@@ -736,3 +736,46 @@ export function KanbanDeleteTaskModal({
     </div>
   );
 }
+
+export function KanbanMoveBlockedModal({
+  message,
+  onClose,
+}: {
+  message: string | null;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+
+  if (!message) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 animate-in fade-in duration-150">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-[#1c1f2e] dark:bg-[#12141c] animate-in zoom-in-95 duration-150"
+      >
+        <div className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/20">
+              <TriangleAlert className="h-6 w-6 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"/>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{t.kanbanModals.moveBlockedTitle}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-400">{message}</p>
+              <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">{t.kanbanModals.moveBlockedHint}</p>
+            </div>
+          </div>
+          <div className="mt-6 flex justify-end">
+            <button
+              onClick={onClose}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-[#0d1018] dark:text-slate-300 dark:hover:bg-[#191c28]"
+            >
+              {t.common.dismiss}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
