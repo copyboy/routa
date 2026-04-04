@@ -34,6 +34,9 @@ cargo run -p routa-cli -- fitness fluency --profile agent_orchestrator
 # Harness Fluency 评估（JSON + 与上次快照对比）
 cargo run -p routa-cli -- fitness fluency --format json --compare-last
 
+# Harnessability framing（对外基线视角）
+cargo run -p routa-cli -- fitness fluency --framing harnessability
+
 # Harness Fluency 评估（只读，不落快照）
 cargo run -p routa-cli -- fitness fluency --no-save
 
@@ -68,6 +71,21 @@ entrix validate
 Harness Fluency 默认跑通用 `generic` 模型；如果要评估编排型 agent 平台能力，可显式传 `--profile agent_orchestrator`。不同 profile 会使用独立快照文件，避免 `--compare-last` 互相污染。
 
 `tools/harness-fluency` 已降级为兼容层，唯一权威实现是 `routa fitness fluency`。后续 detector、profile、输出格式与测试应只在 Rust CLI 侧演进。
+
+### Harness Fluency vs Harnessability
+
+- **Harness Fluency**: Routa 内部的成熟度模型与评分引擎，负责计算 level、readiness、blocking criteria 和 recommendations。
+- **Harnessability**: 对外解释同一套结果的 framing，用来回答“这个 repo / workspace 是否适合高自治 coding agent”。
+
+当前推荐做法是保留 `Harness Fluency` 作为权威实现，再通过 `--framing harnessability` 或机器可消费的 `baseline` 视图，把结果投影成更容易对外沟通的仓库基线报告。
+
+这个 baseline 视图应聚焦：
+
+- 当前基线分数 / 成熟度
+- dominant gaps
+- top actions
+- autonomy recommendation
+- lifecycle / sensor placement 的可见性
 
 ### Tier 分层
 

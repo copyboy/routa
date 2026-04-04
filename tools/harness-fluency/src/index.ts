@@ -24,6 +24,7 @@ export function renderHelp(): string {
     "  --format <text|json>",
     "  --json",
     "  --profile <generic|agent_orchestrator|orchestrator>",
+    "  --framing <fluency|harnessability>",
     "  --repo-root <path>",
     "  --model <path>",
     "  --snapshot-path <path>",

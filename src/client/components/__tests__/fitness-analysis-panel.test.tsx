@@ -21,6 +21,7 @@ const genericReport = {
   modelVersion: 2,
   modelPath: "/tmp/model.yaml",
   profile: "generic",
+  framing: "harnessability",
   mode: "deterministic",
   repoRoot: "/Users/phodal/ai/routa-js",
   generatedAt: "2026-03-29T04:50:58.741337+00:00",
@@ -33,6 +34,33 @@ const genericReport = {
   nextLevelReadiness: 0,
   blockingTargetLevel: "agent_first",
   blockingTargetLevelName: "Agent-First",
+  baseline: {
+    summary: {
+      score: 0.83,
+      overallLevel: "agent_centric",
+      overallLevelName: "Agent-Centric",
+      currentReadiness: 1,
+      nextLevel: "agent_first",
+      nextLevelName: "Agent-First",
+    },
+    dominantGaps: [
+      {
+        capabilityGroupName: "Verification & Guardrails",
+        failingCriteria: 1,
+        criticalFailures: 1,
+        rationale: "1 critical failure across 1 failing criterion",
+      },
+    ],
+    topActions: [
+      {
+        action: "Expose ownership and routing signals in machine-readable form",
+      },
+    ],
+    autonomyRecommendation: {
+      band: "medium",
+      rationale: "The stack is close, but ownership is still too manual for full autonomy.",
+    },
+  },
   dimensions: {},
   cells: [
     {
@@ -145,6 +173,9 @@ describe("FitnessAnalysisPanel", () => {
 
     expect(screen.queryByText("routa-js")).toBeNull();
     expect(screen.getAllByText(/Blockers/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText((_, element) => Boolean(element?.textContent?.includes("Harnessability")) && Boolean(element?.textContent?.includes("Agent-First"))).length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText("83%")).toBeTruthy();
     expect(screen.getByText("5/6")).toBeTruthy();
     expect(screen.getByTestId("fitness-dashboard")).toBeTruthy();

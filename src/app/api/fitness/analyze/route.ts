@@ -57,6 +57,7 @@ type FitnessReport = {
   modelVersion: number;
   modelPath: string;
   profile: FitnessProfile;
+  framing?: "fluency" | "harnessability" | (string & {}) | null;
   mode?: string;
   repoRoot: string;
   generatedAt: string;
@@ -76,6 +77,7 @@ type FitnessReport = {
   criteria: Array<unknown>;
   blockingCriteria: Array<unknown>;
   recommendations: Array<FitnessRecommendation>;
+  baseline?: FitnessBaselineReport | null;
   comparison?: FitnessComparison | null;
 };
 
@@ -98,6 +100,48 @@ type FitnessRecommendation = {
   evidenceHint: string;
   critical: boolean;
   weight: number;
+};
+
+type FitnessBaselineSummary = {
+  score: number;
+  overallLevel: string;
+  overallLevelName: string;
+  currentReadiness: number;
+  nextLevel?: string | null;
+  nextLevelName?: string | null;
+};
+
+type FitnessBaselineEntry = {
+  id?: string;
+  dimension?: string;
+  title?: string;
+  name?: string;
+  label?: string;
+  capabilityGroup?: string;
+  capabilityGroupName?: string;
+  action?: string;
+  recommendation?: string;
+  summary?: string;
+  reason?: string;
+  rationale?: string;
+  failingCriteria?: number;
+  criticalFailures?: number;
+  evidenceHint?: string;
+  currentLevel?: string;
+  currentLevelName?: string;
+  targetLevel?: string;
+  targetLevelName?: string;
+  critical?: boolean;
+};
+
+type FitnessBaselineReport = {
+  summary: FitnessBaselineSummary;
+  dominantGaps?: FitnessBaselineEntry[];
+  topActions?: FitnessBaselineEntry[];
+  autonomyRecommendation?: {
+    band: "low" | "medium" | "high" | (string & {});
+    rationale: string;
+  };
 };
 
 type FitnessDimensionChange = {

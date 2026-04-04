@@ -61,6 +61,52 @@ export type FitnessRecommendation = {
   weight: number;
 };
 
+export type FitnessFraming = "fluency" | "harnessability" | (string & {});
+
+export type FitnessBaselineSummary = {
+  score: number;
+  overallLevel: string;
+  overallLevelName: string;
+  currentReadiness: number;
+  nextLevel?: string | null;
+  nextLevelName?: string | null;
+};
+
+export type FitnessBaselineAutonomyRecommendation = {
+  band: "low" | "medium" | "high" | (string & {});
+  rationale: string;
+};
+
+export type FitnessBaselineEntry = {
+  id?: string;
+  dimension?: string;
+  title?: string;
+  name?: string;
+  label?: string;
+  capabilityGroup?: string;
+  capabilityGroupName?: string;
+  action?: string;
+  recommendation?: string;
+  summary?: string;
+  reason?: string;
+  rationale?: string;
+  failingCriteria?: number;
+  criticalFailures?: number;
+  evidenceHint?: string;
+  currentLevel?: string;
+  currentLevelName?: string;
+  targetLevel?: string;
+  targetLevelName?: string;
+  critical?: boolean;
+};
+
+export type FitnessBaselineReport = {
+  summary: FitnessBaselineSummary;
+  dominantGaps?: FitnessBaselineEntry[];
+  topActions?: FitnessBaselineEntry[];
+  autonomyRecommendation?: FitnessBaselineAutonomyRecommendation;
+};
+
 export type FitnessComparison = {
   previousGeneratedAt: string;
   previousOverallLevel: string;
@@ -82,6 +128,7 @@ export type FitnessReport = {
   modelVersion: number;
   modelPath: string;
   profile: FitnessProfile;
+  framing?: FitnessFraming | null;
   mode?: string;
   repoRoot: string;
   generatedAt: string;
@@ -100,6 +147,7 @@ export type FitnessReport = {
   cells: CellResult[];
   criteria: CriterionResult[];
   recommendations: FitnessRecommendation[];
+  baseline?: FitnessBaselineReport | null;
   comparison?: FitnessComparison;
   blockingCriteria?: CriterionResult[];
 };

@@ -8,6 +8,7 @@ const report: FitnessReport = {
   modelVersion: 2,
   modelPath: "/tmp/model.yaml",
   profile: "generic",
+  framing: "harnessability",
   mode: "deterministic",
   repoRoot: "/tmp/repo",
   generatedAt: "2026-03-29T04:50:58.741337+00:00",
@@ -20,6 +21,36 @@ const report: FitnessReport = {
   nextLevelReadiness: 0,
   blockingTargetLevel: "agent_first",
   blockingTargetLevelName: "Agent-First",
+  baseline: {
+    summary: {
+      score: 0.83,
+      overallLevel: "agent_centric",
+      overallLevelName: "Agent-Centric",
+      currentReadiness: 1,
+      nextLevel: "agent_first",
+      nextLevelName: "Agent-First",
+    },
+    dominantGaps: [
+      {
+        capabilityGroupName: "Verification & Guardrails",
+        failingCriteria: 1,
+        criticalFailures: 1,
+        rationale: "1 critical failure across 1 failing criterion",
+      },
+    ],
+    topActions: [
+      {
+        action: "Expose ownership and routing signals in machine-readable form",
+      },
+      {
+        summary: "Normalize the release boundary around explicit machine-readable ownership",
+      },
+    ],
+    autonomyRecommendation: {
+      band: "medium",
+      rationale: "The stack is close, but ownership is still too manual for full autonomy.",
+    },
+  },
   dimensions: {},
   cells: [
     {
@@ -118,9 +149,13 @@ describe("FitnessAnalysisContent overview", () => {
     expect(screen.getByRole("button", { name: "AI Engineering Harness" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Governance & Quality" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Context Engineering" })).toBeTruthy();
+    expect(screen.getByText("Harnessability · Agent-Centric · 83% · 100% · Agent-First")).toBeTruthy();
+    expect(screen.getByText("The stack is close, but ownership is still too manual for full autonomy.")).toBeTruthy();
+    expect(screen.getByText("Verification & Guardrails")).toBeTruthy();
+    expect(screen.getByText("Expose ownership and routing signals in machine-readable form")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Governance & Quality" }));
-    expect(screen.getByText("Current findings")).toBeTruthy();
-    expect(screen.getByText("Recommended actions")).toBeTruthy();
+    expect(screen.getAllByText("Current findings").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Recommended actions").length).toBeGreaterThan(0);
     expect(screen.getByText("Without this")).toBeTruthy();
     expect(screen.getByText("Pair review-trigger rules with CODEOWNERS or Renovate")).toBeTruthy();
     expect(screen.getByText("CODEOWNERS")).toBeTruthy();

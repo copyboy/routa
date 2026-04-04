@@ -1,6 +1,7 @@
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 
+use super::baseline::{build_harnessability_baseline, BaselineInputs};
 use super::detector::{evaluate_criterion, EvaluationContext};
 use super::evidence_pack::build_evidence_packs;
 use super::model::load_fluency_model;
@@ -230,11 +231,23 @@ pub fn evaluate_harness_fluency(options: &EvaluateOptions) -> Result<HarnessFlue
     blocking_criteria.sort_by(|left, right| left.id.cmp(&right.id));
 
     criteria_results.sort_by(|left, right| left.id.cmp(&right.id));
+    let recommendations = collect_recommendations(&blocking_criteria);
+    let baseline = build_harnessability_baseline(BaselineInputs {
+        overall_level,
+        next_level,
+        overall_level_index,
+        total_levels: model.levels.len(),
+        current_level_readiness,
+        blocking_criteria: &blocking_criteria,
+        capability_groups: &capability_groups,
+        recommendations: &recommendations,
+    });
     let mut report = HarnessFluencyReport {
         model_version: model.version,
         model_path: options.model_path.display().to_string(),
         profile: options.profile.clone(),
         mode: options.mode.clone(),
+        framing: options.framing.clone(),
         repo_root: options.repo_root.display().to_string(),
         generated_at: Utc::now().to_rfc3339(),
         snapshot_path: options.snapshot_path.display().to_string(),
@@ -252,7 +265,8 @@ pub fn evaluate_harness_fluency(options: &EvaluateOptions) -> Result<HarnessFlue
         cells,
         criteria: criteria_results,
         blocking_criteria: blocking_criteria.clone(),
-        recommendations: collect_recommendations(&blocking_criteria),
+        recommendations,
+        baseline,
         comparison: None,
     };
 

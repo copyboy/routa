@@ -585,6 +585,9 @@ export function FitnessAnalysisPanel({
             <div className="mt-1 truncate text-[11px] leading-tight text-desktop-text-secondary">
               {heroModel.currentLevel} → {heroModel.targetLevel}
               <span className="text-desktop-text-secondary"> · {heroModel.confidenceSummary}</span>
+              {heroModel.baselineSummary ? (
+                <span className="text-desktop-text-secondary"> · {heroModel.baselineSummary}</span>
+              ) : null}
               <span className="text-desktop-text-secondary"> · {fitness.panel.blockers} {selectedReport ? blockers.length : noDataText}</span>
               <span className="text-desktop-text-secondary"> · {fitness.panel.failed} {selectedReport ? failedCriteria.length : noDataText}</span>
               <span className="text-desktop-text-secondary"> · {reportSourceLabel}</span>

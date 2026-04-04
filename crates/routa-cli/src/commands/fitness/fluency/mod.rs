@@ -1,3 +1,4 @@
+mod baseline;
 mod detector;
 mod engine;
 mod evidence_pack;
@@ -9,7 +10,9 @@ mod types;
 
 pub use engine::evaluate_harness_fluency;
 pub use report::format_text_report;
-pub use types::{EvaluateOptions, FluencyMode};
+pub use types::{EvaluateOptions, FluencyMode, ReportFraming};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_projection;

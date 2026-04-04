@@ -26,6 +26,7 @@ describe("harness-fluency legacy wrapper", () => {
   it("documents the canonical routa-cli command", () => {
     expect(renderHelp()).toContain("Canonical command: cargo run -p routa-cli -- fitness fluency");
     expect(renderHelp()).toContain("--json");
+    expect(renderHelp()).toContain("--framing <fluency|harnessability>");
   });
 
   it("treats help as a wrapper-only path", () => {

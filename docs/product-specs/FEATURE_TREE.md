@@ -155,9 +155,9 @@ Multi-agent coordination platform. This document is auto-generated from:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/fitness/analyze` | Run harness fitness fluency analysis for one or more profiles |
+| POST | `/api/fitness/analyze` | Run harness fluency analysis and return the additive harnessability baseline for one or more profiles |
 | GET | `/api/fitness/plan` | Build the executable fitness plan for a repository context |
-| GET | `/api/fitness/report` | Read persisted fitness fluency report snapshots |
+| GET | `/api/fitness/report` | Read persisted harness fluency snapshots and their additive harnessability baseline payloads |
 | GET | `/api/fitness/specs` | Inspect docs/fitness source files and parsed metric metadata |
 
 ### GitHub (7)

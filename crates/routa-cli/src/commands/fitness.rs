@@ -5,7 +5,9 @@ mod fluency;
 use clap::{Args, Subcommand, ValueEnum};
 use std::path::{Path, PathBuf};
 
-use self::fluency::{evaluate_harness_fluency, format_text_report, EvaluateOptions, FluencyMode};
+use self::fluency::{
+    evaluate_harness_fluency, format_text_report, EvaluateOptions, FluencyMode, ReportFraming,
+};
 
 const DEFAULT_MODEL_RELATIVE_PATH: &str = "docs/fitness/harness-fluency.model.yaml";
 const AGENT_ORCHESTRATOR_MODEL_RELATIVE_PATH: &str =
@@ -43,6 +45,10 @@ pub struct FluencyArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = FluencyOutputFormat::Text)]
     pub format: FluencyOutputFormat,
+
+    /// Report framing vocabulary.
+    #[arg(long, value_enum, default_value_t = FluencyFraming::Fluency)]
+    pub framing: FluencyFraming,
 
     /// Shortcut for `--format json` kept for legacy harness-fluency compatibility.
     #[arg(long, default_value_t = false)]
@@ -93,12 +99,27 @@ pub enum FluencyRunMode {
     Ai,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum FluencyFraming {
+    Fluency,
+    Harnessability,
+}
+
 impl FluencyRunMode {
     fn into_fluency_mode(self) -> FluencyMode {
         match self {
             Self::Deterministic => FluencyMode::Deterministic,
             Self::Hybrid => FluencyMode::Hybrid,
             Self::Ai => FluencyMode::Ai,
+        }
+    }
+}
+
+impl FluencyFraming {
+    fn into_report_framing(self) -> ReportFraming {
+        match self {
+            Self::Fluency => ReportFraming::Fluency,
+            Self::Harnessability => ReportFraming::Harnessability,
         }
     }
 }
@@ -120,6 +141,7 @@ fn run_fluency(args: &FluencyArgs) -> Result<(), String> {
         model_path,
         profile: args.profile.as_cli_value().to_string(),
         mode: args.mode.into_fluency_mode(),
+        framing: args.framing.into_report_framing(),
         snapshot_path,
         compare_last: args.compare_last,
         save: !args.no_save,
@@ -269,9 +291,11 @@ fn resolve_workspace_root() -> Result<PathBuf, String> {
 mod tests {
     use super::{
         discover_git_toplevel, profile_snapshot_filename, resolve_requested_path,
-        resolve_workspace_root, resolved_output_format, validate_repo_root, FluencyArgs,
-        FluencyMode, FluencyOutputFormat, FluencyProfile, FluencyRunMode,
+        resolve_workspace_root, resolved_output_format, validate_repo_root, FitnessAction,
+        FluencyArgs, FluencyFraming, FluencyMode, FluencyOutputFormat, FluencyProfile,
+        FluencyRunMode, ReportFraming,
     };
+    use clap::Parser;
     use std::fs::File;
     use std::path::Path;
     use tempfile::tempdir;
@@ -327,6 +351,7 @@ mod tests {
             profile: FluencyProfile::Generic,
             mode: FluencyRunMode::Deterministic,
             format: FluencyOutputFormat::Text,
+            framing: FluencyFraming::Fluency,
             json: true,
             compare_last: false,
             no_save: false,
@@ -346,5 +371,33 @@ mod tests {
             FluencyMode::Hybrid
         );
         assert_eq!(FluencyRunMode::Ai.into_fluency_mode(), FluencyMode::Ai);
+    }
+
+    #[test]
+    fn fluency_framing_maps_to_report_framing() {
+        assert_eq!(
+            FluencyFraming::Fluency.into_report_framing(),
+            ReportFraming::Fluency
+        );
+        assert_eq!(
+            FluencyFraming::Harnessability.into_report_framing(),
+            ReportFraming::Harnessability
+        );
+    }
+
+    #[derive(Parser, Debug)]
+    struct TestCli {
+        #[command(subcommand)]
+        action: FitnessAction,
+    }
+
+    #[test]
+    fn parses_harnessability_framing_arg() {
+        let cli = TestCli::parse_from(["routa", "fluency", "--framing", "harnessability"]);
+        match cli.action {
+            FitnessAction::Fluency(args) => {
+                assert_eq!(args.framing, FluencyFraming::Harnessability);
+            }
+        }
     }
 }

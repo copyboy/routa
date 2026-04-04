@@ -21,6 +21,7 @@ import {
   type ProfilePanelState,
   type ViewMode,
 } from "./fitness-analysis-types";
+import { buildBaselineModel } from "./fitness-analysis-view-model";
 type FitnessAnalysisContentProps = {
   selectedProfile: FitnessProfile;
   viewMode: ViewMode;
@@ -293,6 +294,7 @@ function OverviewView({
   t: FitnessTranslation;
 }) {
   const measureEntries = useMemo(() => buildMeasureEntries(report, t.fitness.measures, t.fitness.overview.notReached), [report, t.fitness.measures, t.fitness.overview.notReached]);
+  const baselineModel = useMemo(() => buildBaselineModel(report), [report]);
   const [selectedMeasure, setSelectedMeasure] = useState(measureEntries[0]?.key ?? "governance");
   const activeMeasure = measureEntries.find((entry) => entry.key === selectedMeasure) ?? measureEntries[0];
 
@@ -306,6 +308,82 @@ function OverviewView({
 
   return (
     <section className="border border-desktop-border bg-desktop-bg-secondary/60 my-2 overflow-hidden rounded-2xl">
+      {baselineModel ? (
+        <div className="border-b border-desktop-border/70 bg-white/70 px-4 py-4 dark:bg-white/6">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-desktop-border bg-white/90 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-desktop-text-secondary dark:bg-white/10">
+              {baselineModel.framing}
+            </span>
+            <span className="text-[13px] font-semibold text-desktop-text-primary">{baselineModel.summary}</span>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="rounded-full border border-desktop-border bg-white/90 px-3 py-1.5 text-[11px] text-desktop-text-secondary dark:bg-white/10">
+              {t.fitness.overview.levelLabel}
+              <span className="ml-1 font-semibold text-desktop-text-primary">{baselineModel.overallLevelName}</span>
+            </span>
+            <span className="rounded-full border border-desktop-border bg-white/90 px-3 py-1.5 text-[11px] text-desktop-text-secondary dark:bg-white/10">
+              {t.fitness.overview.scoreLabel}
+              <span className="ml-1 font-semibold text-desktop-text-primary">{baselineModel.scoreLabel}</span>
+            </span>
+            {baselineModel.autonomyBand ? (
+              <span className="rounded-full border border-desktop-border bg-white/90 px-3 py-1.5 text-[11px] text-desktop-text-secondary dark:bg-white/10">
+                {baselineModel.autonomyBand}
+              </span>
+            ) : null}
+            {baselineModel.nextLevelName ? (
+              <span className="rounded-full border border-desktop-border bg-white/90 px-3 py-1.5 text-[11px] text-desktop-text-secondary dark:bg-white/10">
+                {baselineModel.nextLevelName}
+              </span>
+            ) : null}
+          </div>
+
+          {baselineModel.autonomyRationale ? (
+            <p className="mt-3 text-[12px] leading-6 text-desktop-text-secondary">{baselineModel.autonomyRationale}</p>
+          ) : null}
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            <div className="rounded-xl border border-desktop-border bg-white/80 p-3 dark:bg-white/6">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-desktop-text-secondary">
+                {t.fitness.overview.currentFindings}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {baselineModel.dominantGaps.length > 0 ? (
+                  baselineModel.dominantGaps.slice(0, 3).map((item) => (
+                    <span
+                      key={item}
+                      className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200"
+                    >
+                      {item}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-[11px] text-desktop-text-secondary">{t.fitness.overview.noActiveBlockers}</span>
+                )}
+              </div>
+            </div>
+            <div className="rounded-xl border border-desktop-border bg-white/80 p-3 dark:bg-white/6">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-desktop-text-secondary">
+                {t.fitness.overview.recommendedActions}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {baselineModel.topActions.length > 0 ? (
+                  baselineModel.topActions.slice(0, 3).map((item) => (
+                    <span
+                      key={item}
+                      className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200"
+                    >
+                      {item}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-[11px] text-desktop-text-secondary">{t.fitness.overview.noActions}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="flex flex-col lg:flex-row">
         <div className="border-desktop-border flex w-full shrink-0 flex-col border-b lg:w-60 lg:border-r lg:border-b-0">
           {measureEntries.map((entry) => {

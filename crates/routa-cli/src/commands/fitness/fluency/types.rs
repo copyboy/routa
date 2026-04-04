@@ -41,6 +41,7 @@ pub struct EvaluateOptions {
     pub model_path: PathBuf,
     pub profile: String,
     pub mode: FluencyMode,
+    pub framing: ReportFraming,
     pub snapshot_path: PathBuf,
     pub compare_last: bool,
     pub save: bool,
@@ -53,6 +54,14 @@ pub enum FluencyMode {
     Deterministic,
     Hybrid,
     Ai,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportFraming {
+    #[default]
+    Fluency,
+    Harnessability,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -359,6 +368,58 @@ pub struct EvidencePack {
     pub ai_requires: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AutonomyBand {
+    #[default]
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BaselineSummary {
+    pub score: f64,
+    pub overall_level: String,
+    pub overall_level_name: String,
+    pub current_readiness: f64,
+    pub next_level: Option<String>,
+    pub next_level_name: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DominantGap {
+    pub capability_group: String,
+    pub capability_group_name: String,
+    pub score: f64,
+    pub failing_criteria: usize,
+    pub critical_failures: usize,
+    pub rationale: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AutonomyRecommendation {
+    #[serde(default)]
+    pub band: AutonomyBand,
+    pub rationale: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessabilityBaseline {
+    #[serde(default)]
+    pub summary: BaselineSummary,
+    #[serde(default)]
+    pub dominant_gaps: Vec<DominantGap>,
+    #[serde(default)]
+    pub top_actions: Vec<Recommendation>,
+    #[serde(default)]
+    pub autonomy_recommendation: AutonomyRecommendation,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HarnessFluencyReport {
@@ -367,6 +428,8 @@ pub struct HarnessFluencyReport {
     pub profile: String,
     #[serde(default)]
     pub mode: FluencyMode,
+    #[serde(default)]
+    pub framing: ReportFraming,
     pub repo_root: String,
     pub generated_at: String,
     pub snapshot_path: String,
@@ -387,6 +450,8 @@ pub struct HarnessFluencyReport {
     pub criteria: Vec<CriterionResult>,
     pub blocking_criteria: Vec<CriterionResult>,
     pub recommendations: Vec<Recommendation>,
+    #[serde(default)]
+    pub baseline: HarnessabilityBaseline,
     pub comparison: Option<ReportComparison>,
 }
 

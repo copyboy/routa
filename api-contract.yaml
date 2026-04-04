@@ -4666,7 +4666,7 @@ paths:
   /api/fitness/analyze:
     post:
       operationId: analyzeFitness
-      summary: Run harness fitness fluency analysis for one or more profiles
+      summary: Run harness fluency analysis and return the additive harnessability baseline for one or more profiles
       requestBody:
         required: false
         content:
@@ -4675,7 +4675,7 @@ paths:
               type: object
       responses:
         "200":
-          description: Fitness analysis result payload
+          description: Fitness fluency result payload with additive harnessability baseline data
           content:
             application/json:
               schema:
@@ -4743,7 +4743,7 @@ paths:
   /api/fitness/report:
     get:
       operationId: getFitnessReport
-      summary: Read persisted fitness fluency report snapshots
+      summary: Read persisted harness fluency snapshots and their additive harnessability baseline payloads
       parameters:
         - name: workspaceId
           in: query
@@ -4759,7 +4759,7 @@ paths:
             type: string
       responses:
         "200":
-          description: Fitness snapshot payload
+          description: Fitness snapshot payload with additive harnessability baseline data
           content:
             application/json:
               schema:

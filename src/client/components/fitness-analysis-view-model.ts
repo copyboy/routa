@@ -4,6 +4,8 @@ import {
   criterionShortLabel,
   humanizeToken,
   type CriterionResult,
+  type FitnessBaselineEntry,
+  type FitnessBaselineReport,
   type FitnessProfile,
   type FitnessProfileState,
   type FitnessReport,
@@ -18,6 +20,22 @@ export type FluencyHeroModel = {
   targetLevel: string;
   capabilitySummary: string;
   confidenceSummary: string;
+  baselineSummary?: string;
+};
+
+export type FluencyBaselineModel = {
+  framing: string;
+  summary: string;
+  scoreLabel: string;
+  currentReadinessLabel: string;
+  overallLevel: string;
+  overallLevelName: string;
+  nextLevel?: string | null;
+  nextLevelName?: string | null;
+  autonomyBand?: string;
+  autonomyRationale?: string;
+  dominantGaps: string[];
+  topActions: string[];
 };
 
 export type FluencyBlockerCard = {
@@ -87,6 +105,104 @@ function buildImpactSummary(criterion: CriterionResult, t: TranslationDictionary
   return `${base} ${severity}.`;
 }
 
+function normalizePercent(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  const normalized = value <= 1 ? value * 100 : value;
+  return `${Math.max(0, Math.min(100, Math.round(normalized)))}%`;
+}
+
+function pickEntryText(entry: string | FitnessBaselineEntry | undefined): string | undefined {
+  if (!entry) {
+    return undefined;
+  }
+
+  if (typeof entry === "string") {
+    const trimmed = entry.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  const record = entry;
+  for (const key of [
+    "title",
+    "label",
+    "capabilityGroupName",
+    "action",
+    "recommendation",
+    "summary",
+    "name",
+    "reason",
+    "rationale",
+    "evidenceHint",
+  ] as const) {
+    const value = record[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeEntryList(entries: Array<string | FitnessBaselineEntry> | undefined): string[] {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  const normalized: string[] = [];
+  for (const entry of entries) {
+    const value = pickEntryText(entry);
+    if (value && !normalized.includes(value)) {
+      normalized.push(value);
+    }
+  }
+  return normalized;
+}
+
+function buildBaselineSummary(report: FitnessReport, baseline: FitnessBaselineReport) {
+  const framing = humanizeToken(report.framing ?? "fluency");
+  const overallLevel = baseline.summary.overallLevel;
+  const overallLevelName = baseline.summary.overallLevelName || report.overallLevelName;
+  const currentReadiness = normalizePercent(baseline.summary.currentReadiness ?? report.currentLevelReadiness);
+  const score = normalizePercent(baseline.summary.score);
+  const nextLevelName = baseline.summary.nextLevelName ?? report.nextLevelName;
+  const parts = [
+    framing,
+    overallLevelName,
+    score,
+    currentReadiness,
+    nextLevelName,
+  ].filter((part): part is string => typeof part === "string" && part.trim().length > 0);
+
+  return {
+    framing,
+    summary: parts.join(" · "),
+    scoreLabel: score ?? "n/a",
+    currentReadinessLabel: currentReadiness ?? "n/a",
+    overallLevel,
+    overallLevelName,
+    nextLevel: baseline.summary.nextLevel,
+    nextLevelName,
+    autonomyBand: baseline.autonomyRecommendation?.band ? humanizeToken(baseline.autonomyRecommendation.band) : undefined,
+    autonomyRationale: baseline.autonomyRecommendation?.rationale,
+    dominantGaps: normalizeEntryList(baseline.dominantGaps).slice(0, 3),
+    topActions: normalizeEntryList(baseline.topActions).slice(0, 3),
+  };
+}
+
+export function buildBaselineModel(report: FitnessReport | undefined): FluencyBaselineModel | undefined {
+  if (!report?.baseline) {
+    return undefined;
+  }
+
+  return buildBaselineSummary(report, report.baseline);
+}
+
 export function buildHeroModel(
   report: FitnessReport | undefined,
   profile: FitnessProfile,
@@ -101,10 +217,12 @@ export function buildHeroModel(
       targetLevel: state === "loading" ? t.panel.runningReport : t.panel.runFirstReport,
       capabilitySummary: t.levels.waitingReport,
       confidenceSummary: state === "loading" ? t.panel.statusLoading : t.panel.statusEmpty,
+      baselineSummary: undefined,
     };
   }
 
   const confidence = `${t.panel.fit} ${Math.round(report.currentLevelReadiness * 100)}%`;
+  const baseline = buildBaselineModel(report);
   return {
     title: profile === "generic" ? t.panel.genericProfile : t.panel.orchestratorProfile,
     subtitle: "",
@@ -112,6 +230,7 @@ export function buildHeroModel(
     targetLevel: report.nextLevelName ?? t.scoring.noLevelUnlock,
     capabilitySummary: getCapabilitySummary(report.overallLevelName, t.levels),
     confidenceSummary: confidence,
+    baselineSummary: baseline?.summary,
   };
 }
 

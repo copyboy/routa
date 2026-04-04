@@ -1,18 +1,39 @@
 use super::support::{format_percent, level_change_label};
-use super::types::{HarnessFluencyReport, LevelChange};
+use super::types::{AutonomyBand, HarnessFluencyReport, LevelChange, ReportFraming};
 
 pub fn format_text_report(report: &HarnessFluencyReport) -> String {
+    let is_harnessability = matches!(report.framing, ReportFraming::Harnessability);
+    let report_title = if is_harnessability {
+        "HARNESSABILITY BASELINE REPORT"
+    } else {
+        "HARNESS FLUENCY REPORT"
+    };
+    let current_readiness_label = if is_harnessability {
+        "Current Harnessability Readiness"
+    } else {
+        "Current Level Readiness"
+    };
+    let next_level_label = if is_harnessability {
+        "Next Band Target"
+    } else {
+        "Next Level"
+    };
+    let next_level_readiness_label = if is_harnessability {
+        "Next Band Readiness"
+    } else {
+        "Next Level Readiness"
+    };
     let next_level_readiness_line = if report.next_level_name.is_some()
         && report.next_level_readiness.is_none()
         && report.blocking_target_level == Some(report.overall_level.clone())
     {
         format!(
-            "Next Level Readiness: Blocked until {} is stable",
+            "{next_level_readiness_label}: Blocked until {} is stable",
             report.overall_level_name
         )
     } else {
         format!(
-            "Next Level Readiness: {}",
+            "{next_level_readiness_label}: {}",
             format_percent(report.next_level_readiness)
         )
     };
@@ -25,28 +46,43 @@ pub fn format_text_report(report: &HarnessFluencyReport) -> String {
     };
 
     let mut lines = vec![
-        "HARNESS FLUENCY REPORT".to_string(),
+        report_title.to_string(),
         String::new(),
         format!("Repository: {}", report.repo_root),
         format!("Profile: {}", report.profile),
         format!("Mode: {:?}", report.mode),
+        format!("Framing: {:?}", report.framing),
         format!("Model Version: {}", report.model_version),
         format!("Overall Level: {}", report.overall_level_name),
         format!(
-            "Current Level Readiness: {}",
+            "{current_readiness_label}: {}",
             format_percent(Some(report.current_level_readiness))
         ),
         format!(
-            "Next Level: {}",
+            "{next_level_label}: {}",
             report
                 .next_level_name
                 .clone()
                 .unwrap_or_else(|| "Reached top level".to_string())
         ),
         next_level_readiness_line,
-        String::new(),
-        "Dimensions:".to_string(),
     ];
+
+    if is_harnessability {
+        lines.extend([
+            format!(
+                "Baseline Score: {}",
+                format_percent(Some(report.baseline.summary.score))
+            ),
+            format!(
+                "Autonomy Recommendation: {} — {}",
+                autonomy_band_label(&report.baseline.autonomy_recommendation.band),
+                report.baseline.autonomy_recommendation.rationale
+            ),
+        ]);
+    }
+
+    lines.extend([String::new(), "Dimensions:".to_string()]);
 
     let mut dimensions = report.dimensions.values().cloned().collect::<Vec<_>>();
     dimensions.sort_by(|left, right| left.name.cmp(&right.name));
@@ -89,23 +125,49 @@ pub fn format_text_report(report: &HarnessFluencyReport) -> String {
     }
 
     lines.push(String::new());
-    lines.push(blocking_header);
-    if report.blocking_target_level_name.is_some() {
-        if report.blocking_criteria.is_empty() {
+    if is_harnessability {
+        lines.push("Dominant Gaps:".to_string());
+        if report.baseline.dominant_gaps.is_empty() {
             lines.push("- None".to_string());
         } else {
-            for criterion in &report.blocking_criteria {
-                lines.push(format!("- {} — {}", criterion.id, criterion.evidence_hint));
+            for gap in &report.baseline.dominant_gaps {
+                lines.push(format!(
+                    "- {}: {} ({} failing, {} critical)",
+                    gap.capability_group_name,
+                    format_percent(Some(gap.score)),
+                    gap.failing_criteria,
+                    gap.critical_failures
+                ));
+            }
+        }
+    } else {
+        lines.push(blocking_header);
+        if report.blocking_target_level_name.is_some() {
+            if report.blocking_criteria.is_empty() {
+                lines.push("- None".to_string());
+            } else {
+                for criterion in &report.blocking_criteria {
+                    lines.push(format!("- {} — {}", criterion.id, criterion.evidence_hint));
+                }
             }
         }
     }
 
     lines.push(String::new());
-    lines.push("Recommended Next Actions:".to_string());
-    if report.recommendations.is_empty() {
+    lines.push(if is_harnessability {
+        "Top Actions (Top 3):".to_string()
+    } else {
+        "Recommended Next Actions:".to_string()
+    });
+    let actions = if is_harnessability {
+        &report.baseline.top_actions
+    } else {
+        &report.recommendations
+    };
+    if actions.is_empty() {
         lines.push("- None".to_string());
     } else {
-        for recommendation in &report.recommendations {
+        for recommendation in actions {
             lines.push(format!("- {}", recommendation.action));
         }
     }
@@ -136,4 +198,12 @@ pub fn format_text_report(report: &HarnessFluencyReport) -> String {
     lines.push(String::new());
     lines.push(format!("Snapshot: {}", report.snapshot_path));
     lines.join("\n")
+}
+
+fn autonomy_band_label(band: &AutonomyBand) -> &'static str {
+    match band {
+        AutonomyBand::Low => "low",
+        AutonomyBand::Medium => "medium",
+        AutonomyBand::High => "high",
+    }
 }
