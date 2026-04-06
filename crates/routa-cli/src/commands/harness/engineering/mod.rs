@@ -1818,7 +1818,7 @@ fn apply_patches(
             eprintln!("  ↻ Rolling back changes...");
             rollback_snapshot(repo_root, &snapshot)?;
             if let Err(history_error) =
-                record_evolution_outcome(repo_root, &[], &selected_for_apply)
+                record_evolution_outcome(repo_root, &[], &selected_for_apply, None)
             {
                 eprintln!(
                     "  ⚠️  Warning: Failed to record evolution history: {}",
@@ -1836,7 +1836,7 @@ fn apply_patches(
             eprintln!("  ↻ Rolling back...");
             rollback_snapshot(repo_root, &snapshot)?;
             if let Err(history_error) =
-                record_evolution_outcome(repo_root, &[], &selected_for_apply)
+                record_evolution_outcome(repo_root, &[], &selected_for_apply, None)
             {
                 eprintln!(
                     "  ⚠️  Warning: Failed to record evolution history: {}",
@@ -1855,7 +1855,7 @@ fn apply_patches(
             eprintln!("  ↻ Rolling back verified changes...");
             rollback_snapshot(repo_root, &snapshot)?;
             if let Err(history_error) =
-                record_evolution_outcome(repo_root, &[], &selected_for_apply)
+                record_evolution_outcome(repo_root, &[], &selected_for_apply, None)
             {
                 eprintln!(
                     "  ⚠️  Warning: Failed to record evolution history: {}",
@@ -1873,7 +1873,7 @@ fn apply_patches(
             eprintln!("  ↻ Rolling back verified changes...");
             rollback_snapshot(repo_root, &snapshot)?;
             if let Err(history_error) =
-                record_evolution_outcome(repo_root, &[], &selected_for_apply)
+                record_evolution_outcome(repo_root, &[], &selected_for_apply, None)
             {
                 eprintln!(
                     "  ⚠️  Warning: Failed to record evolution history: {}",
@@ -1884,7 +1884,7 @@ fn apply_patches(
         }
     };
 
-    if let Err(error) = record_evolution_outcome(repo_root, &selected_for_apply, &[]) {
+    if let Err(error) = record_evolution_outcome(repo_root, &selected_for_apply, &[], None) {
         eprintln!(
             "  ⚠️  Warning: Failed to record evolution history: {}",
             error
@@ -2058,20 +2058,11 @@ entrypointGroups:
 
 // Phase 3: Feedback Learning Loop (Foundation)
 
-#[derive(Debug, Serialize)]
-struct EvolutionHistory {
-    timestamp: String,
-    repo_root: String,
-    mode: String,
-    patches_applied: Vec<String>,
-    patches_failed: Vec<String>,
-    success_rate: f64,
-}
-
 fn record_evolution_outcome(
     repo_root: &Path,
     applied: &[&HarnessEngineeringPatchCandidate],
     failed: &[&HarnessEngineeringPatchCandidate],
+    context: Option<&EvolutionContext>,
 ) -> Result<(), String> {
     let history_dir = repo_root.join("docs/fitness/evolution");
     fs::create_dir_all(&history_dir)
@@ -2083,6 +2074,32 @@ fn record_evolution_outcome(
         timestamp: Utc::now().to_rfc3339(),
         repo_root: repo_root.display().to_string(),
         mode: "auto-apply".to_string(),
+
+        // NEW: Link to agent traces
+        session_id: context.and_then(|ctx| ctx.session_id.clone()),
+
+        // NEW: Task fingerprint
+        task_type: Some("harness_evolution".to_string()),
+        workflow: context.and_then(|ctx| ctx.workflow.clone()),
+        trigger: Some(if context.is_some() { "manual" } else { "unknown" }.to_string()),
+
+        // NEW: Evidence bundle
+        gaps_detected: context.map(|ctx| ctx.gaps_detected),
+        gap_categories: context.map(|ctx| ctx.gap_categories.clone()),
+        changed_paths: context.and_then(|_ctx| {
+            if applied.is_empty() {
+                None
+            } else {
+                Some(
+                    applied
+                        .iter()
+                        .flat_map(|p| p.targets.iter().cloned())
+                        .collect(),
+                )
+            }
+        }),
+
+        // Existing fields
         patches_applied: applied.iter().map(|p| p.id.clone()).collect(),
         patches_failed: failed.iter().map(|p| p.id.clone()).collect(),
         success_rate: if applied.is_empty() && failed.is_empty() {
@@ -2090,6 +2107,10 @@ fn record_evolution_outcome(
         } else {
             applied.len() as f64 / (applied.len() + failed.len()) as f64
         },
+
+        // NEW: Failure context
+        rollback_reason: context.and_then(|ctx| ctx.rollback_reason.clone()),
+        error_messages: context.and_then(|ctx| ctx.error_messages.clone()),
     };
 
     let json_line = serde_json::to_string(&record)
