@@ -30,21 +30,25 @@ const board: KanbanBoardInfo = {
 describe("KanbanTab file changes panel", () => {
   it("uses a dedicated file-name column so status badges do not clip the first character", () => {
     const { container } = render(
-      <FileRow file={{ path: "package-lock.json", status: "modified" }} />,
+      <FileRow file={{ path: "package-lock.json", status: "modified", additions: 12, deletions: 3 }} />,
     );
 
     expect(screen.getByText("package-lock.json")).toBeTruthy();
     expect(screen.getByTitle("package-lock.json")).toBeTruthy();
-    expect(container.firstElementChild?.className).toContain("grid-cols-[auto_minmax(0,1fr)_auto]");
+    expect(screen.getByText("+12")).toBeTruthy();
+    expect(screen.getByText("-3")).toBeTruthy();
+    expect(container.firstElementChild?.className).toContain("grid-cols-[16px_minmax(0,1fr)_auto]");
   });
 
   it("splits nested paths into filename and directory rows for readability", () => {
     render(
-      <FileRow file={{ path: "src/client/components/__tests__/tiptap-input.test.tsx", status: "untracked" }} />,
+      <FileRow file={{ path: "src/client/components/__tests__/tiptap-input.test.tsx", status: "untracked", additions: 8, deletions: 0 }} />,
     );
 
     expect(screen.getByText("tiptap-input.test.tsx")).toBeTruthy();
     expect(screen.getByTitle("src/client/components/__tests__")).toBeTruthy();
+    expect(screen.getByText("+8")).toBeTruthy();
+    expect(screen.getByText("-0")).toBeTruthy();
   });
 
   it("shows renamed source metadata as a secondary row", () => {

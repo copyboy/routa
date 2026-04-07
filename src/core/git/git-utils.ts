@@ -122,6 +122,8 @@ export interface GitFileChange {
   path: string;
   status: FileChangeStatus;
   previousPath?: string;
+  additions?: number;
+  deletions?: number;
 }
 
 export interface RepoChanges {
@@ -135,6 +137,8 @@ export interface RepoFileDiff {
   previousPath?: string;
   status: FileChangeStatus;
   patch: string;
+  additions?: number;
+  deletions?: number;
 }
 
 export interface RepoDeliveryStatus {
@@ -309,7 +313,7 @@ export function parseGitStatusPorcelain(output: string): GitFileChange[] {
       const code = line.slice(0, 2);
       if (code === "!!") return [];
 
-      const rawPath = line.slice(3).trim();
+      const rawPath = line.slice(3);
       const status = mapPorcelainStatus(code);
 
       if ((status === "renamed" || status === "copied") && rawPath.includes(" -> ")) {
@@ -329,10 +333,14 @@ export function getRepoChanges(repoPath: string): RepoChanges {
 
   try {
     const output = gitExecSync("git status --porcelain -uall", repoPath);
+    const files = parseGitStatusPorcelain(output).map((file) => ({
+      ...file,
+      ...getRepoFileLineStats(repoPath, file),
+    }));
     return {
       branch,
       status,
-      files: parseGitStatusPorcelain(output),
+      files,
     };
   } catch {
     return {
@@ -384,6 +392,54 @@ function getFirstNonEmptyGitDiff(repoPath: string, commands: string[]): string {
   return "";
 }
 
+function countDiffPatchLines(patch: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
+    if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
+  }
+
+  return { additions, deletions };
+}
+
+function parseNumstat(output: string): { additions: number; deletions: number } | null {
+  const firstLine = output
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) return null;
+
+  const [rawAdditions, rawDeletions] = firstLine.split(/\s+/);
+  const additions = rawAdditions === "-" ? 0 : Number.parseInt(rawAdditions ?? "", 10);
+  const deletions = rawDeletions === "-" ? 0 : Number.parseInt(rawDeletions ?? "", 10);
+
+  if (Number.isNaN(additions) || Number.isNaN(deletions)) return null;
+  return { additions, deletions };
+}
+
+function getRepoFileLineStats(repoPath: string, file: GitFileChange): { additions: number; deletions: number } {
+  const quotedPath = shellQuote(file.path);
+  const numstat = getFirstNonEmptyGitDiff(repoPath, [
+    `git --no-pager diff --no-ext-diff --find-renames --find-copies --numstat -- ${quotedPath}`,
+    `git --no-pager diff --no-ext-diff --find-renames --find-copies --cached --numstat -- ${quotedPath}`,
+    `git --no-pager diff --no-ext-diff --find-renames --find-copies HEAD --numstat -- ${quotedPath}`,
+  ]);
+  const parsedNumstat = parseNumstat(numstat);
+  if (parsedNumstat) return parsedNumstat;
+
+  if (file.status === "untracked" || file.status === "added") {
+    return countDiffPatchLines(buildSyntheticAddedDiff(repoPath, file));
+  }
+
+  if (file.status === "renamed" && file.previousPath) {
+    return countDiffPatchLines(buildSyntheticRenameDiff(file));
+  }
+
+  return { additions: 0, deletions: 0 };
+}
+
 export function getRepoFileDiff(repoPath: string, file: GitFileChange): RepoFileDiff {
   const quotedPath = shellQuote(file.path);
   const patch = getFirstNonEmptyGitDiff(repoPath, [
@@ -393,29 +449,40 @@ export function getRepoFileDiff(repoPath: string, file: GitFileChange): RepoFile
   ]);
 
   if (patch) {
+    const counts = countDiffPatchLines(patch);
     return {
       path: file.path,
       previousPath: file.previousPath,
       status: file.status,
       patch,
+      additions: counts.additions,
+      deletions: counts.deletions,
     };
   }
 
   if (file.status === "untracked" || file.status === "added") {
+    const syntheticPatch = buildSyntheticAddedDiff(repoPath, file);
+    const counts = countDiffPatchLines(syntheticPatch);
     return {
       path: file.path,
       previousPath: file.previousPath,
       status: file.status,
-      patch: buildSyntheticAddedDiff(repoPath, file),
+      patch: syntheticPatch,
+      additions: counts.additions,
+      deletions: counts.deletions,
     };
   }
 
   if (file.status === "renamed" && file.previousPath) {
+    const syntheticPatch = buildSyntheticRenameDiff(file);
+    const counts = countDiffPatchLines(syntheticPatch);
     return {
       path: file.path,
       previousPath: file.previousPath,
       status: file.status,
-      patch: buildSyntheticRenameDiff(file),
+      patch: syntheticPatch,
+      additions: counts.additions,
+      deletions: counts.deletions,
     };
   }
 
@@ -424,6 +491,8 @@ export function getRepoFileDiff(repoPath: string, file: GitFileChange): RepoFile
     previousPath: file.previousPath,
     status: file.status,
     patch: "",
+    additions: 0,
+    deletions: 0,
   };
 }
 

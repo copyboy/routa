@@ -20,6 +20,8 @@ export interface KanbanFileChangeItem {
   path: string;
   status: KanbanFileChangeStatus;
   previousPath?: string;
+  additions?: number;
+  deletions?: number;
 }
 
 export interface KanbanRepoChanges {

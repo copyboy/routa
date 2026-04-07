@@ -1054,14 +1054,22 @@ interface ParsedDiffPreview {
   path: string;
   additions: number;
   deletions: number;
-  lines: Array<{ kind: "meta" | "hunk" | "add" | "remove" | "context"; text: string }>;
+  lines: Array<{
+    kind: "meta" | "hunk" | "add" | "remove" | "context";
+    text: string;
+    oldLineNumber?: number;
+    newLineNumber?: number;
+  }>;
 }
 
 function parseFileDiffPreview(diff: KanbanFileDiffPreview): ParsedDiffPreview {
   const lines = diff.patch.split("\n");
-  let additions = 0;
-  let deletions = 0;
+  let additions = diff.additions ?? 0;
+  let deletions = diff.deletions ?? 0;
   let resolvedPath = diff.path;
+  let oldLineNumber = 0;
+  let newLineNumber = 0;
+  let countedBodyLines = false;
 
   const parsedLines = lines.map((line) => {
     if (line.startsWith("+++ b/")) {
@@ -1069,14 +1077,25 @@ function parseFileDiffPreview(diff: KanbanFileDiffPreview): ParsedDiffPreview {
       return { kind: "meta" as const, text: line };
     }
     if (line.startsWith("+") && !line.startsWith("+++")) {
-      additions += 1;
-      return { kind: "add" as const, text: line };
+      if (diff.additions == null) additions += 1;
+      countedBodyLines = true;
+      const parsedLine = { kind: "add" as const, text: line, newLineNumber };
+      newLineNumber += 1;
+      return parsedLine;
     }
     if (line.startsWith("-") && !line.startsWith("---")) {
-      deletions += 1;
-      return { kind: "remove" as const, text: line };
+      if (diff.deletions == null) deletions += 1;
+      countedBodyLines = true;
+      const parsedLine = { kind: "remove" as const, text: line, oldLineNumber };
+      oldLineNumber += 1;
+      return parsedLine;
     }
     if (line.startsWith("@@")) {
+      const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+      if (match) {
+        oldLineNumber = Number.parseInt(match[1] ?? "0", 10);
+        newLineNumber = Number.parseInt(match[2] ?? "0", 10);
+      }
       return { kind: "hunk" as const, text: line };
     }
     if (
@@ -1091,13 +1110,20 @@ function parseFileDiffPreview(diff: KanbanFileDiffPreview): ParsedDiffPreview {
     ) {
       return { kind: "meta" as const, text: line };
     }
+    if (line.startsWith(" ")) {
+      countedBodyLines = true;
+      const parsedLine = { kind: "context" as const, text: line, oldLineNumber, newLineNumber };
+      oldLineNumber += 1;
+      newLineNumber += 1;
+      return parsedLine;
+    }
     return { kind: "context" as const, text: line };
   });
 
   return {
     path: resolvedPath,
-    additions,
-    deletions,
+    additions: countedBodyLines ? additions : diff.additions ?? additions,
+    deletions: countedBodyLines ? deletions : diff.deletions ?? deletions,
     lines: parsedLines,
   };
 }
@@ -1127,6 +1153,12 @@ function TaskFileDiffPreview({
 
   const badge = STATUS_BADGE[file.status];
   const parsedDiff = diff ? parseFileDiffPreview(diff) : null;
+  const previewPath = parsedDiff?.path ?? file.path;
+  const lastSlash = previewPath.lastIndexOf("/");
+  const fileName = lastSlash === -1 ? previewPath : previewPath.slice(lastSlash + 1);
+  const fileDirectory = lastSlash === -1 ? null : previewPath.slice(0, lastSlash);
+  const additions = parsedDiff?.additions ?? diff?.additions ?? file.additions ?? 0;
+  const deletions = parsedDiff?.deletions ?? diff?.deletions ?? file.deletions ?? 0;
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white dark:border-[#202433] dark:bg-[#0d1018]">
@@ -1135,25 +1167,30 @@ function TaskFileDiffPreview({
           <span className={`inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${badge.className}`}>
             {badge.short}
           </span>
-          <span className="truncate pl-0.5 text-sm font-medium text-slate-900 dark:text-slate-100" title={file.path}>
-            {file.path}
-          </span>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100" title={fileName}>
+              {fileName}
+            </div>
+            {fileDirectory && (
+              <div className="truncate text-[11px] text-slate-500 dark:text-slate-400" title={fileDirectory}>
+                {fileDirectory}
+              </div>
+            )}
+          </div>
           {file.previousPath && (
             <>
               <span />
-              <div className="truncate pl-0.5 text-[11px] text-slate-500 dark:text-slate-400" title={file.previousPath}>
+              <div className="truncate text-[11px] text-slate-500 dark:text-slate-400" title={file.previousPath}>
                 {t.kanban.fromPath} {file.previousPath}
               </div>
             </>
           )}
         </div>
-        {parsedDiff && (
-          <div className="shrink-0 text-[11px] font-mono">
-            <span className="text-emerald-600 dark:text-emerald-300">+{parsedDiff.additions}</span>
-            {" "}
-            <span className="text-rose-600 dark:text-rose-300">-{parsedDiff.deletions}</span>
-          </div>
-        )}
+        <div className="shrink-0 text-[11px] font-mono">
+          <span className="text-emerald-600 dark:text-emerald-300">+{additions}</span>
+          {" "}
+          <span className="text-rose-600 dark:text-rose-300">-{deletions}</span>
+        </div>
       </div>
 
       {loading ? (
@@ -1176,17 +1213,36 @@ function TaskFileDiffPreview({
                 key={`${line.text}-${index}`}
                 className={
                   line.kind === "add"
-                    ? "bg-emerald-950/70 px-3 text-emerald-100"
+                    ? "grid grid-cols-[3rem_3rem_1.5rem_minmax(0,1fr)] bg-emerald-950/70 px-3 text-emerald-100"
                     : line.kind === "remove"
-                      ? "bg-rose-950/60 px-3 text-rose-100"
+                      ? "grid grid-cols-[3rem_3rem_1.5rem_minmax(0,1fr)] bg-rose-950/60 px-3 text-rose-100"
                       : line.kind === "hunk"
                         ? "bg-sky-950/60 px-3 text-sky-100"
                         : line.kind === "meta"
                           ? "bg-slate-900 px-3 text-slate-400"
-                          : "px-3 text-slate-200"
+                          : "grid grid-cols-[3rem_3rem_1.5rem_minmax(0,1fr)] px-3 text-slate-200"
                 }
               >
-                {line.text || " "}
+                {line.kind === "add" || line.kind === "remove" || line.kind === "context" ? (
+                  <>
+                    <span className="select-none pr-2 text-right text-slate-500">
+                      {typeof line.oldLineNumber === "number" ? (
+                        <span data-testid={`kanban-diff-old-line-${index}`}>{line.oldLineNumber}</span>
+                      ) : ""}
+                    </span>
+                    <span className="select-none pr-2 text-right text-slate-500">
+                      {typeof line.newLineNumber === "number" ? (
+                        <span data-testid={`kanban-diff-new-line-${index}`}>{line.newLineNumber}</span>
+                      ) : ""}
+                    </span>
+                    <span className="select-none text-center">
+                      {line.text[0] ?? " "}
+                    </span>
+                    <span>{line.text.slice(1) || " "}</span>
+                  </>
+                ) : (
+                  line.text || " "
+                )}
               </div>
             ))}
           </pre>

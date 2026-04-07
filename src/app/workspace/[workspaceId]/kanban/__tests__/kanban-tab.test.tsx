@@ -868,17 +868,17 @@ describe("KanbanCardDetail changes tab", () => {
           repoPath: "/tmp/repos/main",
           label: "feature-worktree",
           branch: "task/story-one",
-          status: {
-            clean: false,
-            ahead: 0,
-            behind: 0,
-            modified: 1,
-            untracked: 1,
-          },
-          files: [
-            { path: "src/app.tsx", status: "modified" },
-            { path: "notes/todo.md", status: "untracked" },
-          ],
+              status: {
+                clean: false,
+                ahead: 0,
+                behind: 0,
+                modified: 1,
+                untracked: 1,
+              },
+              files: [
+                { path: "src/app.tsx", status: "modified", additions: 3, deletions: 1 },
+                { path: "notes/todo.md", status: "untracked", additions: 8, deletions: 0 },
+              ],
           source: "worktree",
           worktreeId: "wt-1",
           worktreePath: "/tmp/worktrees/story-one",
@@ -937,6 +937,10 @@ describe("KanbanCardDetail changes tab", () => {
     expect(screen.getByText("/tmp/worktrees/story-one")).toBeTruthy();
     expect(screen.getByText("app.tsx")).toBeTruthy();
     expect(screen.getByText("todo.md")).toBeTruthy();
+    expect(screen.getByText("+3")).toBeTruthy();
+    expect(screen.getByText("-1")).toBeTruthy();
+    expect(screen.getByText("+8")).toBeTruthy();
+    expect(screen.getByText("-0")).toBeTruthy();
     expect(screen.getByTitle("src")).toBeTruthy();
     expect(screen.getByTitle("notes")).toBeTruthy();
   });
@@ -961,7 +965,7 @@ describe("KanbanCardDetail changes tab", () => {
                 untracked: 0,
               },
               files: [
-                { path: "src/app.tsx", status: "modified" },
+                { path: "src/app.tsx", status: "modified", additions: 1, deletions: 1 },
               ],
               source: "worktree",
               worktreeId: "wt-1",
@@ -977,6 +981,8 @@ describe("KanbanCardDetail changes tab", () => {
             diff: {
               path: "src/app.tsx",
               status: "modified",
+              additions: 1,
+              deletions: 1,
               patch: [
                 "diff --git a/src/app.tsx b/src/app.tsx",
                 "index 1111111..2222222 100644",
@@ -1049,8 +1055,12 @@ describe("KanbanCardDetail changes tab", () => {
       );
     });
 
-    expect(await screen.findByText(/\+const next = 2;/)).toBeTruthy();
-    expect(screen.getByText(/-const next = 1;/)).toBeTruthy();
+    expect(await screen.findByText("const next = 2;")).toBeTruthy();
+    expect(screen.getByText("const next = 1;")).toBeTruthy();
+    expect(screen.getAllByText("+1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("-1").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("kanban-diff-old-line-5").textContent).toBe("1");
+    expect(screen.getByTestId("kanban-diff-new-line-6").textContent).toBe("1");
   });
 });
 

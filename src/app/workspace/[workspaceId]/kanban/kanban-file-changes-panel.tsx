@@ -78,6 +78,14 @@ function splitFilePath(path: string): { name: string; directory: string | null }
   };
 }
 
+function formatFileLineDelta(file: KanbanFileChangeItem): { additions: number; deletions: number } | null {
+  if (typeof file.additions !== "number" && typeof file.deletions !== "number") return null;
+  return {
+    additions: file.additions ?? 0,
+    deletions: file.deletions ?? 0,
+  };
+}
+
 interface FileRowProps {
   file: KanbanFileChangeItem;
   selected?: boolean;
@@ -94,8 +102,9 @@ export function FileRow({
   const StatusIcon = badge.icon;
   const { name, directory } = splitFilePath(file.path);
   const previous = file.previousPath ? splitFilePath(file.previousPath) : null;
+  const lineDelta = formatFileLineDelta(file);
   const interactive = typeof onClick === "function";
-  const containerClassName = `grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-1.5 gap-y-0 rounded-md px-1 py-1 text-left transition-colors ${
+  const containerClassName = `grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-start gap-x-2 gap-y-0 rounded-md px-1 py-1 text-left transition-colors ${
     selected
       ? "bg-amber-50/80 dark:bg-amber-900/10"
       : "hover:bg-slate-100/80 dark:hover:bg-[#171b27]"
@@ -110,16 +119,16 @@ export function FileRow({
         <StatusIcon className="h-2.5 w-2.5" />
       </span>
       <div className="min-w-0 overflow-hidden">
-        <div className="block truncate pl-0.5 text-[11px] font-medium leading-4 text-slate-800 dark:text-slate-100" title={name}>
+        <div className="block truncate text-[11px] font-medium leading-4 text-slate-800 dark:text-slate-100" title={name}>
           {name}
         </div>
         {directory && (
-          <div className="block truncate pl-0.5 text-[9px] leading-3.5 text-slate-500 dark:text-slate-400" title={directory}>
+          <div className="block truncate text-[9px] leading-3.5 text-slate-500 dark:text-slate-400" title={directory}>
             {directory}
           </div>
         )}
         {previous && (
-          <div className="mt-0.5 flex items-center gap-1 pl-0.5 text-[9px] leading-3.5 text-slate-400 dark:text-slate-500">
+          <div className="mt-0.5 flex items-center gap-1 text-[9px] leading-3.5 text-slate-400 dark:text-slate-500">
             <ArrowRightLeft className="h-2.5 w-2.5 shrink-0" />
             <span className="truncate" title={previous.name}>
               {previous.name}
@@ -137,9 +146,18 @@ export function FileRow({
           </div>
         )}
       </div>
-      <span className={`mt-0.5 shrink-0 self-start rounded-sm px-1 py-0 text-[7px] leading-4 font-semibold tracking-wide ${badge.className}`}>
-        {badge.short}
-      </span>
+      <div className="mt-0.5 flex min-w-[3.25rem] shrink-0 items-center justify-end gap-1 self-start text-[10px] font-mono leading-4">
+        {lineDelta ? (
+          <>
+            <span className="text-emerald-600 dark:text-emerald-300">+{lineDelta.additions}</span>
+            <span className="text-rose-600 dark:text-rose-300">-{lineDelta.deletions}</span>
+          </>
+        ) : (
+          <span className={`rounded-sm px-1 py-0 text-[7px] font-semibold tracking-wide ${badge.className}`}>
+            {badge.short}
+          </span>
+        )}
+      </div>
     </>
   );
 
