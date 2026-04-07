@@ -93,6 +93,33 @@ function getAutomationStepLabel(step: KanbanAutomationStep | undefined, stepInde
   return step.specialistName ?? step.specialistId ?? step.role ?? `Step ${stepIndex + 1}`;
 }
 
+const NON_DEV_AUTOMATION_REPEAT_LIMIT = 3;
+
+export function getNonDevAutomationRunCount(
+  task: Pick<Task, "laneSessions"> | undefined,
+  columnId: string,
+  stage: KanbanColumnStage,
+): number {
+  if (!task || stage === "dev") {
+    return 0;
+  }
+
+  return (task.laneSessions ?? []).filter((entry) => entry.columnId === columnId).length;
+}
+
+export function hasExceededNonDevAutomationRepeatLimit(
+  task: Pick<Task, "laneSessions"> | undefined,
+  columnId: string,
+  stage: KanbanColumnStage,
+): boolean {
+  return getNonDevAutomationRunCount(task, columnId, stage) >= NON_DEV_AUTOMATION_REPEAT_LIMIT;
+}
+
+function buildNonDevAutomationRepeatLimitMessage(columnName: string, runCount: number): string {
+  return `Stopped Kanban automation for "${columnName}" after ${runCount + 1} runs. `
+    + `Non-dev lanes are limited to ${NON_DEV_AUTOMATION_REPEAT_LIMIT} automation runs to prevent loops.`;
+}
+
 /** Context persisted for a session attempt when supervision is enabled. */
 export interface AutomationSessionSupervisionContext {
   attempt: number;
@@ -251,6 +278,21 @@ export class KanbanWorkflowOrchestrator {
     const automation = resolved.automation;
     const steps = getKanbanAutomationSteps(automation);
     if (steps.length === 0) return;
+
+    if (hasExceededNonDevAutomationRepeatLimit(task, targetColumn.id, targetColumn.stage)) {
+      if (task) {
+        task.lastSyncError = buildNonDevAutomationRepeatLimitMessage(
+          targetColumn.name,
+          getNonDevAutomationRunCount(task, targetColumn.id, targetColumn.stage),
+        );
+        task.updatedAt = new Date();
+        await this.taskStore.save(task);
+      }
+      console.warn(
+        `[WorkflowOrchestrator] Stopped repeated non-dev automation for card ${data.cardId} in column ${targetColumn.id}.`,
+      );
+      return;
+    }
 
     const supervision = shouldSuperviseStage(targetColumn.stage)
       ? (await this.resolveDevSessionSupervision?.({
