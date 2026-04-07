@@ -11,6 +11,8 @@
 //! Agent message notifications are traced to JSONL files for attribution tracking.
 
 use std::collections::HashMap;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,6 +22,8 @@ use tokio::process::{Child, ChildStdin};
 use tokio::sync::{broadcast, oneshot, Mutex};
 
 use super::terminal_manager::TerminalManager;
+#[cfg(windows)]
+use super::CREATE_NO_WINDOW;
 use crate::trace::{
     Contributor, TraceConversation, TraceEventType, TraceRecord, TraceTool, TraceWriter,
 };
@@ -79,6 +83,11 @@ impl AcpProcess {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
+
+        #[cfg(windows)]
+        command_builder
+            .as_std_mut()
+            .creation_flags(CREATE_NO_WINDOW);
 
         // codex-acp often returns only stopReason in session/prompt result.
         // Enabling lightweight codex logs gives us process_output lines that
