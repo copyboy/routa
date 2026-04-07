@@ -1248,7 +1248,7 @@ function ExecutionSection({
           )}
         </div>
       </details>
-      {canRunTask && (manualRunTarget !== lanePipeline || hasCardOverride) && (
+      {canRunTask && (usesSelectedProvider || manualRunTarget !== lanePipeline || hasCardOverride) && (
         <div className={`mt-2 border-l-2 border-sky-300/80 px-3 py-2 text-xs text-sky-800 dark:border-sky-700/70 dark:text-sky-200 ${compact ? "leading-[1.125rem]" : "leading-[1.2rem]"}`}>
           Manual {hasRecordedRuns ? "reruns" : "runs"} use {manualRunSourceLabel}:
           {" "}
