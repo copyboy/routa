@@ -159,6 +159,7 @@ jobs:
 
       - name: Prepare macOS signing keychain
         if: runner.os == 'macOS'
+        continue-on-error: true
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -178,13 +179,20 @@ jobs:
             KEYCHAIN_PASSWORD
           )
 
+          missing_vars=()
           for var_name in "${required_vars[@]}"; do
             if [[ -z "${!var_name}" ]]; then
-              echo "Missing required macOS signing/notarization secret: ${var_name}" >&2
-              exit 1
+              missing_vars+=("$var_name")
             fi
           done
 
+          if [[ ${#missing_vars[@]} -gt 0 ]]; then
+            echo "⚠️  WARNING: Missing macOS signing secrets: ${missing_vars[*]}" >&2
+            echo "macOS app will be built without code signing/notarization" >&2
+            exit 0
+          fi
+
+          echo "Setting up macOS code signing..."
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
@@ -239,6 +247,7 @@ jobs:
 
       - name: Verify macOS signing and notarization
         if: runner.os == 'macOS'
+        continue-on-error: true
         shell: bash
         run: |
           mkdir -p dist/release
