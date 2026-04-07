@@ -48,6 +48,9 @@ use tokio::sync::{broadcast, RwLock};
 use crate::trace::{Contributor, TraceConversation, TraceEventType, TraceRecord, TraceWriter};
 use process::AcpProcess;
 
+#[cfg(windows)]
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 // ─── Session Record ─────────────────────────────────────────────────────
 
 /// Record of an active ACP session persisted for UI listing.

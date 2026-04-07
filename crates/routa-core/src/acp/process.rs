@@ -11,6 +11,8 @@
 //! Agent message notifications are traced to JSONL files for attribution tracking.
 
 use std::collections::HashMap;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,6 +22,8 @@ use tokio::process::{Child, ChildStdin};
 use tokio::sync::{broadcast, oneshot, Mutex};
 
 use super::terminal_manager::TerminalManager;
+#[cfg(windows)]
+use super::CREATE_NO_WINDOW;
 use crate::trace::{
     Contributor, TraceConversation, TraceEventType, TraceRecord, TraceTool, TraceWriter,
 };
@@ -29,9 +33,6 @@ pub type NotificationSender = broadcast::Sender<serde_json::Value>;
 
 /// Type alias for the pending request map to avoid complex type repetition.
 type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>>;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// A managed ACP agent child process.
 pub struct AcpProcess {
@@ -84,7 +85,9 @@ impl AcpProcess {
             .stderr(std::process::Stdio::piped());
 
         #[cfg(windows)]
-        command_builder.creation_flags(CREATE_NO_WINDOW);
+        command_builder
+            .as_std_mut()
+            .creation_flags(CREATE_NO_WINDOW);
 
         // codex-acp often returns only stopReason in session/prompt result.
         // Enabling lightweight codex logs gives us process_output lines that

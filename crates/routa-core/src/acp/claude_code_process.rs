@@ -9,6 +9,8 @@
 //! Agent message notifications are traced to JSONL files for attribution tracking.
 
 use std::collections::{HashMap, HashSet};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -19,10 +21,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{broadcast, oneshot, Mutex};
 
-use crate::trace::{Contributor, TraceConversation, TraceEventType, TraceRecord, TraceWriter};
-
 #[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+use super::CREATE_NO_WINDOW;
+use crate::trace::{Contributor, TraceConversation, TraceEventType, TraceRecord, TraceWriter};
 
 // ─── Claude Protocol Types ──────────────────────────────────────────────
 
@@ -251,7 +252,7 @@ impl ClaudeCodeProcess {
         cmd.stderr(Stdio::piped());
 
         #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.as_std_mut().creation_flags(CREATE_NO_WINDOW);
 
         tracing::info!(
             "[ClaudeCode:{}] Spawning: {} -p --output-format stream-json ... (cwd: {})",
