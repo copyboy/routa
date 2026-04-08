@@ -234,3 +234,43 @@ export async function getCommitList(
 
   return commits;
 }
+
+/**
+ * Get diff for a specific file
+ * @param repoPath - Path to the git repository
+ * @param filePath - Path to the file relative to repo root
+ * @param staged - Whether to get staged diff or working directory diff
+ * @returns The diff as a string
+ */
+export async function getFileDiff(
+  repoPath: string,
+  filePath: string,
+  staged = false,
+): Promise<string> {
+  const command = staged
+    ? `git diff --cached "${filePath}"`
+    : `git diff "${filePath}"`;
+
+  const diff = await gitExec(command, repoPath);
+  return diff;
+}
+
+/**
+ * Get diff for a specific commit
+ * @param repoPath - Path to the git repository
+ * @param commitSha - Commit SHA
+ * @param filePath - Optional: specific file path
+ * @returns The diff as a string
+ */
+export async function getCommitDiff(
+  repoPath: string,
+  commitSha: string,
+  filePath?: string,
+): Promise<string> {
+  const command = filePath
+    ? `git show ${commitSha} -- "${filePath}"`
+    : `git show ${commitSha}`;
+
+  const diff = await gitExec(command, repoPath);
+  return diff;
+}

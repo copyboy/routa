@@ -68,5 +68,7 @@ export {
   rebaseBranch,
   resetBranch,
   getCommitList,
+  getFileDiff,
+  getCommitDiff,
   type CommitInfo,
 } from "./git-operations";

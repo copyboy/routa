@@ -136,11 +136,68 @@ export function useGitOperations({ workspaceId, codebaseId, onSuccess, onError }
     }
   }, [workspaceId, codebaseId, onSuccess, onError]);
 
+  const getCommits = useCallback(async (limit = 20): Promise<any[]> => {
+    try {
+      const response = await fetch(
+        `/api/workspaces/${workspaceId}/codebases/${codebaseId}/git/commits?limit=${limit}`,
+        { method: "GET" }
+      );
+
+      const data = await response.json();
+      return data.commits || [];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to get commits";
+      onError?.(message);
+      return [];
+    }
+  }, [workspaceId, codebaseId, onError]);
+
+  const getFileDiff = useCallback(async (filePath: string, staged = false): Promise<string | null> => {
+    try {
+      const params = new URLSearchParams({ path: filePath });
+      if (staged) params.set("staged", "true");
+
+      const response = await fetch(
+        `/api/workspaces/${workspaceId}/codebases/${codebaseId}/git/diff?${params}`,
+        { method: "GET" }
+      );
+
+      const data = await response.json();
+      return data.diff || null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to get file diff";
+      onError?.(message);
+      return null;
+    }
+  }, [workspaceId, codebaseId, onError]);
+
+  const getCommitDiff = useCallback(async (commitSha: string, filePath?: string): Promise<string | null> => {
+    try {
+      const params = new URLSearchParams();
+      if (filePath) params.set("path", filePath);
+
+      const response = await fetch(
+        `/api/workspaces/${workspaceId}/codebases/${codebaseId}/git/commits/${commitSha}/diff?${params}`,
+        { method: "GET" }
+      );
+
+      const data = await response.json();
+      return data.diff || null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to get commit diff";
+      onError?.(message);
+      return null;
+    }
+  }, [workspaceId, codebaseId, onError]);
+
   return {
     stageFiles,
     unstageFiles,
     createCommit,
     discardChanges,
+    getCommits,
+    getFileDiff,
+    getCommitDiff,
     loading,
   };
 }

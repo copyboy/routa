@@ -5,8 +5,11 @@ import { useTranslation } from "@/i18n";
 import type { KanbanRepoChanges, KanbanFileChangeItem } from "../kanban-file-changes-types";
 import { KanbanUnstagedSection } from "./kanban-unstaged-section";
 import { KanbanStagedSection } from "./kanban-staged-section";
+import { KanbanCommitsSection } from "./kanban-commits-section";
 import { KanbanCommitModal } from "./kanban-commit-modal";
+import { KanbanInlineDiffViewer } from "./kanban-inline-diff-viewer";
 import { useGitOperations } from "../hooks/use-git-operations";
+import type { KanbanCommitInfo } from "../kanban-file-changes-types";
 
 interface KanbanEnhancedFileChangesPanelProps {
   workspaceId: string;
@@ -28,22 +31,52 @@ export function KanbanEnhancedFileChangesPanel({
   const { t } = useTranslation();
   const [autoCommit, setAutoCommit] = useState(false);
   const [commitModalOpen, setCommitModalOpen] = useState(false);
+  const [commits, setCommits] = useState<KanbanCommitInfo[]>([]);
+  const [commitsLoading, setCommitsLoading] = useState(false);
+  const [activeDiffFile, setActiveDiffFile] = useState<{
+    file: KanbanFileChangeItem;
+    commitSha?: string;
+  } | null>(null);
+  const [diffContent, setDiffContent] = useState<string | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState<string | null>(null);
 
   // For now, we'll work with the first repo (can be extended to multi-repo)
   const activeRepo = repos[0];
   const codebaseId = activeRepo?.codebaseId || "";
 
-  const { stageFiles, unstageFiles, createCommit, discardChanges, loading: gitLoading } = useGitOperations({
+  const { stageFiles, unstageFiles, createCommit, discardChanges, getCommits, getFileDiff, getCommitDiff, loading: gitLoading } = useGitOperations({
     workspaceId,
     codebaseId,
     onSuccess: () => {
       onRefresh?.();
+      loadCommits();
     },
     onError: (error) => {
       // TODO: Show toast notification
       console.error("Git operation failed:", error);
     },
   });
+
+  // Load commits on mount and after operations
+  const loadCommits = useCallback(async () => {
+    if (!codebaseId) return;
+    setCommitsLoading(true);
+    try {
+      const commitsList = await getCommits(20);
+      setCommits(commitsList);
+    } catch (error) {
+      console.error("Failed to load commits:", error);
+    } finally {
+      setCommitsLoading(false);
+    }
+  }, [codebaseId, getCommits]);
+
+  React.useEffect(() => {
+    if (open && codebaseId) {
+      loadCommits();
+    }
+  }, [open, codebaseId, loadCommits]);
 
   // Separate files into unstaged and staged
   const { unstagedFiles, stagedFiles } = useMemo(() => {
@@ -133,6 +166,42 @@ export function KanbanEnhancedFileChangesPanel({
     setCommitModalOpen(false);
   }, [createCommit]);
 
+  const handleFileClick = useCallback(async (file: KanbanFileChangeItem, staged = false) => {
+    setActiveDiffFile({ file, commitSha: undefined });
+    setDiffLoading(true);
+    setDiffError(null);
+
+    try {
+      const diff = await getFileDiff(file.path, staged);
+      setDiffContent(diff);
+    } catch (error) {
+      setDiffError(error instanceof Error ? error.message : "Failed to load diff");
+    } finally {
+      setDiffLoading(false);
+    }
+  }, [getFileDiff]);
+
+  const handleCommitFileClick = useCallback(async (file: KanbanFileChangeItem, commitSha: string) => {
+    setActiveDiffFile({ file, commitSha });
+    setDiffLoading(true);
+    setDiffError(null);
+
+    try {
+      const diff = await getCommitDiff(commitSha, file.path);
+      setDiffContent(diff);
+    } catch (error) {
+      setDiffError(error instanceof Error ? error.message : "Failed to load commit diff");
+    } finally {
+      setDiffLoading(false);
+    }
+  }, [getCommitDiff]);
+
+  const handleCloseDiff = useCallback(() => {
+    setActiveDiffFile(null);
+    setDiffContent(null);
+    setDiffError(null);
+  }, []);
+
   const summary = {
     changedRepos: repos.filter((r) => !r.error && !r.status.clean).length,
     changedFiles: repos.reduce((count, repo) => count + (repo.files?.length || 0), 0),
@@ -197,10 +266,7 @@ export function KanbanEnhancedFileChangesPanel({
                 files={unstagedWithSelection}
                 autoCommit={autoCommit}
                 onAutoCommitToggle={setAutoCommit}
-                onFileClick={(file) => {
-                  // TODO: Open diff viewer
-                  console.log("Open diff for", file.path);
-                }}
+                onFileClick={(file) => handleFileClick(file, false)}
                 onFileSelect={handleFileSelect}
                 onSelectAll={(selected) => handleSelectAll(unstagedWithSelection, selected)}
                 onStageSelected={handleStageSelected}
@@ -208,13 +274,21 @@ export function KanbanEnhancedFileChangesPanel({
                 loading={gitLoading}
               />
 
+              {/* Inline Diff Viewer for Unstaged */}
+              {activeDiffFile && !activeDiffFile.commitSha && (
+                <KanbanInlineDiffViewer
+                  file={activeDiffFile.file}
+                  diff={diffContent || undefined}
+                  loading={diffLoading}
+                  error={diffError || undefined}
+                  onClose={handleCloseDiff}
+                />
+              )}
+
               {/* Staged Section */}
               <KanbanStagedSection
                 files={stagedWithSelection}
-                onFileClick={(file) => {
-                  // TODO: Open diff viewer
-                  console.log("Open diff for", file.path);
-                }}
+                onFileClick={(file) => handleFileClick(file, true)}
                 onFileSelect={handleFileSelect}
                 onSelectAll={(selected) => handleSelectAll(stagedWithSelection, selected)}
                 onUnstageSelected={handleUnstageSelected}
@@ -225,6 +299,33 @@ export function KanbanEnhancedFileChangesPanel({
                 }}
                 loading={gitLoading}
               />
+
+              {/* Commits Section */}
+              <KanbanCommitsSection
+                commits={commits}
+                onFileClick={handleCommitFileClick}
+                onOpenCommit={(commit) => {
+                  // TODO: Open commit in external tool
+                  console.log("Open commit", commit.sha);
+                }}
+                onRevertCommit={(commit) => {
+                  // TODO: Implement revert
+                  console.log("Revert commit", commit.sha);
+                }}
+                loading={commitsLoading}
+              />
+
+              {/* Inline Diff Viewer for Commits */}
+              {activeDiffFile && activeDiffFile.commitSha && (
+                <KanbanInlineDiffViewer
+                  file={activeDiffFile.file}
+                  diff={diffContent || undefined}
+                  loading={diffLoading}
+                  error={diffError || undefined}
+                  onClose={handleCloseDiff}
+                  commitSha={activeDiffFile.commitSha}
+                />
+              )}
             </div>
           )}
         </div>
