@@ -136,6 +136,49 @@ describe("AcpProcess codex permission handling", () => {
     });
   });
 
+  it("passes through explicit option ids for option-driven permission requests", () => {
+    const process = createProcess();
+    const writeMessage = vi.fn();
+
+    process.setSessionContext({
+      sessionId: "session-1",
+      provider: "codex",
+      role: "CRAFTER",
+    });
+
+    (process as any).writeMessage = writeMessage;
+    (process as any).pendingInteractiveRequests.set("request-permission-2", {
+      requestId: 12,
+      method: "session/request_permission",
+      params: {
+        options: [
+          { optionId: "approved", kind: "allow_once" },
+          { optionId: "approved-for-session", kind: "allow_always" },
+          { optionId: "approved-always", kind: "allow_always" },
+          { optionId: "cancel", kind: "reject_once" },
+        ],
+      },
+    });
+
+    const handled = process.respondToUserInput("request-permission-2", {
+      optionId: "approved-always",
+      decision: "approve",
+      scope: "session",
+    });
+
+    expect(handled).toBe(true);
+    expect(writeMessage).toHaveBeenCalledWith({
+      jsonrpc: "2.0",
+      id: 12,
+      result: {
+        outcome: {
+          outcome: "selected",
+          optionId: "approved-always",
+        },
+      },
+    });
+  });
+
   it("falls back to ACP-standard selected results when options are missing", () => {
     const process = createProcess();
     const writeMessage = vi.fn();

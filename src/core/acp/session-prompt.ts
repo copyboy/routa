@@ -20,6 +20,7 @@ import {
   recordTrace,
 } from "@/core/trace";
 import {
+  loadSessionFromDb,
   loadSessionFromLocalStorage,
   persistSessionToDb,
   updateSessionExecutionBindingInDb,
@@ -27,6 +28,7 @@ import {
 import { resolveSkillContent } from "@/core/skills/skill-resolver";
 import {
   buildExecutionBinding,
+  getEmbeddedOwnershipIssue,
   refreshExecutionBinding,
 } from "@/core/acp/execution-backend";
 import type { McpServerProfile } from "@/core/mcp/mcp-server-profiles";
@@ -255,22 +257,38 @@ async function ensurePromptSessionExists(args: {
   console.log(`[ACP Route] Session ${sessionId} not found, auto-creating with default settings...`);
 
   const storedSession = store.getSession(sessionId);
-  const persistedSession = storedSession ? null : await loadSessionFromLocalStorage(sessionId);
-  const cwd = storedSession?.cwd ?? persistedSession?.cwd ?? (params.cwd as string | undefined) ?? process.cwd();
+  const persistedSession =
+    storedSession
+      ? null
+      : (await loadSessionFromDb(sessionId)) ?? (await loadSessionFromLocalStorage(sessionId));
+  const recoveredSession = storedSession ?? persistedSession ?? undefined;
+  const ownershipIssue = getEmbeddedOwnershipIssue(recoveredSession);
+  if (ownershipIssue) {
+    return jsonrpcResponse(id ?? null, null, {
+      code: -32010,
+      message: ownershipIssue,
+      data: {
+        source: "app",
+        sessionId,
+      },
+    });
+  }
+
+  const cwd = recoveredSession?.cwd ?? (params.cwd as string | undefined) ?? process.cwd();
   const defaultProvider = isServerlessEnvironment() ? "claude-code-sdk" : "opencode";
-  const provider = (params.provider as string | undefined) ?? storedSession?.provider ?? persistedSession?.provider ?? defaultProvider;
-  const workspaceId = requireWorkspaceId(params.workspaceId) ?? storedSession?.workspaceId ?? persistedSession?.workspaceId;
+  const provider = (params.provider as string | undefined) ?? recoveredSession?.provider ?? defaultProvider;
+  const workspaceId = requireWorkspaceId(params.workspaceId) ?? recoveredSession?.workspaceId;
   if (!workspaceId) {
     return jsonrpcResponse(id ?? null, null, {
       code: -32602,
       message: "workspaceId is required to recreate the session",
     });
   }
-  const role = storedSession?.role ?? persistedSession?.role ?? "CRAFTER";
+  const role = recoveredSession?.role ?? "CRAFTER";
   const toolMode = storedSession?.toolMode;
   const mcpProfile = storedSession?.mcpProfile;
   const allowedNativeTools = storedSession?.allowedNativeTools;
-  const specialistId = storedSession?.specialistId ?? persistedSession?.specialistId;
+  const specialistId = recoveredSession?.specialistId;
   const specialistSystemPrompt = storedSession?.specialistSystemPrompt;
 
   try {

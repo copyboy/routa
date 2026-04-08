@@ -14,6 +14,7 @@ const {
   proxyRequestToRunner,
   runnerUnavailableResponse,
   loadHistorySinceEventIdFromDb,
+  loadSessionFromDb,
   loadSessionFromLocalStorage,
   updateSessionExecutionBindingInDb,
 } = vi.hoisted(() => {
@@ -58,6 +59,7 @@ const {
     proxyRequestToRunner: vi.fn(),
     runnerUnavailableResponse: vi.fn(),
     loadHistorySinceEventIdFromDb: vi.fn(),
+    loadSessionFromDb: vi.fn(),
     loadSessionFromLocalStorage: vi.fn(),
     updateSessionExecutionBindingInDb: vi.fn(),
   };
@@ -90,6 +92,7 @@ vi.mock("@/core/acp/session-db-persister", async () => {
   return {
     ...actual,
     loadHistorySinceEventIdFromDb,
+    loadSessionFromDb,
     loadSessionFromLocalStorage,
     updateSessionExecutionBindingInDb,
   };
@@ -126,6 +129,7 @@ describe("/api/acp GET", () => {
     runnerUnavailableResponse.mockReturnValue(new Response("runner unavailable", { status: 503 }));
     proxyRequestToRunner.mockResolvedValue(new Response("proxied", { status: 200 }));
     loadHistorySinceEventIdFromDb.mockResolvedValue([]);
+    loadSessionFromDb.mockResolvedValue(null);
     loadSessionFromLocalStorage.mockResolvedValue(null);
     updateSessionExecutionBindingInDb.mockResolvedValue(undefined);
 
@@ -488,6 +492,46 @@ describe("/api/acp POST", () => {
       },
     });
     expect(loadSessionFromLocalStorage).toHaveBeenCalledWith("session-1");
+  });
+
+  it("rejects prompt auto-recreate when recovered embedded session belongs to another instance", async () => {
+    httpSessionStore.getSession.mockReturnValue(undefined);
+    loadSessionFromDb.mockResolvedValue({
+      id: "session-1",
+      cwd: "/tmp/recovered",
+      workspaceId: "workspace-1",
+      provider: "codex",
+      role: "CRAFTER",
+      executionMode: "embedded",
+      ownerInstanceId: "web-2",
+      leaseExpiresAt: "2099-01-01T00:00:00.000Z",
+      createdAt: new Date("2026-04-08T00:00:00.000Z"),
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/acp", {
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 7,
+          method: "session/prompt",
+          params: {
+            sessionId: "session-1",
+            prompt: [{ type: "text", text: "continue" }],
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      jsonrpc: "2.0",
+      id: 7,
+      error: {
+        code: -32010,
+        message: expect.stringContaining("owned by instance web-2"),
+      },
+    });
   });
 
   it("marks missing interactive requests as failed so stale permission cards disappear after refresh", async () => {

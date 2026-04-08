@@ -413,10 +413,20 @@ export class AcpProcess {
         let result: Record<string, unknown>;
         let notificationRawInput: Record<string, unknown> = response;
         if (pending.method === "session/request_permission") {
+            const explicitOptionId = typeof response.optionId === "string" && response.optionId.trim().length > 0
+                ? response.optionId.trim()
+                : undefined;
             const decision = typeof response.decision === "string" ? response.decision : "approve";
             const scope = response.scope === "session" ? "session" : "turn";
-            result = this.buildPermissionResponseResult(pending.params, decision, scope);
-            const selectedOptionId = this.extractSelectedPermissionOptionId(result);
+            result = explicitOptionId
+                ? {
+                    outcome: {
+                        outcome: "selected",
+                        optionId: explicitOptionId,
+                    },
+                }
+                : this.buildPermissionResponseResult(pending.params, decision, scope);
+            const selectedOptionId = explicitOptionId ?? this.extractSelectedPermissionOptionId(result);
             notificationRawInput = {
                 ...pending.params,
                 decision,
@@ -428,6 +438,9 @@ export class AcpProcess {
             result = response;
         }
 
+        console.log(
+            `[AcpProcess:${this._config.displayName}] Responding to interactive agent request ${pending.method} (id=${String(pending.requestId)}): ${JSON.stringify(result)}`
+        );
         this.writeMessage({
             jsonrpc: "2.0",
             id: pending.requestId,
@@ -569,6 +582,9 @@ export class AcpProcess {
                     : {};
                 if (this.shouldAutoApprovePermissionRequest(rawInput)) {
                     const result = this.buildPermissionApprovalResult(rawInput);
+                    console.log(
+                        `[AcpProcess:${this._config.displayName}] Auto-responding to agent request ${method} (id=${String(id)}): ${JSON.stringify(result)}`
+                    );
                     this.writeMessage({
                         jsonrpc: "2.0",
                         id,
@@ -620,6 +636,9 @@ export class AcpProcess {
                 if (filePath) {
                     const fsBridge = getServerBridge().fs;
                     fsBridge.readTextFile(filePath).then((content) => {
+                        console.log(
+                            `[AcpProcess:${this._config.displayName}] Responding to agent request ${method} (id=${String(id)}): ${JSON.stringify({content})}`
+                        );
                         this.writeMessage({
                             jsonrpc: "2.0",
                             id,
@@ -647,6 +666,9 @@ export class AcpProcess {
                 if (writePath && content !== undefined) {
                     const fsBridge = getServerBridge().fs;
                     fsBridge.writeTextFile(writePath, content).then(() => {
+                        console.log(
+                            `[AcpProcess:${this._config.displayName}] Responding to agent request ${method} (id=${String(id)}): {}`
+                        );
                         this.writeMessage({
                             jsonrpc: "2.0",
                             id,
@@ -677,6 +699,9 @@ export class AcpProcess {
                         this.onNotification(notification as unknown as JsonRpcMessage);
                     }
                 );
+                console.log(
+                    `[AcpProcess:${this._config.displayName}] Responding to agent request ${method} (id=${String(id)}): ${JSON.stringify(result)}`
+                );
                 this.writeMessage({
                     jsonrpc: "2.0",
                     id,
@@ -690,7 +715,10 @@ export class AcpProcess {
                 const termId = (params as { terminalId?: string })?.terminalId;
                 const output = termId
                     ? terminalManager.getOutput(termId)
-                    : { output: "" };
+                    : { output: "", truncated: false };
+                console.log(
+                    `[AcpProcess:${this._config.displayName}] Responding to agent request ${method} (id=${String(id)}): ${JSON.stringify(output)}`
+                );
                 this.writeMessage({
                     jsonrpc: "2.0",
                     id,
@@ -704,6 +732,9 @@ export class AcpProcess {
                 const termId = (params as { terminalId?: string })?.terminalId;
                 if (termId) {
                     terminalManager.waitForExit(termId).then((result) => {
+                        console.log(
+                            `[AcpProcess:${this._config.displayName}] Responding to agent request ${method} (id=${String(id)}): ${JSON.stringify(result)}`
+                        );
                         this.writeMessage({
                             jsonrpc: "2.0",
                             id,
@@ -711,10 +742,13 @@ export class AcpProcess {
                         });
                     });
                 } else {
+                    console.log(
+                        `[AcpProcess:${this._config.displayName}] Responding to agent request ${method} (id=${String(id)}): ${JSON.stringify({ exitCode: null, signal: null })}`
+                    );
                     this.writeMessage({
                         jsonrpc: "2.0",
                         id,
-                        result: { exitCode: -1 },
+                        result: { exitCode: null, signal: null },
                     });
                 }
                 break;
@@ -726,6 +760,9 @@ export class AcpProcess {
                 if (termId) {
                     terminalManager.kill(termId);
                 }
+                console.log(
+                    `[AcpProcess:${this._config.displayName}] Responding to agent request ${method} (id=${String(id)}): {}`
+                );
                 this.writeMessage({
                     jsonrpc: "2.0",
                     id,
@@ -740,6 +777,9 @@ export class AcpProcess {
                 if (termId) {
                     terminalManager.release(termId);
                 }
+                console.log(
+                    `[AcpProcess:${this._config.displayName}] Responding to agent request ${method} (id=${String(id)}): {}`
+                );
                 this.writeMessage({
                     jsonrpc: "2.0",
                     id,

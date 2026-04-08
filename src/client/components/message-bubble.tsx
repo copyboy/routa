@@ -39,6 +39,7 @@ interface PermissionRequestPayload {
     sessionId?: string;
     options?: PermissionRequestOption[];
     toolCall?: PermissionRequestToolCall;
+    optionId?: string;
 }
 
 interface PermissionRequestOption {
@@ -63,6 +64,23 @@ interface PermissionRequestToolCall {
         reason?: string;
         command?: string[];
         proposed_execpolicy_amendment?: string[];
+        server_name?: string;
+        request?: {
+            mode?: string;
+            message?: string;
+            _meta?: {
+                codex_approval_kind?: string;
+                tool_title?: string;
+                tool_description?: string;
+                tool_params_display?: Array<{
+                    name?: string;
+                    display_name?: string;
+                    value?: unknown;
+                }>;
+                [key: string]: unknown;
+            };
+            [key: string]: unknown;
+        };
         [key: string]: unknown;
     };
 }
@@ -232,6 +250,137 @@ function mapPermissionOutcome(rawInput: PermissionRequestPayload): "approve" | "
     if (rawInput.decision === "deny") return "deny";
     if (rawInput.decision === "approve") return "approve";
     return null;
+}
+
+function extractSelectedPermissionOptionId(
+    rawInput: PermissionRequestPayload,
+    rawOutput: unknown,
+): string | null {
+    if (rawOutput && typeof rawOutput === "object") {
+        const outcome = (rawOutput as { outcome?: unknown }).outcome;
+        if (outcome && typeof outcome === "object") {
+            const optionId = (outcome as { optionId?: unknown }).optionId;
+            if (typeof optionId === "string" && optionId.trim().length > 0) {
+                return optionId.trim();
+            }
+        }
+    }
+
+    if (typeof rawInput.optionId === "string" && rawInput.optionId.trim().length > 0) {
+        return rawInput.optionId.trim();
+    }
+
+    if (rawInput.decision === "approve") {
+        return rawInput.scope === "session" ? "approved-for-session" : "approved";
+    }
+
+    if (rawInput.decision === "deny") {
+        return "cancel";
+    }
+
+    return null;
+}
+
+function isMcpPermissionRequest(rawInput: PermissionRequestPayload): boolean {
+    return rawInput.toolCall?.rawInput?.request?._meta?.codex_approval_kind === "mcp_tool_call";
+}
+
+function extractMcpToolName(rawInput: PermissionRequestPayload): string | null {
+    const explicitTitle = rawInput.toolCall?.rawInput?.request?._meta?.tool_title;
+    if (typeof explicitTitle === "string" && explicitTitle.trim().length > 0) {
+        return explicitTitle.trim();
+    }
+
+    const message = rawInput.toolCall?.rawInput?.request?.message;
+    if (typeof message === "string") {
+        const match = message.match(/tool "([^"]+)"/i);
+        if (match?.[1]) {
+            return match[1].trim();
+        }
+    }
+
+    return null;
+}
+
+function extractMcpServerName(rawInput: PermissionRequestPayload): string | null {
+    const serverName = rawInput.toolCall?.rawInput?.server_name;
+    return typeof serverName === "string" && serverName.trim().length > 0 ? serverName.trim() : null;
+}
+
+function extractMcpToolDescription(rawInput: PermissionRequestPayload): string | null {
+    const description = rawInput.toolCall?.rawInput?.request?._meta?.tool_description;
+    return typeof description === "string" && description.trim().length > 0 ? description.trim() : null;
+}
+
+function extractMcpParamDisplay(rawInput: PermissionRequestPayload): Array<{ name: string; value: string }> {
+    const values = rawInput.toolCall?.rawInput?.request?._meta?.tool_params_display;
+    if (!Array.isArray(values)) return [];
+    return values.flatMap((value) => {
+        if (!value || typeof value !== "object") return [];
+        const record = value as { name?: unknown; display_name?: unknown; value?: unknown };
+        const name = typeof record.display_name === "string" && record.display_name.trim().length > 0
+            ? record.display_name.trim()
+            : typeof record.name === "string" && record.name.trim().length > 0
+                ? record.name.trim()
+                : null;
+        if (!name) return [];
+        const displayValue = typeof record.value === "string"
+            ? record.value
+            : JSON.stringify(record.value);
+        return [{ name, value: displayValue }];
+    });
+}
+
+function buildPermissionCompactSummary(input: {
+    isMcpApproval: boolean;
+    requestTitle: string;
+    command: string | null;
+    reason: string | null;
+    mcpTitle: string;
+    mcpDescription: string | null;
+    mcpParams: Array<{ name: string; value: string }>;
+}): string {
+    const parts: string[] = [];
+
+    if (input.isMcpApproval) {
+        if (input.mcpTitle) parts.push(input.mcpTitle);
+        if (input.mcpParams.length > 0) {
+            parts.push(input.mcpParams.map((param) => `${param.name}: ${param.value}`).join(", "));
+        } else if (input.mcpDescription) {
+            parts.push(input.mcpDescription);
+        }
+        return parts.join(" · ");
+    }
+
+    if (input.requestTitle) {
+        parts.push(input.requestTitle);
+    }
+    if (shouldRenderPermissionCommand(input.requestTitle, input.command)) {
+        if (input.command) parts.push(input.command);
+    } else if (input.reason) {
+        parts.push(input.reason);
+    }
+
+    return parts.join(" · ");
+}
+
+function buildPermissionResponseForOption(
+    option: PermissionRequestOption,
+    requestedPermissions: Record<string, unknown>,
+): Record<string, unknown> {
+    const optionId = typeof option.optionId === "string" ? option.optionId : undefined;
+    const kind = typeof option.kind === "string" ? option.kind : "";
+    const isReject = kind.startsWith("reject") || optionId === "cancel" || optionId === "abort";
+    const scope = optionId === "approved-for-session" || optionId === "approved-always"
+        ? "session"
+        : "turn";
+
+    return {
+        ...(optionId ? { optionId } : {}),
+        decision: isReject ? "deny" : "approve",
+        scope,
+        permissions: isReject ? {} : requestedPermissions,
+    };
 }
 
 function getOptionLabel(option: PermissionRequestOption | undefined, fallback: string): string {
@@ -658,6 +807,10 @@ export function PermissionRequestBubble({
     const amendment = extractPermissionAmendment(rawInput);
     const outcome = mapPermissionOutcome(rawInput);
     const options = rawInput.options ?? [];
+    const isMcpApproval = isMcpPermissionRequest(rawInput);
+    const usesOptionButtons = options.length > 0;
+    const selectedOptionId = extractSelectedPermissionOptionId(rawInput, message.toolRawOutput);
+    const selectedOption = options.find((option) => option.optionId === selectedOptionId);
     const alwaysOption = options.find((option) => option.optionId === "approved-for-session" || option.kind === "allow_always");
     const onceOption = options.find((option) => option.optionId === "approved" || option.kind === "allow_once");
     const scopeLabel = scope === "session"
@@ -668,6 +821,32 @@ export function PermissionRequestBubble({
         : outcome === "approve"
             ? t.messageBubble.permissionApproved
             : null;
+    const mcpServerName = extractMcpServerName(rawInput);
+    const mcpToolName = extractMcpToolName(rawInput);
+    const mcpTitle = [mcpServerName, mcpToolName].filter(Boolean).join("/");
+    const mcpDescription = extractMcpToolDescription(rawInput);
+    const mcpParams = extractMcpParamDisplay(rawInput);
+    const completionText = selectedOption
+        ? getOptionLabel(selectedOption, selectedOptionId ?? completionLabel ?? "")
+        : completionLabel;
+    const compactSummary = buildPermissionCompactSummary({
+        isMcpApproval,
+        requestTitle,
+        command,
+        reason,
+        mcpTitle,
+        mcpDescription,
+        mcpParams,
+    });
+    const [detailsExpanded, setDetailsExpanded] = useState(false);
+    const hasDetailSections =
+        Boolean(mcpDescription)
+        || mcpParams.length > 0
+        || Boolean(reason)
+        || Boolean(command)
+        || amendment.length > 0
+        || Object.keys(requestedPermissions).length > 0
+        || options.length > 0;
 
     const handleSubmit = async (decision: "approve" | "deny") => {
         if (!message.toolCallId || !onSubmit || submitting) return;
@@ -686,6 +865,107 @@ export function PermissionRequestBubble({
         }
     };
 
+    const handleOptionSubmit = async (option: PermissionRequestOption) => {
+        if (!message.toolCallId || !onSubmit || submitting) return;
+        setSubmitting(true);
+        setSubmitError(null);
+        try {
+            await onSubmit(
+                message.toolCallId,
+                buildPermissionResponseForOption(option, requestedPermissions),
+            );
+        } catch (error) {
+            setSubmitError(error instanceof Error ? error.message : t.messageBubble.failedToSubmit);
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    if (isCompleted || isFailed) {
+        return (
+            <div className="w-full rounded-md border border-sky-200/80 dark:border-sky-800/40 bg-sky-50/40 dark:bg-sky-950/10 overflow-hidden">
+                <button
+                    type="button"
+                    disabled={!hasDetailSections}
+                    onClick={() => hasDetailSections && setDetailsExpanded((value) => !value)}
+                    className={`flex w-full items-center gap-2 px-2.5 py-2 text-left ${hasDetailSections ? "cursor-pointer" : "cursor-default"}`}
+                >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isCompleted ? "bg-emerald-500" : "bg-red-500"}`} />
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-400 shrink-0">
+                        {t.messageBubble.requestPermissions}
+                    </span>
+                    <div className="min-w-0 flex-1 text-xs text-slate-700 dark:text-slate-200 truncate">
+                        {compactSummary || requestTitle}
+                    </div>
+                    {completionText ? (
+                        <span className="shrink-0 inline-flex items-center rounded-full bg-white/80 px-2 py-1 text-[11px] font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900/60 dark:text-slate-300 dark:ring-slate-700">
+                            {completionText}
+                            {outcome === "approve" && !selectedOption ? ` · ${scopeLabel}` : ""}
+                        </span>
+                    ) : null}
+                    {hasDetailSections ? (
+                        <ChevronRight className={`h-3 w-3 shrink-0 text-slate-400 transition-transform ${detailsExpanded ? "rotate-90" : ""}`} />
+                    ) : null}
+                </button>
+                {detailsExpanded ? (
+                    <div className="border-t border-sky-200/80 px-2.5 py-2 dark:border-sky-800/40">
+                        <div className="space-y-2">
+                            {isMcpApproval && mcpDescription ? (
+                                <div className="text-xs text-slate-700 dark:text-slate-300">
+                                    {mcpDescription}
+                                </div>
+                            ) : null}
+                            {isMcpApproval && mcpParams.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                    {mcpParams.map((param) => (
+                                        <span
+                                            key={`${param.name}:${param.value}`}
+                                            className="inline-flex items-center rounded-full bg-white/85 px-2 py-1 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900/60 dark:text-slate-200 dark:ring-slate-700"
+                                        >
+                                            {`${param.name}: ${param.value}`}
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : null}
+                            {shouldRenderPermissionCommand(requestTitle, command) ? (
+                                <code className="block rounded-md bg-white/80 px-2 py-1.5 text-[11px] text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900/60 dark:text-slate-200 dark:ring-slate-700 break-all">
+                                    {command}
+                                </code>
+                            ) : null}
+                            {reason && !isMcpApproval ? (
+                                <div className="text-xs text-slate-700 dark:text-slate-300">
+                                    {reason}
+                                </div>
+                            ) : null}
+                            {amendment.length > 0 && !isMcpApproval ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                    {amendment.map((entry) => (
+                                        <span
+                                            key={entry}
+                                            className="inline-flex items-center rounded-full bg-white/85 px-2 py-1 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900/60 dark:text-slate-200 dark:ring-slate-700"
+                                        >
+                                            {entry}
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : null}
+                            {Object.keys(requestedPermissions).length > 0 && !isMcpApproval ? (
+                                <details className="rounded-md border border-slate-200/80 bg-white/70 px-2 py-1.5 dark:border-slate-700/80 dark:bg-slate-900/40">
+                                    <summary className="cursor-pointer text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                                        {t.messageBubble.permissionTechnicalDetails}
+                                    </summary>
+                                    <div className="mt-2">
+                                        <ToolInputTable input={requestedPermissions} />
+                                    </div>
+                                </details>
+                            ) : null}
+                        </div>
+                    </div>
+                ) : null}
+            </div>
+        );
+    }
+
     return (
         <div className="w-full rounded-md border border-sky-200/80 dark:border-sky-800/40 bg-sky-50/40 dark:bg-sky-950/10 overflow-hidden">
             <div className="px-2.5 py-2 space-y-2">
@@ -696,8 +976,25 @@ export function PermissionRequestBubble({
                     </span>
                 </div>
                 <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                    {requestTitle}
+                    {isMcpApproval && mcpTitle ? mcpTitle : requestTitle}
                 </div>
+                {isMcpApproval && mcpDescription ? (
+                    <div className="text-xs text-slate-700 dark:text-slate-300">
+                        {mcpDescription}
+                    </div>
+                ) : null}
+                {isMcpApproval && mcpParams.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                        {mcpParams.map((param) => (
+                            <span
+                                key={`${param.name}:${param.value}`}
+                                className="inline-flex items-center rounded-full bg-white/85 px-2 py-1 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900/60 dark:text-slate-200 dark:ring-slate-700"
+                            >
+                                {`${param.name}: ${param.value}`}
+                            </span>
+                        ))}
+                    </div>
+                ) : null}
                 {shouldRenderPermissionCommand(requestTitle, command) ? (
                     <div className="space-y-1">
                         <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
@@ -708,7 +1005,7 @@ export function PermissionRequestBubble({
                         </code>
                     </div>
                 ) : null}
-                {reason ? (
+                {reason && !isMcpApproval ? (
                     <div className="space-y-1">
                         <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                             {t.messageBubble.permissionReason}
@@ -718,13 +1015,7 @@ export function PermissionRequestBubble({
                         </div>
                     </div>
                 ) : null}
-                {isCompleted && completionLabel ? (
-                    <div className="inline-flex w-fit items-center rounded-full bg-white/80 px-2 py-1 text-[11px] font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900/60 dark:text-slate-300 dark:ring-slate-700">
-                        {completionLabel}
-                        {outcome === "approve" ? ` · ${scopeLabel}` : ""}
-                    </div>
-                ) : null}
-                {amendment.length > 0 ? (
+                {amendment.length > 0 && !isMcpApproval ? (
                     <div className="space-y-1">
                         <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                             {t.messageBubble.permissionSuggestedAccess}
@@ -741,7 +1032,22 @@ export function PermissionRequestBubble({
                         </div>
                     </div>
                 ) : null}
-                {!isCompleted && !isFailed && (
+                {!isCompleted && !isFailed && usesOptionButtons && (
+                    <div className="flex flex-wrap gap-2">
+                        {options.map((option) => (
+                            <button
+                                key={option.optionId ?? option.name ?? option.kind}
+                                type="button"
+                                disabled={submitting}
+                                onClick={() => void handleOptionSubmit(option)}
+                                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-[#0b1119] dark:text-slate-200"
+                            >
+                                {getOptionLabel(option, option.optionId ?? option.kind ?? "option")}
+                            </button>
+                        ))}
+                    </div>
+                )}
+                {!isCompleted && !isFailed && !usesOptionButtons && (
                     <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                             <select
@@ -775,14 +1081,14 @@ export function PermissionRequestBubble({
                         </div>
                     </div>
                 )}
-                {(Object.keys(requestedPermissions).length > 0 || options.length > 0) ? (
+                {!isMcpApproval && (Object.keys(requestedPermissions).length > 0 || options.length > 0) ? (
                     <details className="rounded-md border border-slate-200/80 bg-white/70 px-2 py-1.5 dark:border-slate-700/80 dark:bg-slate-900/40">
                         <summary className="cursor-pointer text-[11px] font-medium text-slate-600 dark:text-slate-300">
                             {t.messageBubble.permissionTechnicalDetails}
                         </summary>
                         <div className="mt-2 space-y-2">
                             <ToolInputTable input={requestedPermissions} />
-                            {options.length > 0 ? (
+                            {!usesOptionButtons && options.length > 0 ? (
                                 <div className="flex flex-wrap gap-1.5">
                                     {options.map((option) => (
                                         <span
