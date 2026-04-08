@@ -403,6 +403,7 @@ export function KanbanCardActivityBar({
             const run = runMap.get(sessionId);
             const laneLabel = laneSession?.columnName ?? laneSession?.columnId ?? t.kanban.runLabel;
             const runLabel = buildSessionDisplayLabel(sessionId, index, sessionMap);
+            const tabLabel = laneSession?.stepName?.trim() || runLabel;
 
             return (
               <button
@@ -415,9 +416,9 @@ export function KanbanCardActivityBar({
                     : "border-b-transparent text-slate-600 hover:border-b-slate-300 dark:border-b-transparent dark:text-slate-400 dark:hover:border-b-slate-600"
                 }`}
                 aria-pressed={active}
-                title={`${laneLabel} · Run ${index + 1} (${runLabel})`}
+                title={`${tabLabel} · ${laneLabel} · Run ${index + 1}`}
               >
-                <span className="truncate font-semibold">{laneLabel}</span>
+                <span className="truncate font-semibold">{tabLabel}</span>
                 {run && (
                   <TaskRunStatusIcon status={run.status} />
                 )}

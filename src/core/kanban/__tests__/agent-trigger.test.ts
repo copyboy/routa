@@ -667,6 +667,13 @@ describe("triggerAssignedTaskAgent ACP prompt lifecycle", () => {
       transport: "acp",
       displayTarget: "codex",
     });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:3000/api/acp",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("\"name\":\"Run ACP task · DEVELOPER\""),
+      }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(dispatchSessionPromptMock).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: "sess-1",

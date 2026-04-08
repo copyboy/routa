@@ -1825,6 +1825,7 @@ describe.skip("KanbanTab card detail manual runs", () => {
               role: "DEVELOPER",
               specialistId: "dev",
               specialistName: "Dev Crafter",
+              stepName: "Dev Crafter",
               status: "completed",
               columnId: "dev",
               columnName: "Dev",
@@ -1836,6 +1837,7 @@ describe.skip("KanbanTab card detail manual runs", () => {
               role: "GATE",
               specialistId: "review",
               specialistName: "Review Guard",
+              stepName: "Review Guard",
               status: "completed",
               columnId: "review",
               columnName: "Review",
@@ -1877,11 +1879,11 @@ describe.skip("KanbanTab card detail manual runs", () => {
       expect(acp.selectSession).toHaveBeenCalledWith("session-456");
     });
 
-    const runOne = await screen.findByRole("button", { name: /Dev/i });
-    const runTwo = await screen.findByRole("button", { name: /Review/i });
+    const runOne = await screen.findByRole("button", { name: /Dev Crafter/i });
+    const runTwo = await screen.findByRole("button", { name: /Review Guard/i });
 
-    expect(runOne.textContent).toContain("Dev");
-    expect(runTwo.textContent).toContain("Review");
+    expect(runOne.textContent).toContain("Dev Crafter");
+    expect(runTwo.textContent).toContain("Review Guard");
     expect(runTwo.getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByText("completed")).toBeTruthy();
 

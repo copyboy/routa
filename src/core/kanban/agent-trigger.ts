@@ -409,6 +409,9 @@ async function triggerAcpTaskAgent(params: {
 }): Promise<AutomationRunHandle | { error: string }> {
   const provider = resolveKanbanAutomationProvider(params.task.assignedProvider);
   const role = params.task.assignedRole ?? "CRAFTER";
+  const sessionLabel = params.task.assignedSpecialistName
+    ?? params.task.assignedSpecialistId
+    ?? role;
 
   const newSessionResponse = await fetch(`${params.origin}/api/acp`, {
     method: "POST",
@@ -426,7 +429,7 @@ async function triggerAcpTaskAgent(params: {
         workspaceId: params.workspaceId,
         specialistId: params.task.assignedSpecialistId,
         specialistLocale: params.specialistLocale,
-        name: `${params.task.title} · ${provider}`,
+        name: `${params.task.title} · ${sessionLabel}`,
       },
     }),
   });
