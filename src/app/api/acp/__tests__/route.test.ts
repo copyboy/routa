@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   getHttpSessionStore,
   httpSessionStore,
+  getAcpProcessManager,
+  acpProcessManager,
+  getSessionWriteBuffer,
+  sessionWriteBuffer,
   getSessionRoutingRecord,
   getRequiredRunnerUrl,
   isForwardedAcpRequest,
@@ -20,11 +24,34 @@ const {
     flushAgentBuffer: vi.fn(),
     getSession: vi.fn(),
     upsertSession: vi.fn(),
+    pushNotification: vi.fn(),
+  };
+  const processManager = {
+    respondToUserInput: vi.fn(),
+    getProcess: vi.fn(),
+    getClaudeProcess: vi.fn(),
+    isDockerAdapterSession: vi.fn(),
+    isOpencodeAdapterSession: vi.fn(),
+    isClaudeCodeSdkSession: vi.fn(),
+    isClaudeCodeSdkSessionAsync: vi.fn(),
+    isOpencodeSdkSessionAsync: vi.fn(),
+    getOrRecreateClaudeCodeSdkAdapter: vi.fn(),
+    getOpencodeAdapter: vi.fn(),
+    getDockerAdapter: vi.fn(),
+    cancel: vi.fn(),
+  };
+  const writeBuffer = {
+    add: vi.fn(),
+    flush: vi.fn(),
   };
 
   return {
     getHttpSessionStore: vi.fn(() => store),
     httpSessionStore: store,
+    getAcpProcessManager: vi.fn(() => processManager),
+    acpProcessManager: processManager,
+    getSessionWriteBuffer: vi.fn(() => writeBuffer),
+    sessionWriteBuffer: writeBuffer,
     getSessionRoutingRecord: vi.fn(),
     getRequiredRunnerUrl: vi.fn(),
     isForwardedAcpRequest: vi.fn(),
@@ -38,6 +65,14 @@ const {
 
 vi.mock("@/core/acp/http-session-store", () => ({
   getHttpSessionStore,
+}));
+
+vi.mock("@/core/acp/processer", () => ({
+  getAcpProcessManager,
+}));
+
+vi.mock("../acp-session-history", () => ({
+  getSessionWriteBuffer,
 }));
 
 vi.mock("@/core/acp/runner-routing", () => ({
@@ -100,7 +135,31 @@ describe("/api/acp GET", () => {
     httpSessionStore.flushAgentBuffer.mockReset();
     httpSessionStore.getSession.mockReset();
     httpSessionStore.upsertSession.mockReset();
+    httpSessionStore.pushNotification.mockReset();
     httpSessionStore.getSession.mockReturnValue({ cwd: "/tmp/session" });
+    acpProcessManager.respondToUserInput.mockReset();
+    acpProcessManager.getProcess.mockReset();
+    acpProcessManager.getClaudeProcess.mockReset();
+    acpProcessManager.isDockerAdapterSession.mockReset();
+    acpProcessManager.isOpencodeAdapterSession.mockReset();
+    acpProcessManager.isClaudeCodeSdkSession.mockReset();
+    acpProcessManager.isClaudeCodeSdkSessionAsync.mockReset();
+    acpProcessManager.isOpencodeSdkSessionAsync.mockReset();
+    acpProcessManager.getOrRecreateClaudeCodeSdkAdapter.mockReset();
+    acpProcessManager.getOpencodeAdapter.mockReset();
+    acpProcessManager.getDockerAdapter.mockReset();
+    acpProcessManager.cancel.mockReset();
+    acpProcessManager.getProcess.mockReturnValue(undefined);
+    acpProcessManager.getClaudeProcess.mockReturnValue(undefined);
+    acpProcessManager.isDockerAdapterSession.mockReturnValue(false);
+    acpProcessManager.isOpencodeAdapterSession.mockReturnValue(false);
+    acpProcessManager.isClaudeCodeSdkSession.mockReturnValue(false);
+    acpProcessManager.isClaudeCodeSdkSessionAsync.mockResolvedValue(false);
+    acpProcessManager.isOpencodeSdkSessionAsync.mockResolvedValue(false);
+    acpProcessManager.getOrRecreateClaudeCodeSdkAdapter.mockResolvedValue(undefined);
+    sessionWriteBuffer.add.mockReset();
+    sessionWriteBuffer.flush.mockReset();
+    sessionWriteBuffer.flush.mockResolvedValue(undefined);
   });
 
   it("replays events after lastEventId before attaching the live SSE stream", async () => {
@@ -229,6 +288,30 @@ describe("/api/acp POST", () => {
     getRequiredRunnerUrl.mockReturnValue(null);
     updateSessionExecutionBindingInDb.mockResolvedValue(undefined);
     httpSessionStore.upsertSession.mockReset();
+    httpSessionStore.pushNotification.mockReset();
+    acpProcessManager.respondToUserInput.mockReset();
+    acpProcessManager.getProcess.mockReset();
+    acpProcessManager.getClaudeProcess.mockReset();
+    acpProcessManager.isDockerAdapterSession.mockReset();
+    acpProcessManager.isOpencodeAdapterSession.mockReset();
+    acpProcessManager.isClaudeCodeSdkSession.mockReset();
+    acpProcessManager.isClaudeCodeSdkSessionAsync.mockReset();
+    acpProcessManager.isOpencodeSdkSessionAsync.mockReset();
+    acpProcessManager.getOrRecreateClaudeCodeSdkAdapter.mockReset();
+    acpProcessManager.getOpencodeAdapter.mockReset();
+    acpProcessManager.getDockerAdapter.mockReset();
+    acpProcessManager.cancel.mockReset();
+    acpProcessManager.getProcess.mockReturnValue(undefined);
+    acpProcessManager.getClaudeProcess.mockReturnValue(undefined);
+    acpProcessManager.isDockerAdapterSession.mockReturnValue(false);
+    acpProcessManager.isOpencodeAdapterSession.mockReturnValue(false);
+    acpProcessManager.isClaudeCodeSdkSession.mockReturnValue(false);
+    acpProcessManager.isClaudeCodeSdkSessionAsync.mockResolvedValue(false);
+    acpProcessManager.isOpencodeSdkSessionAsync.mockResolvedValue(false);
+    acpProcessManager.getOrRecreateClaudeCodeSdkAdapter.mockResolvedValue(undefined);
+    sessionWriteBuffer.add.mockReset();
+    sessionWriteBuffer.flush.mockReset();
+    sessionWriteBuffer.flush.mockResolvedValue(undefined);
   });
 
   it("returns ACP capabilities for initialize before any process exists", async () => {
@@ -405,5 +488,58 @@ describe("/api/acp POST", () => {
       },
     });
     expect(loadSessionFromLocalStorage).toHaveBeenCalledWith("session-1");
+  });
+
+  it("marks missing interactive requests as failed so stale permission cards disappear after refresh", async () => {
+    acpProcessManager.respondToUserInput.mockReturnValue(false);
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/acp", {
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 6,
+          method: "session/respond_user_input",
+          params: {
+            sessionId: "session-1",
+            toolCallId: "request-permission-1",
+            response: {
+              decision: "deny",
+              scope: "turn",
+            },
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      jsonrpc: "2.0",
+      id: 6,
+      error: {
+        code: -32000,
+        message: "No pending interactive request found for this session",
+      },
+    });
+    expect(httpSessionStore.pushNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-1",
+        update: expect.objectContaining({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "request-permission-1",
+          status: "failed",
+          rawOutput: {
+            message: "No pending interactive request found for this session",
+          },
+        }),
+      }),
+    );
+    expect(sessionWriteBuffer.add).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        sessionId: "session-1",
+      }),
+    );
+    expect(sessionWriteBuffer.flush).toHaveBeenCalledWith("session-1");
   });
 });

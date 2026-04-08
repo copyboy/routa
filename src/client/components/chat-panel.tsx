@@ -75,6 +75,8 @@ export interface PlanEntry {
   status?: "pending" | "in_progress" | "completed";
 }
 
+const MISSING_PENDING_INTERACTIVE_REQUEST_MESSAGE = "No pending interactive request found for this session";
+
 interface ChatPanelProps {
   acp: UseAcpState & UseAcpActions;
   activeSessionId: string | null;
@@ -253,62 +255,70 @@ export function ChatPanel({
 
   // ── Actions ──────────────────────────────────────────────────────────
 
+  const updateInteractiveRequestMessage = useCallback((
+    toolCallId: string,
+    status: "completed" | "failed",
+    response: Record<string, unknown>,
+    errorMessage?: string,
+  ) => {
+    if (!activeSessionId) return;
+
+    setMessagesBySession((prev) => {
+      const msgs = prev[activeSessionId] ?? [];
+      return {
+        ...prev,
+        [activeSessionId]: msgs.map((msg) =>
+          msg.toolCallId === toolCallId
+            ? {
+                ...msg,
+                toolStatus: status,
+                toolRawInput: {
+                  ...((msg.toolRawInput as Record<string, unknown>) ?? {}),
+                  ...response,
+                },
+                toolRawOutput: errorMessage
+                  ? { message: errorMessage }
+                  : msg.toolRawOutput,
+              }
+            : msg,
+        ),
+      };
+    });
+  }, [activeSessionId, setMessagesBySession]);
+
   const handleRepoChange = onRepoChange;
 
   const handleSubmitAskUserQuestion = useCallback(async (
     toolCallId: string,
     response: Record<string, unknown>,
   ) => {
-    await acp.respondToUserInput(toolCallId, response);
-    // Optimistically mark as completed so the sticky card disappears immediately
-    if (activeSessionId) {
-      setMessagesBySession((prev) => {
-        const msgs = prev[activeSessionId] ?? [];
-        return {
-          ...prev,
-          [activeSessionId]: msgs.map((msg) =>
-            msg.toolCallId === toolCallId
-              ? {
-                  ...msg,
-                  toolStatus: "completed",
-                  toolRawInput: {
-                    ...((msg.toolRawInput as Record<string, unknown>) ?? {}),
-                    ...response,
-                  },
-                }
-              : msg,
-          ),
-        };
-      });
+    try {
+      await acp.respondToUserInput(toolCallId, response);
+      updateInteractiveRequestMessage(toolCallId, "completed", response);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes(MISSING_PENDING_INTERACTIVE_REQUEST_MESSAGE)) {
+        updateInteractiveRequestMessage(toolCallId, "failed", response, MISSING_PENDING_INTERACTIVE_REQUEST_MESSAGE);
+        return;
+      }
+      throw error;
     }
-  }, [acp, activeSessionId, setMessagesBySession]);
+  }, [acp, updateInteractiveRequestMessage]);
 
   const handleSubmitPermissionRequest = useCallback(async (
     toolCallId: string,
     response: Record<string, unknown>,
   ) => {
-    await acp.respondToUserInput(toolCallId, response);
-    if (activeSessionId) {
-      setMessagesBySession((prev) => {
-        const msgs = prev[activeSessionId] ?? [];
-        return {
-          ...prev,
-          [activeSessionId]: msgs.map((msg) =>
-            msg.toolCallId === toolCallId
-              ? {
-                  ...msg,
-                  toolStatus: "completed",
-                  toolRawInput: {
-                    ...((msg.toolRawInput as Record<string, unknown>) ?? {}),
-                    ...response,
-                  },
-                }
-              : msg,
-          ),
-        };
-      });
+    try {
+      await acp.respondToUserInput(toolCallId, response);
+      updateInteractiveRequestMessage(toolCallId, "completed", response);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes(MISSING_PENDING_INTERACTIVE_REQUEST_MESSAGE)) {
+        updateInteractiveRequestMessage(toolCallId, "failed", response, MISSING_PENDING_INTERACTIVE_REQUEST_MESSAGE);
+        return;
+      }
+      throw error;
     }
-  }, [acp, activeSessionId, setMessagesBySession]);
+  }, [acp, updateInteractiveRequestMessage]);
 
   const handleTerminalInput = useCallback(async (terminalId: string, data: string) => {
     await acp.writeTerminal(terminalId, data);

@@ -109,6 +109,26 @@ function pushAndPersistForwardedNotification(
   }
 }
 
+function markMissingInteractiveRequestAsFailed(
+  sessionId: string,
+  toolCallId: string,
+  response: Record<string, unknown>,
+): void {
+  const store = getHttpSessionStore();
+  pushAndPersistForwardedNotification(store, sessionId, {
+    update: {
+      sessionUpdate: "tool_call_update",
+      toolCallId,
+      title: "UserInputResponse",
+      status: "failed",
+      rawInput: response,
+      rawOutput: {
+        message: "No pending interactive request found for this session",
+      },
+    },
+  });
+}
+
 function requireWorkspaceId(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
@@ -479,6 +499,7 @@ export async function POST(request: NextRequest) {
       const manager = getAcpProcessManager();
       const handled = manager.respondToUserInput(sessionId, toolCallId, response);
       if (!handled) {
+        markMissingInteractiveRequestAsFailed(sessionId, toolCallId, response);
         return jsonrpcResponse(id ?? null, null, {
           code: -32000,
           message: "No pending interactive request found for this session",
