@@ -472,6 +472,43 @@ describe("KanbanCardDetail repository health", () => {
     expect(await screen.findByText("session-review-long-id-1234567890")).toBeTruthy();
   });
 
+  it("keeps run row selection separate from copying the session id", async () => {
+    const onSelectSession = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, {
+      clipboard: { writeText },
+    });
+
+    render(
+      <KanbanCardActivityPanel
+        task={{
+          ...createTask("task-runs-copy", "Story Runs Copy"),
+          columnId: "review",
+          laneSessions: [{
+            sessionId: "session-review-copy-123",
+            columnId: "review",
+            columnName: "Review",
+            provider: "codex",
+            role: "GATE",
+            status: "running",
+            startedAt: "2025-01-01T00:00:00.000Z",
+          }],
+        }}
+        sessions={[]}
+        specialists={[]}
+        specialistLanguage="en"
+        onSelectSession={onSelectSession}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /run 1/i }));
+    expect(onSelectSession).toHaveBeenCalledWith("session-review-copy-123");
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy to clipboard" }));
+    expect(writeText).toHaveBeenCalledWith("session-review-copy-123");
+    expect(onSelectSession).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the runs tab visible in split detail mode", () => {
     render(
       <KanbanCardDetail

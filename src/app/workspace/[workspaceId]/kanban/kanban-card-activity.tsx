@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { ArrowRightLeft, Check, CircleHelp, Copy, LoaderCircle, OctagonX, X } from "lucide-react";
 import { useTranslation } from "@/i18n";
 import type { AcpProviderInfo } from "@/client/acp-client";
@@ -181,6 +181,19 @@ function ActivitySection({
       {children}
     </section>
   );
+}
+
+function handleSessionRowKeyDown(
+  event: KeyboardEvent<HTMLDivElement>,
+  onSelectSession: ((sessionId: string) => void) | undefined,
+  sessionId: string,
+) {
+  if (event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+
+  event.preventDefault();
+  onSelectSession?.(sessionId);
 }
 
 function SessionIdChip({
@@ -520,6 +533,7 @@ function SessionHistoryPanel({
           const isCurrent = sessionId === currentSessionId;
           const laneSession = laneSessionMap.get(sessionId);
           const run = runMap.get(sessionId);
+          const selectedSessionId = run?.sessionId ?? sessionId;
           const laneSpecialist = getSpecialistName(
             laneSession?.specialistId,
             run?.specialistName ?? laneSession?.specialistName,
@@ -530,14 +544,18 @@ function SessionHistoryPanel({
           const reconnectLabel = run?.resumeTarget?.type === "external_task" ? t.kanban.inspectLabel : t.kanban.openLabel;
 
           return (
-            <button
+            <div
               key={sessionId}
-              onClick={() => onSelectSession?.(run?.sessionId ?? sessionId)}
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelectSession?.(selectedSessionId)}
+              onKeyDown={(event) => handleSessionRowKeyDown(event, onSelectSession, selectedSessionId)}
               className={`w-full border-b border-slate-200/70 text-left transition-colors last:border-b-0 ${compact ? "px-2.5 py-2" : "px-3 py-2.5"} ${
                 isCurrent
                   ? "text-amber-900 dark:text-amber-200"
                   : "text-slate-700 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300"
-              }`}
+              } focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950`}
+              aria-pressed={isCurrent}
             >
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 dark:bg-slate-800 dark:text-slate-300">
@@ -609,7 +627,7 @@ function SessionHistoryPanel({
                 </span>
                 <span className="font-medium text-amber-600 dark:text-amber-300">{reconnectLabel}</span>
               </div>
-            </button>
+            </div>
           );
         })}
       </div>
