@@ -120,6 +120,7 @@ describe("KanbanCardDetail repository health", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Execution" }));
     fireEvent.click(screen.getByText("Repo").closest("summary")!);
 
     expect(await screen.findByText("Repo Health")).toBeTruthy();
@@ -178,6 +179,7 @@ describe("KanbanCardDetail repository health", () => {
       />
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Execution" }));
     expect(screen.getByText(/Current run failed on Auggie:/i)).toBeTruthy();
     expect(screen.getByText(/403 Forbidden/i)).toBeTruthy();
   });
@@ -237,6 +239,7 @@ describe("KanbanCardDetail repository health", () => {
       />
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Execution" }));
     expect(screen.getByText(/Current run failed on Claude Code:/i)).toBeTruthy();
     expect(screen.queryByText(/Current run failed on Codex:/i)).toBeNull();
   });
@@ -301,6 +304,7 @@ describe("KanbanCardDetail repository health", () => {
       />
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Execution" }));
     expect(screen.getAllByText(/Workspace default · GATE · Remote Review/i).length).toBeGreaterThan(0);
   });
 
@@ -331,7 +335,7 @@ describe("KanbanCardDetail repository health", () => {
 
     expect(screen.getByDisplayValue("Story One")).toBeTruthy();
     expect(screen.getByText("Initial objective")).toBeTruthy();
-    expect(screen.getByDisplayValue("Initial test")).toBeTruthy();
+    expect(screen.getByText("- Initial test")).toBeTruthy();
     expect((screen.getByRole("combobox", { name: "Priority" }) as HTMLSelectElement).value).toBe("medium");
 
     rerender(
@@ -361,7 +365,7 @@ describe("KanbanCardDetail repository health", () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue("Story One Updated")).toBeTruthy();
       expect(screen.getByText("Updated objective")).toBeTruthy();
-      expect(screen.getByDisplayValue("Updated test")).toBeTruthy();
+      expect(screen.getByText("- Updated test")).toBeTruthy();
       expect((screen.getByRole("combobox", { name: "Priority" }) as HTMLSelectElement).value).toBe("high");
     });
   });
@@ -434,12 +438,12 @@ describe("KanbanCardDetail repository health", () => {
       />,
     );
 
-    expect(screen.getByText("Story Readiness")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Story Readiness" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Story Readiness" }));
-    expect(screen.getByText("Blocked for Dev")).toBeTruthy();
+    expect(screen.getAllByText("Blocked for Dev").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Evidence Bundle" }));
     expect(screen.getByRole("button", { name: "Evidence Bundle" })).toBeTruthy();
-    expect(screen.getByText("Evidence incomplete")).toBeTruthy();
+    expect(screen.getAllByText("Evidence incomplete").length).toBeGreaterThan(0);
     expect(screen.getByText(/test_results/i)).toBeTruthy();
   });
 
@@ -466,6 +470,39 @@ describe("KanbanCardDetail repository health", () => {
     );
 
     expect(await screen.findByText("session-review-long-id-1234567890")).toBeTruthy();
+  });
+
+  it("keeps the runs tab visible in split detail mode", () => {
+    render(
+      <KanbanCardDetail
+        task={{
+          ...createTask("task-split-runs", "Story Split Runs"),
+          laneSessions: [{
+            sessionId: "session-split-1",
+            columnId: "review",
+            columnName: "Review",
+            provider: "codex",
+            role: "GATE",
+            status: "completed",
+            startedAt: "2025-01-01T00:00:00.000Z",
+          }],
+        }}
+        boardColumns={board.columns}
+        availableProviders={[]}
+        specialists={[]}
+        specialistLanguage="en"
+        codebases={[]}
+        allCodebaseIds={[]}
+        worktreeCache={{}}
+        sessions={[]}
+        onPatchTask={vi.fn(async () => createTask("task-split-runs", "Story Split Runs"))}
+        onRetryTrigger={vi.fn()}
+        onDelete={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Runs" })).toBeTruthy();
   });
 
   it("shows full review feedback in the description tab after review sends the card back", () => {

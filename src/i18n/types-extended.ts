@@ -640,6 +640,8 @@ export interface ExtendedTranslationDictionarySections extends TailTranslationDi
   // Kanban card detail
   kanbanDetail: {
     cardDetail: string;
+    overview: string;
+    overviewHint: string;
     priority: string;
     low: string;
     medium: string;
@@ -704,6 +706,7 @@ export interface ExtendedTranslationDictionarySections extends TailTranslationDi
     keepCardSessionOverride: string;
     cardHasExplicitOverride: string;
     noCardOverride: string;
+    showSessionPane: string;
     gateNotConfigured: string;
     requiredForNextMove: string;
     readyForDev: string;

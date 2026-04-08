@@ -635,6 +635,8 @@ export const enExtended: ExtendedTranslationDictionarySections = {
 
   kanbanDetail: {
     cardDetail: "Card Detail",
+    overview: "Overview",
+    overviewHint: "Read the card spec, review notes, and editable delivery context in one place.",
     priority: "Priority",
     low: "Low",
     medium: "Medium",
@@ -699,6 +701,7 @@ export const enExtended: ExtendedTranslationDictionarySections = {
     keepCardSessionOverride: "Keep card session override",
     cardHasExplicitOverride: "Explicit override",
     noCardOverride: "No explicit override",
+    showSessionPane: "Show session pane",
     gateNotConfigured: "No story-readiness gate is configured for the next lane.",
     requiredForNextMove: "Required for next move",
     readyForDev: "Ready for Dev",

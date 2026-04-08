@@ -635,6 +635,8 @@ export const zhExtended: ExtendedTranslationDictionarySections = {
 
   kanbanDetail: {
     cardDetail: "卡片详情",
+    overview: "概览",
+    overviewHint: "在一个视图里阅读卡片规格、评审反馈和可编辑的交付上下文。",
     priority: "优先级",
     low: "低",
     medium: "中",
@@ -699,6 +701,7 @@ export const zhExtended: ExtendedTranslationDictionarySections = {
     keepCardSessionOverride: "保留卡片会话覆盖",
     cardHasExplicitOverride: "显式覆盖：",
     noCardOverride: "无显式覆盖",
+    showSessionPane: "显示 session 面板",
     gateNotConfigured: "下一泳道未配置故事就绪度门禁。",
     requiredForNextMove: "下一次移动要求",
     readyForDev: "可进入 Dev",

@@ -1551,7 +1551,6 @@ export function KanbanTab({
         confirmDeleteTask={confirmDeleteTask}
         onRefresh={onRefresh}
         setActiveSessionId={setActiveSessionId}
-        closeTaskDetail={closeTaskDetail}
         sessionMap={sessionMap}
         workspaceId={workspaceId}
         isTaskDetailFullscreen={isTaskDetailFullscreen}

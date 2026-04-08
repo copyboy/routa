@@ -68,10 +68,13 @@ export interface KanbanCardDetailProps {
   onSelectSession?: (sessionId: string) => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: (next: boolean) => void;
+  canShowSessionPane?: boolean;
+  isSessionPaneVisible?: boolean;
+  onShowSessionPane?: () => void;
 }
 
 const ROLE_OPTIONS = ["CRAFTER", "ROUTA", "GATE", "DEVELOPER"];
-type KanbanDetailTabId = "description" | "readiness" | "execution" | "changes" | "evidence" | "runs";
+type KanbanDetailTabId = "overview" | "readiness" | "execution" | "changes" | "evidence" | "runs";
 
 function getProviderName(providerId: string | undefined, availableProviders: AcpProviderInfo[]): string {
   if (!providerId) return "Workspace default";
@@ -157,6 +160,14 @@ function formatAutomationStepSummary(
   ].join(" · ");
 }
 
+function getEvidenceStatus(task: TaskInfo, t: ReturnType<typeof useTranslation>["t"]): string | null {
+  const evidence = task.evidenceSummary;
+  if (!evidence) return null;
+  const reviewable = evidence.artifact.requiredSatisfied
+    && (evidence.verification.hasReport || evidence.verification.hasVerdict || evidence.completion.hasSummary);
+  return reviewable ? t.kanbanDetail.reviewable : t.kanbanDetail.reviewBlocked;
+}
+
 export function KanbanCardDetail({
   task,
   refreshSignal,
@@ -180,8 +191,12 @@ export function KanbanCardDetail({
   onSelectSession,
   isFullscreen = false,
   onToggleFullscreen,
+  canShowSessionPane = false,
+  isSessionPaneVisible = false,
+  onShowSessionPane,
 }: KanbanCardDetailProps) {
   const { t } = useTranslation();
+  const sessionCopy = getKanbanSessionCopy(specialistLanguage);
   const [editTitle, setEditTitle] = useState(task.title);
   const [editObjective, setEditObjective] = useState(task.objective ?? "");
   const [editTestCases, setEditTestCases] = useState((task.testCases ?? []).join("\n"));
@@ -229,13 +244,18 @@ export function KanbanCardDetail({
   const compactMode = splitMode;
   const tabStateKey = `${task.id}:${splitMode ? "split" : "full"}`;
   const storedTab = tabSelections[tabStateKey];
-  const activeTab = storedTab === "execution" ? "description" : (storedTab ?? "description");
+  const activeTab = storedTab ?? "overview";
+  const storyReadinessValue = task.storyReadiness
+    ? (task.storyReadiness.ready ? t.kanbanDetail.readyForDev : t.kanbanDetail.blockedForDev)
+    : null;
+  const evidenceValue = getEvidenceStatus(task, t);
   const detailTabs = [
-    { id: "description" as const, label: t.kanbanDetail.description },
+    { id: "overview" as const, label: t.kanbanDetail.overview },
     { id: "readiness" as const, label: t.kanbanDetail.storyReadiness },
+    { id: "execution" as const, label: t.kanbanDetail.execution },
     { id: "changes" as const, label: t.kanbanDetail.changes },
     { id: "evidence" as const, label: t.kanbanDetail.evidenceBundle },
-    ...(!splitMode ? [{ id: "runs" as const, label: t.kanbanDetail.runs }] : []),
+    { id: "runs" as const, label: t.kanbanDetail.runs },
   ];
 
   useEffect(() => {
@@ -299,6 +319,15 @@ export function KanbanCardDetail({
               {t.kanbanDetail.cardDetail}
             </div>
             <div className="flex items-center gap-1.5">
+              {canShowSessionPane && !isSessionPaneVisible && onShowSessionPane ? (
+                <button
+                  type="button"
+                  onClick={onShowSessionPane}
+                  className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600 transition-colors hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 dark:border-slate-700 dark:bg-[#0d1018] dark:text-slate-300 dark:hover:border-amber-700 dark:hover:bg-amber-900/20 dark:hover:text-amber-200"
+                >
+                  {sessionCopy.showSessionPane}
+                </button>
+              ) : null}
               {onToggleFullscreen ? (
                 <button
                   type="button"
@@ -319,24 +348,65 @@ export function KanbanCardDetail({
               </button>
             </div>
           </div>
-            <textarea
-              ref={titleInputRef}
-              value={displayedTitle}
+          <textarea
+            ref={titleInputRef}
+            value={displayedTitle}
+            readOnly={!isTitleEditing}
             onFocus={() => {
-              setEditTitle(task.title);
-              setIsTitleEditing(true);
+              if (!isTitleEditing) {
+                setEditTitle(task.title);
+                setIsTitleEditing(true);
+              }
             }}
             onChange={(event) => setEditTitle(event.target.value)}
-            onBlur={async () => {
-              setIsTitleEditing(false);
-              if (editTitle !== task.title) {
-                await onPatchTask(task.id, { title: editTitle });
-                onRefresh();
+            onKeyDown={async (event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setEditTitle(task.title);
+                setIsTitleEditing(false);
+                titleInputRef.current?.blur();
+                return;
+              }
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                event.preventDefault();
+                if (editTitle !== task.title) {
+                  await onPatchTask(task.id, { title: editTitle });
+                  onRefresh();
+                }
+                setIsTitleEditing(false);
+                titleInputRef.current?.blur();
               }
             }}
             rows={isTitleEditing ? 2 : 1}
-            className={`w-full resize-none border-0 bg-transparent px-0 py-0 font-semibold leading-tight text-slate-950 outline-none focus:border-transparent focus:ring-0 dark:text-slate-50 ${compactMode ? "text-lg" : "text-xl"}`}
+            className={`w-full resize-none border-0 bg-transparent px-0 py-0 font-semibold leading-tight text-slate-950 outline-none focus:border-transparent focus:ring-0 dark:text-slate-50 ${compactMode ? "text-lg" : "text-xl"} ${isTitleEditing ? "" : "cursor-text"}`}
           />
+          {isTitleEditing && (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (editTitle !== task.title) {
+                    await onPatchTask(task.id, { title: editTitle });
+                    onRefresh();
+                  }
+                  setIsTitleEditing(false);
+                }}
+                className="rounded-md bg-amber-500 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-amber-600"
+              >
+                {t.common.save}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditTitle(task.title);
+                  setIsTitleEditing(false);
+                }}
+                className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                {t.common.cancel}
+              </button>
+            </div>
+          )}
           <div className={`flex flex-wrap items-center ${compactMode ? "mt-1.5 gap-1.5" : "mt-2 gap-2"}`}>
             <MetaSelect
               label={t.kanbanDetail.priority}
@@ -357,6 +427,12 @@ export function KanbanCardDetail({
             <MetaBadge label="Column" value={task.columnId ?? "backlog"} compact={compactMode} />
             {orderedSessionIds.length > 0 && (
               <MetaBadge label="Runs" value={String(orderedSessionIds.length)} compact={compactMode} />
+            )}
+            {storyReadinessValue && (
+              <MetaBadge label={t.kanbanDetail.storyReadiness} value={storyReadinessValue} compact={compactMode} />
+            )}
+            {evidenceValue && (
+              <MetaBadge label={t.kanbanDetail.evidenceBundle} value={evidenceValue} compact={compactMode} />
             )}
             {task.githubNumber && (
               <MetaBadge label="GitHub" value={`#${task.githubNumber}`} compact={compactMode} />
@@ -405,7 +481,7 @@ export function KanbanCardDetail({
         </div>
 
         <div className={compactMode ? "space-y-2" : "space-y-3"}>
-          {activeTab === "description" && (
+          {activeTab === "overview" && (
             <>
               <section className={compactMode ? "space-y-1.5 border-b border-slate-200/80 py-1.5 dark:border-[#232736]" : "space-y-2 border-b border-slate-200/70 py-2 dark:border-[#232736]"}>
                 <KanbanDescriptionEditor
@@ -464,60 +540,74 @@ export function KanbanCardDetail({
                 description={compactMode ? undefined : t.kanbanDetail.testCasesHint}
                 compact={compactMode}
               >
-                <textarea
-                  ref={testCasesInputRef}
-                  value={displayedTestCases}
-                  onFocus={() => {
-                    setEditTestCases((task.testCases ?? []).join("\n"));
-                    setIsTestCasesEditing(true);
-                  }}
-                  onChange={(event) => setEditTestCases(event.target.value)}
-                  onBlur={async () => {
-                    setIsTestCasesEditing(false);
-                    const normalizedCurrent = (task.testCases ?? []).join("\n");
-                    if (editTestCases !== normalizedCurrent) {
-                      await onPatchTask(task.id, {
-                        testCases: editTestCases.split("\n").map((item) => item.trim()).filter(Boolean),
-                      });
-                      onRefresh();
-                    }
-                  }}
-                  rows={compactMode ? 4 : 5}
-                  placeholder={t.kanbanDetail.testCasesPlaceholder}
-                  className="focus:ring-offset-0 w-full border border-slate-200/80 bg-transparent px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-400 dark:border-slate-700 dark:bg-transparent dark:text-slate-100"
-                />
+                <div className="space-y-2">
+                  <div className="flex items-center justify-end gap-2">
+                    {isTestCasesEditing ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const normalizedCurrent = (task.testCases ?? []).join("\n");
+                            if (editTestCases !== normalizedCurrent) {
+                              await onPatchTask(task.id, {
+                                testCases: editTestCases.split("\n").map((item) => item.trim()).filter(Boolean),
+                              });
+                              onRefresh();
+                            }
+                            setIsTestCasesEditing(false);
+                          }}
+                          className="rounded-md bg-amber-500 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-amber-600"
+                        >
+                          {t.common.save}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditTestCases((task.testCases ?? []).join("\n"));
+                            setIsTestCasesEditing(false);
+                          }}
+                          className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                          {t.common.cancel}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditTestCases((task.testCases ?? []).join("\n"));
+                          setIsTestCasesEditing(true);
+                        }}
+                        className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                      >
+                        {t.common.edit}
+                      </button>
+                    )}
+                  </div>
+                  {isTestCasesEditing ? (
+                    <textarea
+                      ref={testCasesInputRef}
+                      value={displayedTestCases}
+                      onChange={(event) => setEditTestCases(event.target.value)}
+                      rows={compactMode ? 4 : 5}
+                      placeholder={t.kanbanDetail.testCasesPlaceholder}
+                      className="focus:ring-offset-0 w-full border border-slate-200/80 bg-transparent px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-400 dark:border-slate-700 dark:bg-transparent dark:text-slate-100"
+                    />
+                  ) : displayedTestCases.trim() ? (
+                    <div className="border-b border-slate-200/70 px-3 py-2.5 text-sm text-slate-700 dark:border-slate-700/70 dark:text-slate-200">
+                      {displayedTestCases.split("\n").filter(Boolean).map((item) => (
+                        <div key={item} className="leading-6">
+                          - {item}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="border-b border-slate-200/70 px-3 py-2.5 text-sm text-slate-500 dark:border-slate-700/70 dark:text-slate-400">
+                      {t.kanbanDetail.testCasesPlaceholder}
+                    </div>
+                  )}
+                </div>
               </DetailSection>
-
-              <ExecutionSection
-                task={task}
-                lane={currentLane}
-                boardColumns={boardColumns ?? []}
-                availableProviders={availableProviders}
-                sessionInfo={sessionInfo}
-                specialists={specialists}
-                specialistLanguage={specialistLanguage}
-                selectedProvider={selectedProvider}
-                onPatchTask={onPatchTask}
-                onRetryTrigger={onRetryTrigger}
-                onProviderChange={onProviderChange}
-                compact={compactMode}
-              />
-
-              <RepositoriesWorktreeRow
-                task={task}
-                codebases={codebases}
-                allCodebaseIds={allCodebaseIds}
-                worktreeCache={worktreeCache}
-                sessionInfo={sessionInfo}
-                sessionCwdMismatch={sessionCwdMismatch}
-                updateError={updateError}
-                setUpdateError={setUpdateError}
-                onPatchTask={onPatchTask}
-                onRefresh={onRefresh}
-                onRepositoryChange={onRepositoryChange}
-                onSelectSession={onSelectSession}
-                compact={compactMode}
-              />
             </>
           )}
 
@@ -565,7 +655,42 @@ export function KanbanCardDetail({
             </>
           )}
 
-          {activeTab === "runs" && !splitMode && (
+          {activeTab === "execution" && (
+            <>
+              <ExecutionSection
+                task={task}
+                lane={currentLane}
+                boardColumns={boardColumns ?? []}
+                availableProviders={availableProviders}
+                sessionInfo={sessionInfo}
+                specialists={specialists}
+                specialistLanguage={specialistLanguage}
+                selectedProvider={selectedProvider}
+                onPatchTask={onPatchTask}
+                onRetryTrigger={onRetryTrigger}
+                onProviderChange={onProviderChange}
+                compact={compactMode}
+              />
+
+              <RepositoriesWorktreeRow
+                task={task}
+                codebases={codebases}
+                allCodebaseIds={allCodebaseIds}
+                worktreeCache={worktreeCache}
+                sessionInfo={sessionInfo}
+                sessionCwdMismatch={sessionCwdMismatch}
+                updateError={updateError}
+                setUpdateError={setUpdateError}
+                onPatchTask={onPatchTask}
+                onRefresh={onRefresh}
+                onRepositoryChange={onRepositoryChange}
+                onSelectSession={onSelectSession}
+                compact={compactMode}
+              />
+            </>
+          )}
+
+          {activeTab === "runs" && (
             <KanbanCardActivityPanel
               task={task}
               refreshSignal={refreshSignal}

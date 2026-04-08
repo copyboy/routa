@@ -602,6 +602,7 @@ describe("KanbanTab manual run provider selection", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Open Story One" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Execution" }));
 
     const runButton = await screen.findByTestId("kanban-detail-run");
     expect(screen.getByText(/Manual runs use the current ACP provider with this lane's role and specialist/i)).toBeTruthy();
@@ -710,6 +711,7 @@ describe("KanbanTab manual run provider selection", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Open Story One" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Execution" }));
 
     const runButton = await screen.findByTestId("kanban-detail-run");
     // The manual run message is only shown when it differs from lane defaults
@@ -2304,15 +2306,16 @@ describe.skip("KanbanTab card detail manual runs", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open Story One" }));
 
-    await screen.findByRole("button", { name: /Close session pane/i });
+    await screen.findByRole("button", { name: /Hide session pane/i });
     expect(screen.getByText("Card Detail")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /Close session pane/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Hide session pane/i }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /Close session pane/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Hide session pane/i })).toBeNull();
     });
-    expect(screen.queryByText("Card Detail")).toBeNull();
+    expect(screen.getByText("Card Detail")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Show session pane/i })).toBeTruthy();
   });
 });
 

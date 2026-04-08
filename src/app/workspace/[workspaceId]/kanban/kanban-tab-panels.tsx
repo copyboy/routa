@@ -600,7 +600,6 @@ export function KanbanTaskDetailOverlay({
   confirmDeleteTask,
   onRefresh,
   setActiveSessionId,
-  closeTaskDetail,
   sessionMap,
   workspaceId,
   isTaskDetailFullscreen,
@@ -630,14 +629,12 @@ export function KanbanTaskDetailOverlay({
   confirmDeleteTask: (task: TaskInfo) => void;
   onRefresh: () => void;
   setActiveSessionId: Dispatch<SetStateAction<string | null>>;
-  closeTaskDetail: () => void;
   sessionMap: Map<string, SessionInfo>;
   workspaceId: string;
   isTaskDetailFullscreen?: boolean;
   onToggleTaskDetailFullscreen?: (nextFullscreen: boolean) => void;
 }) {
-  if (!activeSessionId && !activeTaskId) return null;
-
+  const isOverlayOpen = Boolean(activeSessionId || activeTaskId);
   const showEmptySessionPane = Boolean(
     activeTask &&
     !activeSessionId &&
@@ -648,13 +645,19 @@ export function KanbanTaskDetailOverlay({
   );
   const selectedLaneSession = getTaskLaneSession(activeTask, activeSessionId);
   const isA2ASessionPane = Boolean(activeTask && isA2ATaskSession(activeTask, activeSessionId));
-  const hasSessionPane = Boolean(showEmptySessionPane || isA2ASessionPane || (activeSessionId && acp));
+  const canShowSessionPane = Boolean(showEmptySessionPane || isA2ASessionPane || (activeSessionId && acp));
+  const [hiddenSessionPaneTaskId, setHiddenSessionPaneTaskId] = useState<string | null>(null);
+  const isSessionPaneVisible = activeTaskId ? hiddenSessionPaneTaskId !== activeTaskId : true;
+  const hasSessionPane = canShowSessionPane && isSessionPaneVisible;
   const selectTaskSession = (task: TaskInfo, sessionId: string) => {
     setActiveSessionId(sessionId);
+    setHiddenSessionPaneTaskId(null);
     if (acp && canSelectTaskSessionInAcp(task, sessionId, sessionMap)) {
       acp.selectSession(sessionId);
     }
   };
+
+  if (!isOverlayOpen) return null;
 
   return (
     <div
@@ -709,6 +712,9 @@ export function KanbanTaskDetailOverlay({
                   }}
                   isFullscreen={isTaskDetailFullscreen}
                   onToggleFullscreen={onToggleTaskDetailFullscreen}
+                  canShowSessionPane={canShowSessionPane}
+                  isSessionPaneVisible={hasSessionPane}
+                  onShowSessionPane={() => setHiddenSessionPaneTaskId(null)}
                 />
               </div>
             );
@@ -759,7 +765,7 @@ export function KanbanTaskDetailOverlay({
                     specialists={specialists}
                     specialistLanguage={specialistLanguage}
                     autoProviderId={resolveKanbanBoardAutoProviderId(board, boardAutoProviderId)}
-                    onCloseSession={closeTaskDetail}
+                    onCloseSession={() => setHiddenSessionPaneTaskId(activeTask?.id ?? null)}
                   />
                 </div>
               );
@@ -778,7 +784,7 @@ export function KanbanTaskDetailOverlay({
                       specialistLanguage={specialistLanguage}
                       currentSessionId={activeSessionId ?? undefined}
                       onSelectSession={(sessionId) => selectTaskSession(activeTask, sessionId)}
-                      onCloseSession={closeTaskDetail}
+                      onCloseSession={() => setHiddenSessionPaneTaskId(activeTask.id)}
                     />
                   </div>
                 )}
@@ -792,7 +798,7 @@ export function KanbanTaskDetailOverlay({
                     refreshSignal={refreshSignal}
                     currentSessionId={activeSessionId ?? undefined}
                     onSelectSession={(sessionId) => selectTaskSession(activeTask, sessionId)}
-                    onCloseSession={closeTaskDetail}
+                    onCloseSession={() => setHiddenSessionPaneTaskId(activeTask.id)}
                   />
                 ) : acp && (
                   <div className="min-h-0 flex-1">
