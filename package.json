@@ -102,6 +102,7 @@
     "test:accessibility": "node scripts/fitness/check-accessibility-smoke.mjs",
     "test:otel:trace": "node --import tsx scripts/fitness/check-otel-trace-smoke.ts",
     "test:performance": "node scripts/fitness/check-performance-smoke.mjs",
+    "test:performance:startup": "node scripts/fitness/check-startup-performance.mjs",
     "docs:dev": "node --import tsx scripts/docs/generate-specialist-docs.ts --save && docusaurus start",
     "docs:build": "node scripts/build/build-docs-site.mjs",
     "docs:serve": "docusaurus serve docs-site",
