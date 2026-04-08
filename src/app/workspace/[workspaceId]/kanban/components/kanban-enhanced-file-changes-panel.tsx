@@ -72,6 +72,11 @@ export function KanbanEnhancedFileChangesPanel({
       loadCommits();
     },
     onError: (error) => {
+      // Silently log Git operation errors - they're expected when codebase is not a valid git repo
+      if (error.includes("work tree") || error.includes("git repository")) {
+        // Expected: codebase may not be a git repository or may be in a special state
+        return;
+      }
       console.error("Git operation failed:", error);
     },
   });
@@ -182,7 +187,12 @@ export function KanbanEnhancedFileChangesPanel({
       const fetchedCommits = await getCommits(20); // Get last 20 commits
       setCommits(fetchedCommits);
     } catch (error) {
-      console.error("Failed to load commits:", error);
+      // Silently fail if not a git repository - this is expected
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (!errorMessage.includes("work tree") && !errorMessage.includes("git repository")) {
+        console.error("Failed to load commits:", error);
+      }
+      setCommits([]); // Set empty commits array
     } finally {
       setCommitsLoading(false);
     }
