@@ -215,7 +215,7 @@ async fn get_commits(
         query.limit,
         query.since.as_deref(),
     )
-    .map_err(|e| ServerError::Internal(e))?;
+    .map_err(ServerError::Internal)?;
 
     let count = commits.len();
 
