@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { KanbanTab } from "../kanban-tab";
 import { KanbanCardDetail } from "../kanban-card-detail";
@@ -576,6 +576,7 @@ describe("KanbanCardDetail repository health", () => {
 
 describe("KanbanTab live session tail", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -667,6 +668,124 @@ describe("KanbanTab live session tail", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
     expect(screen.queryByTestId("kanban-card-live-tail")).toBeNull();
+  });
+
+  it("uses a slower polling cadence for live session tails", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        history: [
+          { update: { sessionUpdate: "agent_message", content: { type: "text", text: "Still working." } } },
+        ],
+      }),
+    }) as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <KanbanTab
+        workspaceId="workspace-1"
+        boards={[board]}
+        tasks={[{
+          ...createTask("task-1", "Story One"),
+          triggerSessionId: "session-123",
+          laneSessions: [{
+            sessionId: "session-123",
+            status: "running",
+            startedAt: "2025-01-01T00:00:00.000Z",
+          }],
+        }]}
+        sessions={[{
+          sessionId: "session-123",
+          cwd: "/tmp/project",
+          workspaceId: "workspace-1",
+          provider: "claude",
+          acpStatus: "ready",
+          createdAt: "2025-01-01T00:00:00.000Z",
+        }]}
+        providers={[]}
+        specialists={[]}
+        codebases={[]}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not poll live session tails while the page is hidden", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        history: [
+          { update: { sessionUpdate: "agent_message", content: { type: "text", text: "Still working." } } },
+        ],
+      }),
+    }) as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const visibilityState = { value: "visible" };
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibilityState.value,
+    });
+
+    render(
+      <KanbanTab
+        workspaceId="workspace-1"
+        boards={[board]}
+        tasks={[{
+          ...createTask("task-1", "Story One"),
+          triggerSessionId: "session-123",
+          laneSessions: [{
+            sessionId: "session-123",
+            status: "running",
+            startedAt: "2025-01-01T00:00:00.000Z",
+          }],
+        }]}
+        sessions={[{
+          sessionId: "session-123",
+          cwd: "/tmp/project",
+          workspaceId: "workspace-1",
+          provider: "claude",
+          acpStatus: "ready",
+          createdAt: "2025-01-01T00:00:00.000Z",
+        }]}
+        providers={[]}
+        specialists={[]}
+        codebases={[]}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      visibilityState.value = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      visibilityState.value = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

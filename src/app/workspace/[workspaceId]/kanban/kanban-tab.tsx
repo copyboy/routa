@@ -90,7 +90,7 @@ interface KanbanTabProps {
 const KANBAN_DETAIL_SPLIT_RATIO_KEY = "routa:kanban-detail-split-ratio";
 const MIN_DETAIL_SPLIT_RATIO = 0.32;
 const MAX_DETAIL_SPLIT_RATIO = 0.72;
-const LIVE_SESSION_TAIL_POLL_MS = 2500;
+const LIVE_SESSION_TAIL_POLL_MS = 10_000;
 
 export function KanbanTab({
   workspaceId,
@@ -199,6 +199,9 @@ export function KanbanTab({
   const sessionBackfillInFlightRef = useRef(new Set<string>());
   const emptySessionRecoveryRef = useRef<string | null>(null);
   const previousPreferredTaskSessionIdRef = useRef<string | null>(null);
+  const [isPageVisible, setIsPageVisible] = useState(() => (
+    typeof document === "undefined" || document.visibilityState === "visible"
+  ));
 
   const sessionMap = useMemo(() => {
     const map = new Map<string, SessionInfo>();
@@ -734,6 +737,20 @@ export function KanbanTab({
   }, []);
 
   useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const updatePageVisibility = () => {
+      setIsPageVisible(document.visibilityState === "visible");
+    };
+
+    updatePageVisibility();
+    document.addEventListener("visibilitychange", updatePageVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", updatePageVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!agentSessionId || !agentPanelOpen) return;
 
     return scheduleKanbanRefreshBurst(onRefresh);
@@ -744,11 +761,17 @@ export function KanbanTab({
       setLiveSessionTails((previous) => (Object.keys(previous).length > 0 ? {} : previous));
       return;
     }
+    if (!isPageVisible) return;
 
     const activeIdSet = new Set(activeLiveSessionIds);
     let disposed = false;
+    let inFlight = false;
 
     const pollLiveSessionTail = async () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      if (disposed || inFlight) return;
+      inFlight = true;
+
       const updates = await Promise.all(activeLiveSessionIds.map(async (sessionId) => {
         try {
           const response = await fetch(
@@ -761,7 +784,9 @@ export function KanbanTab({
         } catch {
           return [sessionId, null] as const;
         }
-      }));
+      })).finally(() => {
+        inFlight = false;
+      });
 
       if (disposed) return;
 
@@ -796,7 +821,7 @@ export function KanbanTab({
       disposed = true;
       window.clearInterval(timerId);
     };
-  }, [activeLiveSessionIds]);
+  }, [activeLiveSessionIds, isPageVisible]);
 
   // Codebase edit handlers - use RepoPicker for re-selecting/cloning
   const handleStartEditCodebase = useCallback(() => {
