@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { monitorApiRoute } from "@/core/http/api-route-observability";
 import { getRoutaSystem } from "@/core/routa-system";
 import { createTask, hydrateTaskComments, Task, TaskStatus, TaskPriority } from "@/core/models/task";
 import type { ArtifactStore } from "@/core/store/artifact-store";
@@ -158,6 +159,10 @@ function parsePriority(value: unknown): TaskPriority | undefined {
 }
 
 export async function GET(request: NextRequest) {
+  return monitorApiRoute(request, "GET /api/tasks", () => getTasks(request));
+}
+
+async function getTasks(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const workspaceId = requireWorkspaceId(searchParams.get("workspaceId"));
   const sessionId = searchParams.get("sessionId");

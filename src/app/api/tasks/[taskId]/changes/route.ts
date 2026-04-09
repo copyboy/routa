@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { monitorApiRoute } from "@/core/http/api-route-observability";
 import { getRoutaSystem } from "@/core/routa-system";
 import {
   getRepoChanges,
@@ -28,6 +29,15 @@ function repoLabelFromPath(repoPath: string): string {
  * to lazy-load stats for specific files only.
  */
 export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ taskId: string }> },
+) {
+  return monitorApiRoute(request, "GET /api/tasks/[taskId]/changes", () =>
+    getTaskChanges(request, { params })
+  );
+}
+
+async function getTaskChanges(
   request: NextRequest,
   { params }: { params: Promise<{ taskId: string }> },
 ) {

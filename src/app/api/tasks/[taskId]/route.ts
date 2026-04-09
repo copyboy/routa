@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { monitorApiRoute } from "@/core/http/api-route-observability";
 import { getRoutaSystem } from "@/core/routa-system";
 import { hydrateTaskComments, TaskPriority, TaskStatus, type Task } from "@/core/models/task";
 import { columnIdToTaskStatus, taskStatusToColumnId } from "@/core/models/kanban";
@@ -152,6 +153,15 @@ async function recordTaskContractGateFailure(
 }
 
 export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ taskId: string }> },
+) {
+  return monitorApiRoute(request, "GET /api/tasks/[taskId]", () =>
+    getTask(request, { params })
+  );
+}
+
+async function getTask(
   _request: NextRequest,
   { params }: { params: Promise<{ taskId: string }> },
 ) {

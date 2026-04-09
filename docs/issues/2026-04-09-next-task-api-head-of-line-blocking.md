@@ -107,6 +107,24 @@ Hot-reloaded local measurement on the same Next dev server:
 
 That confirms delivery-readiness fan-out was the task-list head-of-line blocker in the sampled workspace.
 
+## 2026-04-09 Slow API Sensor
+
+Added route-level timing to the affected Next.js task APIs:
+
+- `GET /api/tasks`
+- `GET /api/tasks/{taskId}`
+- `GET /api/tasks/{taskId}/changes`
+
+Each response now includes `Server-Timing: routa-route;dur=...`, `x-routa-route`, and `x-routa-route-duration-ms`.
+
+Requests slower than `ROUTA_SLOW_API_THRESHOLD_MS` are recorded to:
+
+```text
+~/.routa/projects/<project-slug>/runtime/slow-api-requests.jsonl
+```
+
+The default threshold is `1000ms`. Set `ROUTA_API_TIMING_LOG_ALL=1` while dogfooding to record every monitored task API request.
+
 ## Fitness Follow-Up
 
 Existing performance fitness lives in `docs/fitness/runtime/performance.md`, but the current `web_route_performance_smoke` is a page/navigation smoke. It does not assert task API latency or task-list payload/derivation budgets.
