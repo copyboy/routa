@@ -1,7 +1,6 @@
 use axum::{extract::{Query, State}, Json};
 use routa_core::git::{FileChangeStatus, GitFileChange};
 use routa_core::models::task::Task;
-use serde::Deserialize;
 
 use crate::error::ServerError;
 use crate::state::AppState;

@@ -328,9 +328,7 @@ impl AcpProcess {
                                     .with_conversation(TraceConversation {
                                         turn: None,
                                         role: Some("assistant".to_string()),
-                                        content_preview: Some(
-                                            truncate_content(&text, 200)
-                                        ),
+                                        content_preview: Some(truncate_content(text, 200)),
                                         full_content: Some(text.to_string()),
                                     });
                                     let writer = TraceWriter::new(&cwd_clone);

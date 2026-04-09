@@ -2,7 +2,7 @@ use routa_core::models::task::{
     build_task_invest_validation, build_task_story_readiness, Task, TaskLaneSessionStatus,
 };
 use routa_core::models::kanban::KanbanBoard;
-use routa_core::models::artifact::{Artifact, ArtifactType};
+use routa_core::models::artifact::ArtifactType;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::dto::{

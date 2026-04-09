@@ -7,8 +7,6 @@ use chrono::Utc;
 use routa_core::events::{AgentEvent, AgentEventType};
 use routa_core::kanban::set_task_column;
 use routa_core::models::artifact::{Artifact, ArtifactType};
-use routa_core::models::task::Task;
-use serde::Deserialize;
 
 use super::changes;
 use super::dto::{

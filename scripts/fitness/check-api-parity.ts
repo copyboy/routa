@@ -123,10 +123,8 @@ function parseRustRoutes(): RouteEndpoint[] {
   const apiDir = fromRoot("crates", "routa-server", "src", "api");
 
   for (const nest of nests) {
-    const moduleFile = path.join(apiDir, `${nest.module}.rs`);
-    if (!fs.existsSync(moduleFile)) continue;
-
-    const content = fs.readFileSync(moduleFile, "utf-8");
+    const content = readRustApiModuleContent(apiDir, nest.module);
+    if (!content) continue;
 
     // Extract all .route("path", ...) calls using a state-machine approach
     // to handle nested parentheses in handler chains
@@ -161,6 +159,36 @@ function parseRustRoutes(): RouteEndpoint[] {
   }
 
   return endpoints;
+}
+
+function readRustApiModuleContent(apiDir: string, moduleName: string): string {
+  const moduleFile = path.join(apiDir, `${moduleName}.rs`);
+  const moduleDir = path.join(apiDir, moduleName);
+  const files: string[] = [];
+
+  if (fs.existsSync(moduleFile)) {
+    files.push(moduleFile);
+  }
+  files.push(...listRustSourceFiles(moduleDir));
+
+  return files.map((file) => fs.readFileSync(file, "utf-8")).join("\n");
+}
+
+function listRustSourceFiles(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+
+  const files: string[] = [];
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listRustSourceFiles(fullPath));
+    } else if (entry.isFile() && entry.name.endsWith(".rs")) {
+      files.push(fullPath);
+    }
+  }
+
+  return files.sort();
 }
 
 /**
