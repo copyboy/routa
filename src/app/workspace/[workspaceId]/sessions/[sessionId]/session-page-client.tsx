@@ -34,7 +34,7 @@ import { useSessionCrafters } from "./use-session-crafters";
 import { RepoSlideSessionPanel } from "./repo-slide-session-panel";
 import { Select } from "@/client/components/select";
 import { useTranslation } from "@/i18n";
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown, Columns2, ScrollText, X } from "lucide-react";
 
 
 interface SessionRecord {
@@ -45,6 +45,7 @@ interface SessionRecord {
   provider?: string;
   role?: string;
   modeId?: string;
+  mcpProfile?: string;
   model?: string;
   specialistId?: string;
   acpStatus?: "connecting" | "ready" | "error";
@@ -179,12 +180,12 @@ export function SessionPageClient() {
   }, [codebases]);
 
   const handleWorkspaceSelect = useCallback((wsId: string) => {
-    router.push(`/workspace/${wsId}`);
+    router.push(`/workspace/${wsId}/overview`);
   }, [router]);
 
   const handleWorkspaceCreate = useCallback(async (title: string) => {
     const ws = await workspacesHook.createWorkspace(title);
-    if (ws) router.push(`/workspace/${ws.id}`);
+    if (ws) router.push(`/workspace/${ws.id}/overview`);
   }, [workspacesHook, router]);
 
   const acp = useAcp();
@@ -816,6 +817,7 @@ export function SessionPageClient() {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+  const isPlanningSession = activeSessionRecord?.mcpProfile === "kanban-planning";
 
   return (
     <div className={`desktop-theme h-screen flex bg-[var(--dt-bg-primary)] ${isEmbedMode ? "embed-mode" : ""}`}>
@@ -897,6 +899,39 @@ export function SessionPageClient() {
         }
         />
       )}
+
+      {isPlanningSession && !isEmbedMode ? (
+        <div className="border-b border-black/6 bg-[#f7f3ea] px-5 py-4 dark:border-white/8 dark:bg-[#10161d]">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-500">
+                {t.workspace.planningSessionTitle}
+              </div>
+              <div className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                {t.workspace.planningSessionDescription}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => router.push(`/workspace/${workspaceId}/overview`)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-black/8 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:hover:bg-white/10"
+              >
+                <ScrollText className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7} />
+                {t.nav.records}
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push(`/workspace/${workspaceId}/kanban`)}
+                className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-slate-800 dark:bg-amber-500 dark:text-slate-950 dark:hover:bg-amber-400"
+              >
+                <Columns2 className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7} />
+                {t.workspace.goToBoard}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* ─── Main Area ────────────────────────────────────────────── */}
       <div className="flex-1 flex min-h-0 relative">

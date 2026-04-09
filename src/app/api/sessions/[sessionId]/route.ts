@@ -86,6 +86,9 @@ export async function GET(
       acpStatus: resolvedSession.acpStatus,
       acpError: resolvedSession.acpError,
       modeId: resolvedSession.modeId,
+      mcpProfile: "mcpProfile" in resolvedSession
+        ? (resolvedSession as { mcpProfile?: string }).mcpProfile
+        : undefined,
       model: resolvedSession.model,
       createdAt: resolvedSession.createdAt,
       parentSessionId: resolvedSession.parentSessionId,

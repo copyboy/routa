@@ -555,6 +555,8 @@ const en: TranslationDictionary = {
     latestRecoveryPoint: "Latest recovery point",
     recoverSession: "Recover the latest session from this workspace or continue task execution from the board.",
     createFromLauncher: "Create a new requirement from the homepage launcher, then return here for context and recovery.",
+    planningSessionTitle: "Planning session",
+    planningSessionDescription: "Refine the request here first. The planning agent writes backlog cards to Kanban, and you only need to open the board when you want to inspect routing or continue execution.",
     recentSessions: "Recent sessions",
     openLatestSession: "Open latest session",
     backToLauncher: "Back to launcher",

@@ -561,6 +561,8 @@ export interface TranslationDictionary extends ExtendedTranslationDictionarySect
     latestRecoveryPoint: string;
     recoverSession: string;
     createFromLauncher: string;
+    planningSessionTitle: string;
+    planningSessionDescription: string;
     recentSessions: string;
     openLatestSession: string;
     backToLauncher: string;

@@ -551,6 +551,8 @@ const zh: TranslationDictionary = {
     latestRecoveryPoint: "最新恢复点",
     recoverSession: "从此工作区恢复最近的会话，或从看板继续执行任务。",
     createFromLauncher: "从首页启动器创建新需求，然后返回此处获取上下文和恢复功能。",
+    planningSessionTitle: "规划会话",
+    planningSessionDescription: "先在这里把需求说清楚，backlog 卡片会通过 planning agent 写入看板；需要检查结果或继续路由时再打开看板。",
     recentSessions: "最近的会话",
     openLatestSession: "打开最近会话",
     backToLauncher: "返回启动器",

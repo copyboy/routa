@@ -61,7 +61,7 @@ function getSessionLabel(session: SessionInfo) {
 export default function HomePage() {
   const workspacesHook = useWorkspaces();
   const acp = useAcp();
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
 
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
@@ -302,14 +302,14 @@ export default function HomePage() {
                         />
                       )}
 
-                      {/* Main input — kanban-first mode */}
+                      {/* Main input — start a planning session, then continue in session view */}
                       <div className="rounded-3xl border border-black/6 bg-white/80 p-4 shadow-sm dark:border-white/8 dark:bg-white/5">
                         <HomeInput
                           workspaceId={activeWorkspaceId ?? undefined}
                           variant="default"
                           defaultAgentRole="CRAFTER"
-                          buildSessionUrl={(nextWorkspaceId) =>
-                            `/workspace/${nextWorkspaceId ?? activeWorkspaceId}/kanban`
+                          buildSessionUrl={(nextWorkspaceId, sessionId) =>
+                            `/workspace/${nextWorkspaceId ?? activeWorkspaceId}/sessions/${sessionId}`
                           }
                           extraSessionParams={activeWorkspaceId ? {
                             role: "CRAFTER",
@@ -319,6 +319,7 @@ export default function HomePage() {
                               boardId: "default",
                               repoPath: codebases[0]?.repoPath,
                               agentInput: text,
+                              language: locale === "zh" ? "zh-CN" : "en",
                             }),
                           } : undefined}
                         />
@@ -394,7 +395,20 @@ export default function HomePage() {
                           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-500">
                             {t.home.continueWork}
                           </div>
-                          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                            {activeWorkspaceId && (
+                              <Link
+                                href={`/workspace/${activeWorkspaceId}/overview`}
+                                className="flex flex-col rounded-2xl border border-black/6 bg-[#faf9f4] p-4 transition-colors hover:bg-white dark:border-white/8 dark:bg-white/4 dark:hover:bg-white/8"
+                              >
+                                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                  {t.nav.records}
+                                </div>
+                                <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                  {t.workspace.recoveryRoutingContext}
+                                </div>
+                              </Link>
+                            )}
                             {activeWorkspaceId && (
                               <Link
                                 href={`/workspace/${activeWorkspaceId}/kanban`}

@@ -12,7 +12,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "@/i18n";
 import { SettingsPopupMenu } from "./settings-popup-menu";
-import { Columns2, LayoutGrid, House, Share2 } from "lucide-react";
+import { Columns2, House, ScrollText, Share2 } from "lucide-react";
 
 
 interface DesktopNavRailProps {
@@ -43,11 +43,11 @@ export function DesktopNavRail({
       ),
     },
     {
-      id: "overview",
-      label: t.nav.overview,
+      id: "records",
+      label: t.nav.records,
       href: `/workspace/${workspaceId}/overview`,
       icon: (
-        <LayoutGrid className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}/>
+        <ScrollText className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}/>
       ),
     },
     {
