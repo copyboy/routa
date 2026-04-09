@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ReactNode } from "react";
-import { parseDiffFromFile } from "@pierre/diffs";
+import { FileDiff as PierreFileDiffInstance, parseDiffFromFile } from "@pierre/diffs";
 import type { FileContents, FileDiffMetadata } from "@pierre/diffs";
-import { FileDiff as PierreFileDiff } from "@pierre/diffs/react";
 import type { KanbanCommitChangeItem, KanbanCommitDiffPreview, KanbanFileChangeItem, KanbanFileDiffPreview } from "./kanban-file-changes-types";
 import { splitFilePath, STATUS_BADGE } from "./kanban-file-changes-panel";
 import { useTranslation } from "@/i18n";
@@ -41,13 +40,129 @@ const PIERRE_DIFF_OPTIONS = {
   disableBackground: false,
   disableFileHeader: true,
   disableLineNumbers: false,
-  hunkSeparators: "line-info" as const,
+  hunkSeparators: createKanbanHunkSeparator,
   expansionLineCount: 100,
   lineDiffType: "word-alt" as const,
   maxLineDiffLength: 1000,
   overflow: "scroll" as const,
   parseDiffOptions: { context: 3 },
+  theme: {
+    dark: "github-dark" as const,
+    light: "github-light" as const,
+  },
+  themeType: "system" as const,
+  unsafeCSS: `
+    :host {
+      --diffs-bg: light-dark(#ffffff, #0d1018) !important;
+      --diffs-bg-context-override: light-dark(#ffffff, #0d1018);
+      --diffs-bg-separator-override: light-dark(#f8fafc, #171b27);
+      --diffs-bg-addition-emphasis-override: rgba(0, 188, 125, 0.2);
+      --diffs-bg-deletion-emphasis-override: rgba(240, 100, 73, 0.2);
+      --diffs-addition-color-override: #00a86b;
+    }
+    pre[data-diffs] {
+      background: var(--diffs-bg) !important;
+    }
+    [data-code] {
+      padding-block: 0;
+    }
+    [data-column-number],
+    [data-gutter] {
+      position: sticky;
+      left: 0;
+    }
+    [data-gutter] {
+      z-index: 4;
+    }
+    [data-column-number] {
+      z-index: 3;
+    }
+    .kanban-hunk-separator {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      min-height: 32px;
+      padding: 0 12px;
+      color: light-dark(#64748b, #94a3b8);
+      background: var(--diffs-bg-separator);
+      border-block: 1px dashed light-dark(#cbd5e1, #334155);
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+    }
+    .kanban-hunk-separator:hover {
+      color: light-dark(#0f172a, #e2e8f0);
+      background: light-dark(#f1f5f9, #1e293b);
+    }
+    .kanban-hunk-separator-icon {
+      display: inline-flex;
+      width: 16px;
+      justify-content: center;
+      font-size: 14px;
+      line-height: 1;
+    }
+  `,
 };
+
+function createKanbanHunkSeparator(
+  hunk: { hunkIndex: number; lines: number },
+  instance: PierreFileDiffInstance,
+): HTMLElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "kanban-hunk-separator";
+  button.dataset.expandButton = "";
+  button.dataset.expandIndex = String(hunk.hunkIndex);
+
+  const icon = document.createElement("span");
+  icon.className = "kanban-hunk-separator-icon";
+  icon.textContent = "↕";
+
+  const label = document.createElement("span");
+  label.textContent = `${hunk.lines} unmodified line${hunk.lines === 1 ? "" : "s"}`;
+
+  button.append(icon, label);
+  button.addEventListener("click", () => instance.expandHunk(hunk.hunkIndex, "both"));
+
+  return button;
+}
+
+function KanbanPierreFileDiff({ fileDiff }: { fileDiff: FileDiffMetadata }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const instanceRef = useRef<PierreFileDiffInstance | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) {
+      return;
+    }
+
+    const instance = new PierreFileDiffInstance(PIERRE_DIFF_OPTIONS);
+    instanceRef.current = instance;
+    instance.render({
+      fileDiff,
+      containerWrapper: containerRef.current,
+    });
+
+    return () => {
+      instance.cleanUp();
+      instanceRef.current = null;
+    };
+  }, [fileDiff]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="kanban-pierre-diff min-w-full text-[11px]"
+      style={{
+        "--diffs-font-size": "12px",
+        "--diffs-line-height": "20px",
+        "--diffs-header-font-family": "var(--font-sans)",
+        "--diffs-font-family": "var(--font-mono)",
+      } as CSSProperties}
+    />
+  );
+}
 
 /**
  * Parse commit diff to extract list of changed files with their stats.
@@ -675,21 +790,7 @@ function CommitFileDiffSection({
       </summary>
       <div className="overflow-auto border-t border-slate-200/70 dark:border-[#202433]">
         {pierreDiff ? (
-          <div
-            className="kanban-pierre-diff min-w-full text-[11px]"
-            style={{
-              "--diffs-font-size": "12px",
-              "--diffs-line-height": "20px",
-              "--diffs-header-font-family": "var(--font-sans)",
-              "--diffs-font-family": "var(--font-mono)",
-            } as CSSProperties}
-          >
-            <PierreFileDiff
-              disableWorkerPool={true}
-              fileDiff={pierreDiff}
-              options={PIERRE_DIFF_OPTIONS}
-            />
-          </div>
+          <KanbanPierreFileDiff fileDiff={pierreDiff} />
         ) : (
           <pre className="min-w-full bg-slate-950/95 px-0 py-0 text-[11px] leading-5 text-slate-100">
             {renderUnifiedDiffWithHiddenContext(

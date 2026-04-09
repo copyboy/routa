@@ -203,7 +203,9 @@ describe("KanbanTaskChangesTab", () => {
     expect(screen.getByTestId("kanban-commit-file-section-src/editor.ts")).toBeTruthy();
     expect((await openPackageDiffShadowRoot()).textContent).not.toContain("context10");
 
-    const hiddenLinesButton = (await openPackageDiffShadowRoot()).querySelector("[data-expand-button]");
+    const hiddenLinesButton = screen
+      .getByTestId("kanban-commit-file-section-package.json")
+      .querySelector("[data-expand-button]");
     expect(hiddenLinesButton).toBeTruthy();
     hiddenLinesButton?.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
 
