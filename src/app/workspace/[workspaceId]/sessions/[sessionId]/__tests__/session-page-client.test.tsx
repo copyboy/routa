@@ -18,7 +18,7 @@ const {
 } = vi.hoisted(() => ({
   mockPush: vi.fn(),
   mockConnect: vi.fn(async () => {}),
-  mockCreateSession: vi.fn(async () => null),
+  mockCreateSession: vi.fn(async (): Promise<{ sessionId: string; provider: string; role?: string; acpStatus?: string } | null> => null),
   mockResumeSession: vi.fn(async () => ({ sessionId: "session-1", provider: "codex", acpStatus: "ready", resumeMode: "native" })),
   mockPromptSession: vi.fn(async () => {}),
   mockSelectSession: vi.fn(),

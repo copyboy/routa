@@ -13,6 +13,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
   BrowserAcpClient,
+  AcpForkSessionResult,
   AcpLoadSessionResult,
   AcpNewSessionResult,
   AcpProviderInfo,
@@ -211,6 +212,10 @@ export interface UseAcpActions {
     cwd?: string,
     options?: { throwOnError?: boolean },
   ) => Promise<AcpLoadSessionResult | null>;
+  forkSession: (
+    sessionId: string,
+    name?: string,
+  ) => Promise<AcpForkSessionResult | null>;
   selectSession: (sessionId: string) => void;
   setProvider: (provider: string) => void;
   setMode: (modeId: string) => Promise<void>;
@@ -614,6 +619,28 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
     }
   }, []);
 
+  const forkSession = useCallback(async (
+    targetSessionId: string,
+    name?: string,
+  ): Promise<AcpForkSessionResult | null> => {
+    const client = clientRef.current;
+    if (!client || !targetSessionId) return null;
+
+    try {
+      return await client.forkSession({
+        sessionId: targetSessionId,
+        name,
+      });
+    } catch (err) {
+      logRuntime("error", "useAcp.forkSession", "Failed to fork session", formatAcpErrorForLog(err));
+      setState((s) => ({
+        ...s,
+        error: toErrorMessage(err) || "Session fork failed",
+      }));
+      return null;
+    }
+  }, []);
+
   const setProvider = useCallback((provider: string) => {
     saveSelectedAcpProvider(provider);
     setState((s) => ({ ...s, selectedProvider: provider }));
@@ -800,6 +827,7 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
     connect,
     createSession,
     resumeSession,
+    forkSession,
     selectSession,
     setProvider,
     setMode,

@@ -570,13 +570,17 @@ export async function POST(request: NextRequest) {
       let resumeMode: "native" | "recreated" = "recreated";
       let nativeResumeError: string | undefined;
 
+      // Determine whether native resume should be attempted based on provider capabilities
+      const preset = getPresetById(provider);
+      const supportsNativeResume = preset?.resume?.supported && (preset.resume.mode === "native" || preset.resume.mode === "both");
+
       try {
-        if (provider === "codex") {
+        if (supportsNativeResume) {
           acpSessionId = await manager.loadSession(
             sessionId,
             cwd,
             forwardSessionUpdate,
-            "codex",
+            provider,
             workspaceId,
             storedSession?.toolMode,
             storedSession?.mcpProfile,
@@ -588,11 +592,11 @@ export async function POST(request: NextRequest) {
           );
           resumeMode = "native";
         } else {
-          throw new Error(`Native resume not supported for provider: ${provider}`);
+          throw new Error(`Native resume not supported for provider: ${provider} (mode: replay)`);
         }
       } catch (error) {
         nativeResumeError = error instanceof Error ? error.message : "Native resume failed";
-        console.warn(`[ACP Route] Native resume failed for ${sessionId}, falling back to recreate:`, error);
+        console.warn(`[ACP Route] Native resume failed for ${sessionId} (provider: ${provider}), falling back to recreate:`, error);
         acpSessionId = await manager.createSession(
           sessionId,
           cwd,
@@ -660,6 +664,7 @@ export async function POST(request: NextRequest) {
         role,
         acpStatus: "ready",
         resumeMode,
+        resumeCapabilities: preset?.resume ?? { supported: false, mode: "replay" },
         ...(nativeResumeError ? { nativeResumeError } : {}),
       });
     }

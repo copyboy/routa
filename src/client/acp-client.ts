@@ -41,6 +41,24 @@ export interface AcpLoadSessionResult {
   acpStatus?: "connecting" | "ready" | "error";
   resumeMode?: "native" | "recreated" | "attached";
   nativeResumeError?: string;
+  resumeCapabilities?: {
+    supported: boolean;
+    mode: "native" | "replay" | "both";
+    supportsFork?: boolean;
+    supportsList?: boolean;
+  };
+}
+
+export interface AcpForkSessionResult {
+  sessionId: string;
+  parentSessionId: string;
+  name?: string;
+  provider?: string;
+  role?: string;
+  cwd?: string;
+  branch?: string;
+  workspaceId?: string;
+  createdAt?: string;
 }
 
 export interface AcpPromptResult {
@@ -255,9 +273,34 @@ export class BrowserAcpClient {
     this._sessionId = params.sessionId;
     this.attachSession(params.sessionId);
     return {
-      sessionId: params.sessionId,
       ...result,
+      sessionId: result.sessionId ?? params.sessionId,
     };
+  }
+
+  /**
+   * Fork a session - creates a child session from an existing one.
+   * The original session is preserved intact.
+   */
+  async forkSession(params: {
+    sessionId: string;
+    name?: string;
+  }): Promise<AcpForkSessionResult> {
+    const response = await fetch(
+      `${this.baseUrl}/api/sessions/${params.sessionId}/fork`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: params.name }),
+      },
+    );
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(
+        (err as Record<string, string>).error ?? `Fork failed: ${response.status}`,
+      );
+    }
+    return response.json() as Promise<AcpForkSessionResult>;
   }
 
   /**

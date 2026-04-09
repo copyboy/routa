@@ -1218,6 +1218,9 @@ export interface ExtendedTranslationDictionarySections extends TailTranslationDi
     concurrencyLabel: string;
     installAgents: string;
     openInNewTab: string;
+    resume: string;
+    resuming: string;
+    resumeHint: string;
   };
 
   // MCP Servers

@@ -814,6 +814,8 @@ describe("KanbanTab agent prompt flow", () => {
       dockerConfigError: null,
       connect: vi.fn(),
       createSession: vi.fn(),
+      resumeSession: vi.fn(),
+      forkSession: vi.fn(),
       selectSession: vi.fn(),
       setProvider: vi.fn(),
       setMode: vi.fn(),
