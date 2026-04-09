@@ -28,6 +28,15 @@ const nextConfig: NextConfig = {
     "utf-8-validate",
     "better-sqlite3",
   ],
+  experimental: {
+    // Optimize Webpack memory usage by changing behavior to reduce max memory
+    // at the cost of slightly increased compilation times
+    // See: https://nextjs.org/docs/app/guides/memory-usage
+    webpackMemoryOptimizations: true,
+    // Disable preloading page modules on server start to reduce initial memory footprint
+    // Modules are loaded on-demand instead, trading faster response times for lower memory usage
+    preloadEntriesOnStart: false,
+  },
   // Ensure cli.js (Claude Code agent binary) is included in Vercel's deployment
   // bundle. It's not statically imported so file-tracing won't pick it up
   // automatically; this forces Vercel to copy the whole SDK package.

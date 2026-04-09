@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type SetStateAction, type RefObject } from "react";
+import { useMemo, useState, type Dispatch, type SetStateAction, type RefObject } from "react";
 import { useTranslation } from "@/i18n";
 import type { AcpProviderInfo } from "@/client/acp-client";
 import type { CodebaseData } from "@/client/hooks/use-workspaces";
@@ -27,7 +27,8 @@ import {
 import type { ColumnAutomationConfig } from "./kanban-settings-modal";
 import type { KanbanBoardInfo, SessionInfo, TaskInfo, WorktreeInfo } from "../types";
 import type { KanbanRepoChanges } from "./kanban-file-changes-types";
-import { ChevronRight, ArrowRight } from "lucide-react";
+import { ChevronRight, ArrowRight, GitBranch } from "lucide-react";
+import { GitLogPanel, RealGitAdapter, MockGitAdapter } from "./git-log";
 
 interface SessionRestoreTranscriptMessage {
   role?: string;
@@ -257,7 +258,16 @@ export function KanbanBoardSurface({
 }) {
   const { t } = useTranslation();
   const [fileChangesOpen, setFileChangesOpen] = useState(false);
+  const [gitLogOpen, setGitLogOpen] = useState(false);
   const fileChangesSummary = getKanbanFileChangesSummary(repoChanges);
+
+  // Use RealGitAdapter when a real repo is available; fall back to MockGitAdapter for demo
+  const gitAdapter = useMemo(() => {
+    const hasRealRepo = defaultCodebase?.repoPath;
+    return hasRealRepo ? new RealGitAdapter() : new MockGitAdapter();
+  }, [defaultCodebase?.repoPath]);
+
+  const gitLogRepoPath = defaultCodebase?.repoPath ?? "/mock/repo";
 
   return (
     <>
@@ -358,6 +368,20 @@ export function KanbanBoardSurface({
                   {fileChangesSummary.changedFiles}
                 </span>
               </button>
+              <button
+                type="button"
+                onClick={() => setGitLogOpen((current) => !current)}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium transition-colors ${
+                  gitLogOpen
+                    ? "border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-600 dark:bg-amber-900/20 dark:text-amber-300"
+                    : "border-slate-200 bg-slate-50 text-slate-700 hover:border-amber-400 hover:bg-amber-50 dark:border-slate-700 dark:bg-[#0d1018] dark:text-slate-300 dark:hover:bg-amber-900/10"
+                }`}
+                data-testid={gitLogOpen ? "kanban-git-log-close" : "kanban-git-log-open"}
+                aria-label={gitLogOpen ? "Close git log panel" : "Open git log panel"}
+              >
+                <GitBranch className="h-3.5 w-3.5" />
+                <span>{t.gitLog.title}</span>
+              </button>
               <KanbanRepoSyncStatus repoSync={repoSync} />
             </div>
           </div>
@@ -440,6 +464,15 @@ export function KanbanBoardSurface({
             onClose={() => setFileChangesOpen(false)}
             onRefresh={onRefresh}
           />
+          {gitLogOpen && (
+            <div className="shrink-0 border-b border-slate-200 dark:border-[#1c1f2e]" style={{ height: "340px" }}>
+              <GitLogPanel
+                adapter={gitAdapter}
+                repoPath={gitLogRepoPath}
+                title={t.gitLog.title}
+              />
+            </div>
+          )}
           <div className="flex-1 min-h-0 overflow-auto pb-2" data-testid="kanban-board-content">
             <div className="flex min-h-full min-w-max items-start gap-3 pr-4">
               {board.columns
