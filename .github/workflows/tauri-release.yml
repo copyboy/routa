@@ -371,7 +371,6 @@ jobs:
     needs:
       - build-tauri
       - verify-tauri
-      - generate-release-notes
     runs-on: ubuntu-latest
     steps:
       - name: Download bundled assets
@@ -381,18 +380,15 @@ jobs:
           path: dist/tauri-release
           merge-multiple: true
 
-      - name: Download release notes
-        uses: actions/download-artifact@v4
-        with:
-          name: tauri-release-notes
-          path: dist/release
-
       - name: Publish draft GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ inputs.version || github.event.inputs.version }}
           name: Routa Desktop v${{ inputs.version || github.event.inputs.version }}
-          body_path: dist/release/release-notes.md
+          body: |
+            ## Routa Desktop v${{ inputs.version || github.event.inputs.version }}
+
+            Desktop application release. Release notes will be added manually.
           draft: true
           prerelease: false
           files: |
