@@ -114,6 +114,10 @@ fn custom_provider_launch_from_row(session: &AcpSessionRow) -> Option<CustomProv
     })
 }
 
+fn should_attempt_native_resume(session: &AcpSessionRow, provider: &str) -> bool {
+    provider == "codex" && session.first_prompt_sent
+}
+
 /// Type alias for the SSE stream used in ACP responses.
 type AcpSseStream =
     std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<Event, Infallible>> + Send>>;
@@ -1303,7 +1307,7 @@ async fn acp_rpc(
             let mut resume_mode = "recreated";
             let mut native_resume_error: Option<String> = None;
 
-            let create_result = if provider == "codex" {
+            let create_result = if should_attempt_native_resume(&persisted_session, &provider) {
                 match if let Some(custom) = custom_provider_launch.clone() {
                     state
                         .acp_manager
@@ -1382,6 +1386,43 @@ async fn acp_rpc(
                                 .await
                         }
                     }
+                }
+            } else if provider == "codex" && !persisted_session.first_prompt_sent {
+                native_resume_error = Some(
+                    "Skipping native resume because the Codex session has no persisted rollout yet"
+                        .to_string(),
+                );
+                if let Some(custom) = custom_provider_launch.clone() {
+                    state
+                        .acp_manager
+                        .create_session_from_inline(
+                            session_id.clone(),
+                            cwd.clone(),
+                            workspace_id.clone(),
+                            provider.clone(),
+                            role.clone(),
+                            None,
+                            parent_session_id.clone(),
+                            custom.command,
+                            custom.args,
+                            SessionLaunchOptions::default(),
+                        )
+                        .await
+                } else {
+                    state
+                        .acp_manager
+                        .create_session(
+                            session_id.clone(),
+                            cwd.clone(),
+                            workspace_id.clone(),
+                            Some(provider.clone()),
+                            role.clone(),
+                            None,
+                            parent_session_id.clone(),
+                            tool_mode.clone(),
+                            mcp_profile.clone(),
+                        )
+                        .await
                 }
             } else if let Some(custom) = custom_provider_launch.clone() {
                 state
@@ -1794,7 +1835,7 @@ mod tests {
 
     use super::{
         acp_rpc, custom_provider_launch_from_row, extract_custom_provider_launch, has_explicit_cwd,
-        resolve_session_cwd, AcpResponse, CustomProviderLaunch,
+        resolve_session_cwd, should_attempt_native_resume, AcpResponse, CustomProviderLaunch,
     };
     use routa_core::acp::terminal_manager::TerminalManager;
 
@@ -1871,6 +1912,35 @@ mod tests {
             launch.args,
             vec!["codex-acp".to_string(), "--stdio".to_string()]
         );
+    }
+
+    #[test]
+    fn native_resume_requires_a_persisted_codex_rollout() {
+        let mut codex_session = AcpSessionRow {
+            id: "session-codex".to_string(),
+            name: None,
+            cwd: "/tmp".to_string(),
+            branch: Some("main".to_string()),
+            workspace_id: "default".to_string(),
+            routa_agent_id: None,
+            provider_session_id: Some("thread-1".to_string()),
+            provider: Some("codex".to_string()),
+            role: Some("CRAFTER".to_string()),
+            mode_id: None,
+            custom_command: None,
+            custom_args: Vec::new(),
+            first_prompt_sent: false,
+            message_history: Vec::new(),
+            created_at: 1,
+            updated_at: 1,
+            parent_session_id: None,
+        };
+
+        assert!(!should_attempt_native_resume(&codex_session, "codex"));
+
+        codex_session.first_prompt_sent = true;
+        assert!(should_attempt_native_resume(&codex_session, "codex"));
+        assert!(!should_attempt_native_resume(&codex_session, "opencode"));
     }
 
     #[tokio::test]
