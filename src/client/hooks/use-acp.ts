@@ -610,7 +610,9 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
       setState((s) => ({
         ...s,
         loading: false,
-        error: toErrorMessage(err) || "Session resume failed",
+        error: options?.throwOnError
+          ? null
+          : toErrorMessage(err) || "Session resume failed",
       }));
       if (options?.throwOnError) {
         throw err;
@@ -673,7 +675,7 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
     // Reset live updates when switching sessions.
     // Historical transcript hydration is owned by ChatPanel to avoid loading
     // the same history both into `updates` and into the chat transcript state.
-    setState((s) => ({ ...s, sessionId, updates: [] }));
+    setState((s) => ({ ...s, sessionId, updates: [], error: null }));
   }, []);
 
   /** Send a prompt to current session (content streams over SSE). */
