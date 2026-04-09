@@ -40,7 +40,8 @@ const PIERRE_DIFF_OPTIONS = {
   disableBackground: false,
   disableFileHeader: true,
   disableLineNumbers: false,
-  hunkSeparators: createKanbanHunkSeparator,
+  hunkSeparators: "line-info" as const,
+  onPostRender: normalizeKanbanPierreDiff,
   expansionLineCount: 100,
   lineDiffType: "word-alt" as const,
   maxLineDiffLength: 1000,
@@ -77,30 +78,28 @@ const PIERRE_DIFF_OPTIONS = {
     [data-column-number] {
       z-index: 3;
     }
-    .kanban-hunk-separator {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      width: 100%;
-      min-height: 32px;
-      padding: 0 12px;
-      color: light-dark(#64748b, #94a3b8);
-      background: var(--diffs-bg-separator);
-      border-block: 1px dashed light-dark(#cbd5e1, #334155);
-      cursor: pointer;
-      font: inherit;
-      text-align: left;
+    [data-separator='line-info'] {
+      height: 32px;
+      margin-block: 0;
+      background: var(--diffs-bg);
+      border-block: 1px dashed light-dark(#d4d4d8, #374151);
     }
-    .kanban-hunk-separator:hover {
-      color: light-dark(#0f172a, #e2e8f0);
-      background: light-dark(#f1f5f9, #1e293b);
+    [data-separator='line-info'] [data-separator-wrapper] {
+      padding-inline: 0;
+      background: var(--diffs-bg);
     }
-    .kanban-hunk-separator-icon {
-      display: inline-flex;
-      width: 16px;
-      justify-content: center;
-      font-size: 14px;
-      line-height: 1;
+    [data-separator='line-info'] [data-expand-button],
+    [data-separator='line-info'] [data-separator-content] {
+      background: light-dark(#f4f4f5, #171b27);
+      color: light-dark(#71717a, #a1a1aa);
+    }
+    [data-separator='line-info'] [data-expand-button] {
+      min-width: 32px;
+      border-right: 2px solid var(--diffs-bg);
+    }
+    [data-separator='line-info'] [data-separator-content] {
+      border-radius: 0;
+      padding-inline: 10px;
     }
   `,
 };
@@ -109,27 +108,15 @@ interface DiffSearchResult {
   element: HTMLElement;
 }
 
-function createKanbanHunkSeparator(
-  hunk: { hunkIndex: number; lines: number },
-  instance: PierreFileDiffInstance,
-): HTMLElement {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "kanban-hunk-separator";
-  button.dataset.expandButton = "";
-  button.dataset.expandIndex = String(hunk.hunkIndex);
-
-  const icon = document.createElement("span");
-  icon.className = "kanban-hunk-separator-icon";
-  icon.textContent = "↕";
-
-  const label = document.createElement("span");
-  label.textContent = `${hunk.lines} unmodified line${hunk.lines === 1 ? "" : "s"}`;
-
-  button.append(icon, label);
-  button.addEventListener("click", () => instance.expandHunk(hunk.hunkIndex, "both"));
-
-  return button;
+function normalizeKanbanPierreDiff(node: HTMLElement) {
+  for (const searchRoot of getDiffSearchRoots(node)) {
+    for (const label of searchRoot.querySelectorAll("[data-unmodified-lines]")) {
+      label.textContent = (label.textContent ?? "").replace(
+        /unmodified line(s?)/g,
+        "hidden line$1",
+      );
+    }
+  }
 }
 
 function clearDiffSearchHighlights(root: HTMLElement) {
@@ -147,6 +134,9 @@ function clearDiffSearchHighlights(root: HTMLElement) {
 
 function getDiffSearchRoots(root: HTMLElement): Array<ShadowRoot | HTMLElement> {
   const searchRoots: Array<ShadowRoot | HTMLElement> = [];
+  if (root.matches("diffs-container") && root.shadowRoot) {
+    searchRoots.push(root.shadowRoot);
+  }
   for (const diffContainer of root.querySelectorAll("diffs-container")) {
     if (diffContainer.shadowRoot) {
       searchRoots.push(diffContainer.shadowRoot);
@@ -885,12 +875,12 @@ function CommitFileDiffSection({
         <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-[9px] font-bold ${badge.className}`}>
           {badge.icon}
         </span>
-        <div className="min-w-0">
-          <div className="truncate text-xs font-medium text-slate-900 dark:text-slate-100" title={file.path}>
+        <div className="flex min-w-0 items-baseline gap-2">
+          <div className="shrink-0 truncate text-xs font-medium text-slate-900 dark:text-slate-100" title={file.path}>
             {name}
           </div>
           {directory ? (
-            <div className="truncate text-[10px] text-slate-500 dark:text-slate-400" title={directory}>
+            <div className="min-w-0 truncate text-[10px] text-slate-500 dark:text-slate-400" title={directory}>
               {directory}
             </div>
           ) : null}
