@@ -116,6 +116,7 @@ fn sample_state() -> RuntimeState {
     state.selected_file = 0;
     state.last_refresh_at_ms = now - 120_000;
     state.runtime_transport = "socket".to_string();
+    state.refresh_views();
     state
 }
 
@@ -273,6 +274,7 @@ fn diff_stat_spans_use_green_for_add_and_red_for_delete() {
 fn search_filters_sessions_and_files() {
     let mut state = sample_state();
     state.search_query = "route.ts".to_string();
+    state.refresh_views();
     let sessions = state.session_items();
     let files = state.file_items();
     assert_eq!(
@@ -289,6 +291,7 @@ fn assign_selected_file_to_selected_session_updates_owner() {
     state.file_list_mode = FileListMode::Global;
     state.selected_session = 0;
     state.selected_file = 1;
+    state.refresh_views();
 
     let message = state
         .selected_file_assignment_message()
@@ -313,6 +316,7 @@ fn selected_file_assignment_message_is_attribution_event() {
     state.file_list_mode = FileListMode::Global;
     state.selected_session = 0;
     state.selected_file = 1;
+    state.refresh_views();
 
     let message = state
         .selected_file_assignment_message()
@@ -345,6 +349,7 @@ fn tui_snapshot_search_mode() {
     state.search_active = true;
     state.file_list_mode = FileListMode::Global;
     state.selected_file = 0;
+    state.refresh_views();
     let cache = sample_cache(&state);
     insta::assert_snapshot!(
         "agentwatch_tui_search",
@@ -356,6 +361,7 @@ fn tui_snapshot_search_mode() {
 fn tui_snapshot_file_preview_mode() {
     let mut state = sample_state();
     state.detail_mode = DetailMode::File;
+    state.refresh_views();
     let cache = sample_cache(&state);
     insta::assert_snapshot!(
         "agentwatch_tui_file_preview",

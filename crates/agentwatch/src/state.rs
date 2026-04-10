@@ -92,11 +92,13 @@ pub struct RuntimeState {
     pub runtime_transport: String,
     pub search_query: String,
     pub search_active: bool,
+    cached_session_items: Vec<SessionListItem>,
+    cached_file_item_keys: Vec<String>,
 }
 
 impl RuntimeState {
     pub fn new(repo_root: String, repo_name: String, branch: String) -> Self {
-        Self {
+        let mut state = Self {
             repo_root,
             repo_name,
             branch,
@@ -117,7 +119,11 @@ impl RuntimeState {
             runtime_transport: "feed".to_string(),
             search_query: String::new(),
             search_active: false,
-        }
+            cached_session_items: Vec::new(),
+            cached_file_item_keys: Vec::new(),
+        };
+        state.rebuild_views();
+        state
     }
 
     pub fn apply_message(&mut self, message: RuntimeMessage) {
@@ -215,7 +221,11 @@ impl RuntimeState {
         }
     }
 
-    pub fn session_items(&self) -> Vec<SessionListItem> {
+    pub fn session_items(&self) -> &[SessionListItem] {
+        &self.cached_session_items
+    }
+
+    fn compute_session_items(&self) -> Vec<SessionListItem> {
         let mut items: Vec<_> = self
             .sessions
             .values()
@@ -276,12 +286,12 @@ impl RuntimeState {
     }
 
     pub fn selected_session_id(&self) -> Option<String> {
-        self.session_items()
+        self.cached_session_items
             .get(self.selected_session)
             .map(|session| session.session_id.clone())
     }
 
-    pub fn file_items(&self) -> Vec<&FileView> {
+    fn compute_file_item_keys(&self) -> Vec<String> {
         let mut items: Vec<_> = self
             .files
             .values()
@@ -318,17 +328,25 @@ impl RuntimeState {
                 .cmp(&a.last_modified_at_ms)
                 .then_with(|| a.rel_path.cmp(&b.rel_path))
         });
-        items
+        items.into_iter().map(|file| file.rel_path.clone()).collect()
+    }
+
+    pub fn file_items(&self) -> Vec<&FileView> {
+        self.cached_file_item_keys
+            .iter()
+            .filter_map(|key| self.files.get(key))
+            .collect()
     }
 
     pub fn selected_file(&self) -> Option<&FileView> {
-        let items = self.file_items();
-        items.get(self.selected_file).copied()
+        self.cached_file_item_keys
+            .get(self.selected_file)
+            .and_then(|key| self.files.get(key))
     }
 
     #[allow(dead_code)]
     pub fn selected_file_position(&self) -> Option<(usize, usize)> {
-        let len = self.file_items().len();
+        let len = self.cached_file_item_keys.len();
         if len == 0 {
             None
         } else {
@@ -361,13 +379,13 @@ impl RuntimeState {
     pub fn move_selection_down(&mut self) {
         match self.focus {
             FocusPane::Sessions => {
-                let len = self.session_items().len();
+                let len = self.cached_session_items.len();
                 if len > 0 {
                     self.selected_session = (self.selected_session + 1).min(len - 1);
                 }
             }
             FocusPane::Files => {
-                let len = self.file_items().len();
+                let len = self.cached_file_item_keys.len();
                 if len > 0 {
                     self.selected_file = (self.selected_file + 1).min(len - 1);
                 }
@@ -428,6 +446,7 @@ impl RuntimeState {
             FileListMode::Global => FileListMode::UnknownConflict,
             FileListMode::UnknownConflict => FileListMode::BySession,
         };
+        self.rebuild_views();
         self.selected_file = 0;
         self.restore_detail_scroll_for_selection();
     }
@@ -451,7 +470,7 @@ impl RuntimeState {
     }
 
     pub fn select_prev_file(&mut self) {
-        let len = self.file_items().len();
+        let len = self.cached_file_item_keys.len();
         if len == 0 {
             return;
         }
@@ -460,7 +479,7 @@ impl RuntimeState {
     }
 
     pub fn select_next_file(&mut self) {
-        let len = self.file_items().len();
+        let len = self.cached_file_item_keys.len();
         if len == 0 {
             return;
         }
@@ -495,6 +514,11 @@ impl RuntimeState {
                 EventLogFilter::Attribution => entry.source == EventSource::Attribution,
             })
             .collect()
+    }
+
+    #[cfg(test)]
+    pub fn refresh_views(&mut self) {
+        self.clamp_selection();
     }
 
     fn apply_hook_event(&mut self, event: HookEvent) {
@@ -701,20 +725,33 @@ impl RuntimeState {
     }
 
     fn clamp_selection(&mut self) {
-        let session_len = self.session_items().len();
+        self.rebuild_views();
+        let session_len = self.cached_session_items.len();
         if session_len == 0 {
             self.selected_session = 0;
         } else {
             self.selected_session = self.selected_session.min(session_len - 1);
         }
 
-        let file_len = self.file_items().len();
+        self.cached_file_item_keys = self.compute_file_item_keys();
+        let file_len = self.cached_file_item_keys.len();
         if file_len == 0 {
             self.selected_file = 0;
         } else {
             self.selected_file = self.selected_file.min(file_len - 1);
         }
         self.restore_detail_scroll_for_selection();
+    }
+
+    fn rebuild_views(&mut self) {
+        self.cached_session_items = self.compute_session_items();
+        let session_len = self.cached_session_items.len();
+        if session_len == 0 {
+            self.selected_session = 0;
+        } else {
+            self.selected_session = self.selected_session.min(session_len - 1);
+        }
+        self.cached_file_item_keys = self.compute_file_item_keys();
     }
 
     fn matches_session_search(&self, session: &SessionView) -> bool {
