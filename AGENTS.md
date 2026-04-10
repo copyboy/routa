@@ -64,7 +64,7 @@ entrix run --tier normal   # when behavior/shared modules/APIs/workflow orchestr
 ### Co-Author Format
 
 - If closing an issue in commit text, verify against `main` first: `gh issue view <issue-id>`.
-- Each commit should add co-authored, append trailer(s) in this format.
+- Append a co-author line in the following format: (YourName, like Copilot,Augment,Claude etc.) (Your model name) <YourEmail, like, claude@anthropic.com, auggie@augmentcode.com)> for example:
 
 ```text
 Co-authored-by: Kiro AI (Claude Opus 4.6) <kiro@kiro.dev>
