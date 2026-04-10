@@ -2,7 +2,7 @@ use crate::ipc::RuntimeFeed;
 use crate::models::{DEFAULT_INFERENCE_WINDOW_MS, DEFAULT_TUI_POLL_MS};
 use crate::observe;
 use crate::repo::RepoContext;
-use crate::state::{DetailMode, FocusPane, RuntimeState, ThemeMode};
+use crate::state::{DetailMode, EventLogFilter, FocusPane, RuntimeState, ThemeMode};
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use crossterm::execute;
@@ -102,6 +102,10 @@ fn handle_event(state: &mut RuntimeState, ctx: &RepoContext) -> Result<bool> {
             KeyCode::Char('s') => state.toggle_group_mode(),
             KeyCode::Char('d') | KeyCode::Char('D') => state.toggle_detail_mode(),
             KeyCode::Char('t') | KeyCode::Char('T') => state.toggle_theme_mode(),
+            KeyCode::Char('1') => state.set_event_log_filter(EventLogFilter::All),
+            KeyCode::Char('2') => state.set_event_log_filter(EventLogFilter::Hook),
+            KeyCode::Char('3') => state.set_event_log_filter(EventLogFilter::Git),
+            KeyCode::Char('4') => state.set_event_log_filter(EventLogFilter::Watch),
             KeyCode::Char('[') => jump_diff_hunk(state, ctx, false)?,
             KeyCode::Char(']') => jump_diff_hunk(state, ctx, true)?,
             KeyCode::PageDown => {
@@ -364,18 +368,23 @@ fn render_detail(
 
 fn render_log(frame: &mut Frame, area: ratatui::layout::Rect, state: &RuntimeState) {
     let items: Vec<ListItem> = state
-        .event_log
+        .visible_event_log_items()
         .iter()
         .take(6)
         .map(|entry| {
             ListItem::new(Line::from(format!(
-                "{} {}",
+                "{} [{}] {}",
                 format_ts(entry.observed_at_ms),
+                entry.source.label(),
                 entry.message
             )))
         })
         .collect();
-    let list = List::new(items).block(Block::default().title("Event Log").borders(Borders::ALL));
+    let list = List::new(items).block(
+        Block::default()
+            .title(format!("Event Log ({})", state.event_log_filter.label()))
+            .borders(Borders::ALL),
+    );
     frame.render_widget(Clear, area);
     frame.render_widget(list, area);
 }
@@ -429,6 +438,8 @@ fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, state: &Runtime
         }),
         Span::styled("T", Style::default().fg(Color::Yellow)),
         Span::raw(" theme  "),
+        Span::styled("1-4", Style::default().fg(Color::Yellow)),
+        Span::raw(" log  "),
         Span::styled("r", Style::default().fg(Color::Yellow)),
         Span::raw(if state.follow_mode {
             " follow:on  "
@@ -523,11 +534,11 @@ fn highlight_diff_text(file_path: Option<&str>, diff_text: &str, theme_mode: The
                 Style::default().fg(Color::Cyan),
             ))
         } else if raw.starts_with('+') {
-            build_diff_code_line('+', &raw[1..], Color::Green, &mut highlighter)
+            build_diff_code_line('+', &raw[1..], Color::Green, &mut highlighter, theme_mode)
         } else if raw.starts_with('-') {
-            build_diff_code_line('-', &raw[1..], Color::Red, &mut highlighter)
+            build_diff_code_line('-', &raw[1..], Color::Red, &mut highlighter, theme_mode)
         } else if let Some(rest) = raw.strip_prefix(' ') {
-            build_diff_code_line(' ', rest, Color::DarkGray, &mut highlighter)
+            build_diff_code_line(' ', rest, Color::DarkGray, &mut highlighter, theme_mode)
         } else if raw.starts_with("diff --git") || raw.starts_with("index ") {
             Line::from(Span::styled(
                 raw.to_string(),
@@ -546,6 +557,7 @@ fn build_diff_code_line(
     code: &str,
     prefix_color: Color,
     highlighter: &mut HighlightLines<'_>,
+    theme_mode: ThemeMode,
 ) -> Line<'static> {
     let mut spans = vec![Span::styled(
         prefix.to_string(),
@@ -553,7 +565,7 @@ fn build_diff_code_line(
             .fg(prefix_color)
             .add_modifier(Modifier::BOLD),
     )];
-    spans.extend(highlight_code_spans(code, highlighter));
+    spans.extend(highlight_code_spans(code, highlighter, theme_mode));
     Line::from(spans)
 }
 
@@ -567,33 +579,60 @@ fn highlight_code_text(file_path: Option<&str>, code: &str, theme_mode: ThemeMod
         lines.push(Line::from(highlight_code_spans(
             line.trim_end_matches('\n'),
             &mut highlighter,
+            theme_mode,
         )));
     }
     Text::from(lines)
 }
 
-fn highlight_code_spans(code: &str, highlighter: &mut HighlightLines<'_>) -> Vec<Span<'static>> {
+fn highlight_code_spans(
+    code: &str,
+    highlighter: &mut HighlightLines<'_>,
+    theme_mode: ThemeMode,
+) -> Vec<Span<'static>> {
     match highlighter.highlight_line(code, &SYNTAX_SET) {
         Ok(regions) => regions
             .into_iter()
-            .map(|(style, text)| Span::styled(text.to_string(), syntect_to_ratatui(style)))
+            .map(|(style, text)| {
+                Span::styled(text.to_string(), syntect_to_ratatui(style, theme_mode))
+            })
             .collect(),
         Err(_) => vec![Span::raw(code.to_string())],
     }
 }
 
-fn syntect_to_ratatui(style: SyntectStyle) -> Style {
-    Style::default().fg(Color::Rgb(
-        style.foreground.r,
-        style.foreground.g,
-        style.foreground.b,
-    ))
+fn syntect_to_ratatui(style: SyntectStyle, theme_mode: ThemeMode) -> Style {
+    let color = Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
+    let color = match theme_mode {
+        ThemeMode::Dark => normalize_dark_foreground(color),
+        ThemeMode::Light => color,
+    };
+    Style::default().fg(color)
 }
 
 fn syntax_theme(theme_mode: ThemeMode) -> &'static Theme {
     match theme_mode {
         ThemeMode::Dark => &DARK_THEME,
         ThemeMode::Light => &LIGHT_THEME,
+    }
+}
+
+fn normalize_dark_foreground(color: Color) -> Color {
+    match color {
+        Color::Rgb(r, g, b) => {
+            let brightest = r.max(g).max(b);
+            if brightest >= 95 {
+                Color::Rgb(r, g, b)
+            } else {
+                let boost = 95u8.saturating_sub(brightest);
+                Color::Rgb(
+                    r.saturating_add(boost),
+                    g.saturating_add(boost),
+                    b.saturating_add(boost),
+                )
+            }
+        }
+        other => other,
     }
 }
 

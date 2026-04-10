@@ -1,6 +1,6 @@
 use crate::models::{
-    AttributionConfidence, EventLogEntry, FileView, GitEvent, HookEvent, RuntimeMessage,
-    SessionView, DEFAULT_INFERENCE_WINDOW_MS, EVENT_LOG_LIMIT,
+    AttributionConfidence, EventLogEntry, EventSource, FileView, GitEvent, HookEvent,
+    RuntimeMessage, SessionView, DEFAULT_INFERENCE_WINDOW_MS, EVENT_LOG_LIMIT,
 };
 use chrono::Utc;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -25,6 +25,25 @@ pub enum ThemeMode {
     Light,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventLogFilter {
+    All,
+    Hook,
+    Git,
+    Watch,
+}
+
+impl EventLogFilter {
+    pub fn label(self) -> &'static str {
+        match self {
+            EventLogFilter::All => "all",
+            EventLogFilter::Hook => "hook",
+            EventLogFilter::Git => "git",
+            EventLogFilter::Watch => "watch",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct RuntimeState {
     pub repo_root: String,
@@ -36,6 +55,7 @@ pub struct RuntimeState {
     pub focus: FocusPane,
     pub detail_mode: DetailMode,
     pub theme_mode: ThemeMode,
+    pub event_log_filter: EventLogFilter,
     pub detail_scroll: u16,
     pub detail_scroll_cache: BTreeMap<String, u16>,
     pub selected_session: usize,
@@ -55,6 +75,7 @@ impl RuntimeState {
             focus: FocusPane::Sessions,
             detail_mode: DetailMode::Summary,
             theme_mode: ThemeMode::Dark,
+            event_log_filter: EventLogFilter::All,
             detail_scroll: 0,
             detail_scroll_cache: BTreeMap::new(),
             selected_session: 0,
@@ -74,11 +95,15 @@ impl RuntimeState {
     pub fn sync_dirty_files(&mut self, dirty: Vec<(String, String, Option<i64>)>) {
         let now_ms = Utc::now().timestamp_millis();
         let seen: BTreeSet<String> = dirty.iter().map(|(p, _, _)| p.clone()).collect();
+        let mut watch_events = Vec::new();
 
         for file in self.files.values_mut() {
             if !seen.contains(&file.rel_path) {
-                file.dirty = false;
-                file.state_code = "clean".to_string();
+                if file.dirty {
+                    watch_events.push(format!("watch clean {}", file.rel_path));
+                    file.dirty = false;
+                    file.state_code = "clean".to_string();
+                }
             }
         }
 
@@ -97,14 +122,26 @@ impl RuntimeState {
                     touched_by: BTreeSet::new(),
                     recent_events: Vec::new(),
                 });
+            let was_dirty = file.dirty;
+            let previous_state = file.state_code.clone();
+            let previous_mtime = file.last_modified_at_ms;
             file.dirty = true;
-            file.state_code = state_code;
+            file.state_code = state_code.clone();
             if let Some(mtime) = mtime_ms {
                 file.last_modified_at_ms = mtime;
+            }
+            let changed_on_disk = mtime_ms
+                .map(|mtime| mtime != previous_mtime)
+                .unwrap_or(false);
+            if !was_dirty || previous_state != state_code || changed_on_disk {
+                watch_events.push(format!("watch {} {}", file.state_code, rel_path));
             }
         }
         self.last_refresh_at_ms = now_ms;
         self.prune_stale_sessions();
+        for event in watch_events {
+            self.push_watch_event(now_ms, event);
+        }
     }
 
     pub fn session_items(&self) -> Vec<&SessionView> {
@@ -208,6 +245,10 @@ impl RuntimeState {
         };
     }
 
+    pub fn set_event_log_filter(&mut self, filter: EventLogFilter) {
+        self.event_log_filter = filter;
+    }
+
     pub fn toggle_group_mode(&mut self) {
         self.group_by_session = !self.group_by_session;
         self.selected_file = 0;
@@ -250,6 +291,18 @@ impl RuntimeState {
         self.restore_detail_scroll_for_selection();
     }
 
+    pub fn visible_event_log_items(&self) -> Vec<&EventLogEntry> {
+        self.event_log
+            .iter()
+            .filter(|entry| match self.event_log_filter {
+                EventLogFilter::All => true,
+                EventLogFilter::Hook => entry.source == EventSource::Hook,
+                EventLogFilter::Git => entry.source == EventSource::Git,
+                EventLogFilter::Watch => entry.source == EventSource::Watch,
+            })
+            .collect()
+    }
+
     fn apply_hook_event(&mut self, event: HookEvent) {
         {
             let session = self
@@ -286,6 +339,7 @@ impl RuntimeState {
 
         self.push_event(
             event.observed_at_ms,
+            EventSource::Hook,
             format!(
                 "{} {} {}",
                 short_session(&event.session_id),
@@ -333,6 +387,7 @@ impl RuntimeState {
     fn apply_git_event(&mut self, event: GitEvent) {
         self.push_event(
             event.observed_at_ms,
+            EventSource::Git,
             format!(
                 "git {} {}",
                 event.event_name,
@@ -350,9 +405,14 @@ impl RuntimeState {
         }
     }
 
-    fn push_event(&mut self, observed_at_ms: i64, message: String) {
+    pub fn push_watch_event(&mut self, observed_at_ms: i64, message: String) {
+        self.push_event(observed_at_ms, EventSource::Watch, message);
+    }
+
+    fn push_event(&mut self, observed_at_ms: i64, source: EventSource, message: String) {
         self.event_log.push_front(EventLogEntry {
             observed_at_ms,
+            source,
             message,
         });
         while self.event_log.len() > EVENT_LOG_LIMIT {

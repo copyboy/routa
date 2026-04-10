@@ -174,5 +174,23 @@ pub struct FileView {
 #[derive(Debug, Clone)]
 pub struct EventLogEntry {
     pub observed_at_ms: i64,
+    pub source: EventSource,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventSource {
+    Hook,
+    Git,
+    Watch,
+}
+
+impl EventSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            EventSource::Hook => "hook",
+            EventSource::Git => "git",
+            EventSource::Watch => "watch",
+        }
+    }
 }
