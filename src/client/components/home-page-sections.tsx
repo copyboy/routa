@@ -9,6 +9,7 @@ import type { OnboardingMode } from "@/client/utils/onboarding";
 import { useTranslation } from "@/i18n";
 import { ChevronDown, Columns2, Plus, SquareArrowOutUpRight, Folder, MessageSquareMore } from "lucide-react";
 
+const ONBOARDING_GITHUB_PLACEHOLDER = "https://github.com/phodal/routa";
 
 interface FeaturedSkill {
   name: string;
@@ -847,7 +848,12 @@ export function OnboardingCard({
           ) : (
             <>
               <div className="mt-4">
-                <RepoPicker value={repoSelection} onChange={setRepoSelection} pathDisplay="below-muted" />
+                <RepoPicker
+                  value={repoSelection}
+                  onChange={setRepoSelection}
+                  pathDisplay="below-muted"
+                  clonePlaceholder={ONBOARDING_GITHUB_PLACEHOLDER}
+                />
               </div>
               {codebaseError && (
                 <p className="mt-2 text-sm text-rose-600 dark:text-rose-300">{codebaseError}</p>

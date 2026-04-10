@@ -278,7 +278,7 @@ function HomePageContent() {
   const needsInlineOnboarding =
     hasWorkspace &&
     !onboardingCompleted &&
-    (!hasProviderConfig || preferredMode === null);
+    (!hasProviderConfig || !hasCodebase || preferredMode === null);
 
   useEffect(() => {
     if (!activeWorkspaceId || !requestedSurfaceId) return;

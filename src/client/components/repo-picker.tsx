@@ -56,6 +56,8 @@ interface RepoPickerProps {
     path: string;
     branch?: string;
   }>;
+  /** Optional placeholder for GitHub clone input */
+  clonePlaceholder?: string;
 }
 
 type PickerTab = "existing" | "clone" | "local";
@@ -135,6 +137,7 @@ export function RepoPicker({
   sourceMode = "all",
   allowClone = true,
   additionalRepos,
+  clonePlaceholder,
 }: RepoPickerProps) {
   const { t } = useTranslation();
   const [repos, setRepos] = useState<ClonedRepo[]>([]);
@@ -628,7 +631,7 @@ export function RepoPicker({
                         );
                         setCloneError(null);
                       }}
-                      placeholder={t.repoPicker.ownerRepo}
+                      placeholder={clonePlaceholder ?? t.repoPicker.ownerRepo}
                       className="flex-1 px-1.5 py-2 bg-transparent text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 outline-none font-mono"
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && cloneUrl.trim()) {
