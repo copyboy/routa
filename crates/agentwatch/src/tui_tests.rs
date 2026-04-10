@@ -457,6 +457,16 @@ fn tui_snapshot_file_preview_mode() {
 }
 
 #[test]
+fn tui_snapshot_compact_mode() {
+    let state = sample_state();
+    let mut cache = sample_cache(&state);
+    insta::assert_snapshot!(
+        "agentwatch_tui_compact",
+        render_snapshot(&state, &mut cache, 96, 24)
+    );
+}
+
+#[test]
 fn transport_degrades_to_feed_when_socket_is_unreachable() {
     let dir = tempdir().expect("tempdir");
     let repo_root = dir.path().join("repo");

@@ -64,6 +64,38 @@ pub(super) fn render(
         ])
         .split(frame.area());
 
+    render_title_bar(frame, outer[0], state);
+    render_main_area(frame, outer[1], state, cache);
+    render_log(frame, outer[2], state);
+    render_footer(frame, outer[3], state);
+}
+
+fn render_main_area(frame: &mut Frame, area: Rect, state: &RuntimeState, cache: &mut AppCache) {
+    if area.width < 120 {
+        let split = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(68), Constraint::Percentage(32)])
+            .split(area);
+        render_files(frame, split[0], state, cache);
+        render_details_panel(frame, split[1], state, cache);
+        return;
+    }
+
+    if area.width < 165 {
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+            .split(area);
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(34), Constraint::Percentage(66)])
+            .split(columns[1]);
+        render_files(frame, columns[0], state, cache);
+        render_details_panel(frame, right[0], state, cache);
+        render_preview_panel(frame, right[1], state, cache);
+        return;
+    }
+
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -71,19 +103,15 @@ pub(super) fn render(
             Constraint::Percentage(42),
             Constraint::Percentage(33),
         ])
-        .split(outer[1]);
+        .split(area);
     let center = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
         .split(columns[1]);
-
-    render_title_bar(frame, outer[0], state);
     render_agents_panel(frame, columns[0], state);
     render_files(frame, center[0], state, cache);
     render_details_panel(frame, center[1], state, cache);
     render_preview_panel(frame, columns[2], state, cache);
-    render_log(frame, outer[2], state);
-    render_footer(frame, outer[3], state);
 }
 
 fn render_agents_panel(frame: &mut Frame, area: ratatui::layout::Rect, state: &RuntimeState) {
@@ -390,33 +418,48 @@ fn render_file_mode_tabs(state: &RuntimeState, width: u16) -> Line<'static> {
 
 fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, state: &RuntimeState) {
     let colors = palette(state.theme_mode);
-    let line = Line::from(vec![
-        Span::styled("Tab", Style::default().fg(colors.accent)),
-        Span::styled(" focus  ", Style::default().fg(colors.muted)),
-        Span::styled("↑↓", Style::default().fg(colors.accent)),
-        Span::styled(" select  ", Style::default().fg(colors.muted)),
-        Span::styled("u", Style::default().fg(colors.accent)),
-        Span::styled(" unknown  ", Style::default().fg(colors.muted)),
-        Span::styled("d", Style::default().fg(colors.accent)),
-        Span::styled(" preview/diff  ", Style::default().fg(colors.muted)),
-        Span::styled("Pg", Style::default().fg(colors.accent)),
-        Span::styled(" scroll  ", Style::default().fg(colors.muted)),
-        Span::styled("f", Style::default().fg(colors.accent)),
-        Span::styled(
-            if state.follow_mode {
-                " follow:on  "
-            } else {
-                " follow:off  "
-            },
-            Style::default().fg(colors.muted),
-        ),
-        Span::styled("T", Style::default().fg(colors.accent)),
-        Span::styled(" theme  ", Style::default().fg(colors.muted)),
-        Span::styled("Esc", Style::default().fg(colors.accent)),
-        Span::styled(" clear  ", Style::default().fg(colors.muted)),
-        Span::styled("q", Style::default().fg(colors.accent)),
-        Span::styled(" quit", Style::default().fg(colors.muted)),
-    ]);
+    let line = if area.width < 110 {
+        Line::from(vec![
+            Span::styled("↑↓", Style::default().fg(colors.accent)),
+            Span::styled(" select  ", Style::default().fg(colors.muted)),
+            Span::styled("u", Style::default().fg(colors.accent)),
+            Span::styled(" unknown  ", Style::default().fg(colors.muted)),
+            Span::styled("d", Style::default().fg(colors.accent)),
+            Span::styled(" preview  ", Style::default().fg(colors.muted)),
+            Span::styled("Pg", Style::default().fg(colors.accent)),
+            Span::styled(" scroll  ", Style::default().fg(colors.muted)),
+            Span::styled("q", Style::default().fg(colors.accent)),
+            Span::styled(" quit", Style::default().fg(colors.muted)),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("Tab", Style::default().fg(colors.accent)),
+            Span::styled(" focus  ", Style::default().fg(colors.muted)),
+            Span::styled("↑↓", Style::default().fg(colors.accent)),
+            Span::styled(" select  ", Style::default().fg(colors.muted)),
+            Span::styled("u", Style::default().fg(colors.accent)),
+            Span::styled(" unknown  ", Style::default().fg(colors.muted)),
+            Span::styled("d", Style::default().fg(colors.accent)),
+            Span::styled(" preview/diff  ", Style::default().fg(colors.muted)),
+            Span::styled("Pg", Style::default().fg(colors.accent)),
+            Span::styled(" scroll  ", Style::default().fg(colors.muted)),
+            Span::styled("f", Style::default().fg(colors.accent)),
+            Span::styled(
+                if state.follow_mode {
+                    " follow:on  "
+                } else {
+                    " follow:off  "
+                },
+                Style::default().fg(colors.muted),
+            ),
+            Span::styled("T", Style::default().fg(colors.accent)),
+            Span::styled(" theme  ", Style::default().fg(colors.muted)),
+            Span::styled("Esc", Style::default().fg(colors.accent)),
+            Span::styled(" clear  ", Style::default().fg(colors.muted)),
+            Span::styled("q", Style::default().fg(colors.accent)),
+            Span::styled(" quit", Style::default().fg(colors.muted)),
+        ])
+    };
     frame.render_widget(
         Paragraph::new(line).style(Style::default().bg(colors.bg).fg(colors.text)),
         area,

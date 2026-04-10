@@ -4,23 +4,23 @@ assertion_line: 441
 expression: "render_snapshot(&state, &mut cache, 120, 24)"
 ---
  AgentWatch   repo:routa-js  branch:main    FILES VIEW · FOLLOW ON  rpc:socket  ag:2 act:1  dirty:1  unknown:1  synced 2
-┌Agents──────────────────────┐┌Files───────────────────────────────────────────┐┌Diff Preview──────────────────────────┐
-│2 total  1 active  1 idle  2││ ALL FILES    REVIEW UNKNOWN                    ││@@ -1,2 +1,3 @@                       │
-│                            ││1 files  M:0 D:1  E:0 I:0 U:1                   ││-use old                              │
-│4211 ◈ Codex  ACTIVE        ││────────────────────────────────────────────────││+use new                              │
-│cpu  2.5%  mem 128MB  up    ││> route.ts                                      ││+use cache                            │
-│01:35                       ││  src/app/api/a2a/card  D  -12        5m  UNKNOW││                                      │
-│proj project  conf 80%      ││                                                ││                                      │
-│                            ││                                                ││                                      │
-│9001 ◆ Claude  IDLE         ││                                                ││                                      │
-│cpu  0.1%  mem 96MB  up     ││                                                ││                                      │
-│<ts>                    ││                                                ││                                      │
-│proj elsewhere  conf 80%    │└────────────────────────────────────────────────┘│                                      │
-│                            │┌Details─────────────────────────────────────────┐│                                      │
-│                            ││route.ts                                        ││                                      │
-│                            ││src/app/api/a2a/card                            ││                                      │
-│                            ││Last by: unknown                                ││                                      │
-└────────────────────────────┘└────────────────────────────────────────────────┘└──────────────────────────────────────┘
+┌Files───────────────────────────────────────────────────────────────┐┌Details─────────────────────────────────────────┐
+│ ALL FILES    REVIEW UNKNOWN                                        ││route.ts                                        │
+│1 files  M:0 D:1  E:0 I:0 U:1                                       ││src/app/api/a2a/card                            │
+│────────────────────────────────────────────────────────────────────││Last by: unknown                                │
+│> route.ts                                                          ││Modified: <ts> (5m)                         │
+│  src/app/api/a2a/card  D  -12        5m  UNKNOWN                   │└────────────────────────────────────────────────┘
+│                                                                    │┌Diff Preview────────────────────────────────────┐
+│                                                                    ││@@ -1,2 +1,3 @@                                 │
+│                                                                    ││-use old                                        │
+│                                                                    ││+use new                                        │
+│                                                                    ││+use cache                                      │
+│                                                                    ││                                                │
+│                                                                    ││                                                │
+│                                                                    ││                                                │
+│                                                                    ││                                                │
+│                                                                    ││                                                │
+└────────────────────────────────────────────────────────────────────┘└────────────────────────────────────────────────┘
 ┌Event Stream (all)────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │<ts>  WATCH  modify   crates/agentwatch/src/tui.rs                                                                │
 │<ts>  HOOK   live-hook-check Edit Write                                                                           │
