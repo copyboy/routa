@@ -142,19 +142,25 @@ fn handle_event(state: &mut RuntimeState, ctx: &RepoContext) -> Result<bool> {
                 KeyCode::Char('r') | KeyCode::Char('f') => state.toggle_follow_mode(),
                 KeyCode::Char('s') => state.cycle_file_list_mode(),
                 KeyCode::Char('u') => {
-                    while !matches!(state.file_list_mode, crate::state::FileListMode::UnknownConflict)
-                    {
+                    while !matches!(
+                        state.file_list_mode,
+                        crate::state::FileListMode::UnknownConflict
+                    ) {
                         state.cycle_file_list_mode();
                     }
                 }
                 KeyCode::Char('d') | KeyCode::Char('D') => state.toggle_detail_mode(),
                 KeyCode::Char('t') | KeyCode::Char('T') => state.toggle_theme_mode(),
+                KeyCode::Char('a') => {
+                    let _ = state.assign_selected_file_to_selected_session();
+                }
                 KeyCode::Char('o') => open_selected_file_in_editor(state, ctx)?,
                 KeyCode::Char('g') => open_selected_file_git_diff(state, ctx)?,
                 KeyCode::Char('1') => state.set_event_log_filter(EventLogFilter::All),
                 KeyCode::Char('2') => state.set_event_log_filter(EventLogFilter::Hook),
                 KeyCode::Char('3') => state.set_event_log_filter(EventLogFilter::Git),
                 KeyCode::Char('4') => state.set_event_log_filter(EventLogFilter::Watch),
+                KeyCode::Char('5') => state.set_event_log_filter(EventLogFilter::Attribution),
                 KeyCode::Char('[') => jump_diff_hunk(state, ctx, false)?,
                 KeyCode::Char(']') => jump_diff_hunk(state, ctx, true)?,
                 KeyCode::PageDown => {
@@ -291,7 +297,9 @@ fn ensure_runtime_service(ctx: &RepoContext) -> Result<()> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let _child = command.spawn().context("spawn agentwatch runtime service")?;
+    let _child = command
+        .spawn()
+        .context("spawn agentwatch runtime service")?;
 
     let deadline = Instant::now() + Duration::from_millis(1200);
     while Instant::now() < deadline {

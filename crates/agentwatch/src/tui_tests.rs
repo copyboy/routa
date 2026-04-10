@@ -247,9 +247,35 @@ fn search_filters_sessions_and_files() {
     state.search_query = "route.ts".to_string();
     let sessions = state.session_items();
     let files = state.file_items();
-    assert_eq!(sessions.last().map(|it| it.session_id.as_str()), Some(UNKNOWN_SESSION_ID));
+    assert_eq!(
+        sessions.last().map(|it| it.session_id.as_str()),
+        Some(UNKNOWN_SESSION_ID)
+    );
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].rel_path, "src/app/api/a2a/card/route.ts");
+}
+
+#[test]
+fn assign_selected_file_to_selected_session_updates_owner() {
+    let mut state = sample_state();
+    state.file_list_mode = FileListMode::Global;
+    state.selected_session = 0;
+    state.selected_file = 1;
+
+    assert!(state.assign_selected_file_to_selected_session());
+
+    let file = state
+        .files
+        .get("src/app/api/a2a/card/route.ts")
+        .expect("file");
+    assert_eq!(file.last_session_id.as_deref(), Some("live-hook-check"));
+    assert!(matches!(file.confidence, AttributionConfidence::Inferred));
+    assert!(
+        state
+            .visible_event_log_items()
+            .iter()
+            .any(|entry| entry.message.contains("assign live-hook-"))
+    );
 }
 
 #[test]

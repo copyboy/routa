@@ -193,6 +193,7 @@ pub enum EventSource {
     Hook,
     Git,
     Watch,
+    Attribution,
 }
 
 impl EventSource {
@@ -201,6 +202,7 @@ impl EventSource {
             EventSource::Hook => "hook",
             EventSource::Git => "git",
             EventSource::Watch => "watch",
+            EventSource::Attribution => "attrib",
         }
     }
 }

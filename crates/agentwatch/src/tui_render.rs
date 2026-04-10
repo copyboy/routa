@@ -115,10 +115,7 @@ fn render_sessions(frame: &mut Frame, area: ratatui::layout::Rect, state: &Runti
                     if session.is_unknown_bucket {
                         "watch-only owner".to_string()
                     } else {
-                        shorten_path(
-                            session.model.as_deref().unwrap_or("-"),
-                            12,
-                        )
+                        shorten_path(session.model.as_deref().unwrap_or("-"), 12)
                     },
                     Style::default().fg(colors.accent),
                 ),
@@ -137,22 +134,35 @@ fn render_sessions(frame: &mut Frame, area: ratatui::layout::Rect, state: &Runti
                 ),
                 Span::raw("  "),
                 Span::styled(
-                    format!("E:{} I:{} U:{}", session.exact_count, session.inferred_count, session.unknown_count),
-                    Style::default()
-                        .fg(if session.unknown_count > 0 { INFERRED } else { colors.muted }),
+                    format!(
+                        "E:{} I:{} U:{}",
+                        session.exact_count, session.inferred_count, session.unknown_count
+                    ),
+                    Style::default().fg(if session.unknown_count > 0 {
+                        INFERRED
+                    } else {
+                        colors.muted
+                    }),
                 ),
             ]);
             let lines = vec![primary, secondary, tertiary];
             let mut item = ListItem::new(lines);
             if selected {
-                item = item.style(row_style(selected, state.focus == FocusPane::Sessions, colors));
+                item = item.style(row_style(
+                    selected,
+                    state.focus == FocusPane::Sessions,
+                    colors,
+                ));
             }
             item
         })
         .collect();
 
-    let list =
-        List::new(items).block(panel_block("Sessions", state.focus == FocusPane::Sessions, colors));
+    let list = List::new(items).block(panel_block(
+        "Sessions",
+        state.focus == FocusPane::Sessions,
+        colors,
+    ));
     frame.render_widget(list, area);
 }
 
@@ -168,7 +178,11 @@ fn render_files(
     frame.render_widget(outer_block, area);
     let split = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(1)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+        ])
         .split(inner);
     let tabs = render_file_mode_tabs(state, split[0].width);
     frame.render_widget(
@@ -186,19 +200,24 @@ fn render_files(
         .enumerate()
         .map(|(idx, file)| {
             let selected = idx == state.selected_file;
-            let diff_stat = cache.diff_stat(file).cloned().unwrap_or_else(|| DiffStatSummary {
-                status: short_state_code(&file.state_code).to_string(),
-                additions: None,
-                deletions: None,
-            });
+            let diff_stat = cache
+                .diff_stat(file)
+                .cloned()
+                .unwrap_or_else(|| DiffStatSummary {
+                    status: short_state_code(&file.state_code).to_string(),
+                    additions: None,
+                    deletions: None,
+                });
             let (file_name, parent_dir) = split_display_path(&file.rel_path);
-            let primary = Line::from(vec![
-                Span::styled(
-                    format!("{} {}", if selected { ">" } else { " " }, shorten_path(&file_name, 34)),
-                    row_style(selected, state.focus == FocusPane::Files, colors)
-                        .add_modifier(Modifier::BOLD),
+            let primary = Line::from(vec![Span::styled(
+                format!(
+                    "{} {}",
+                    if selected { ">" } else { " " },
+                    shorten_path(&file_name, 34)
                 ),
-            ]);
+                row_style(selected, state.focus == FocusPane::Files, colors)
+                    .add_modifier(Modifier::BOLD),
+            )]);
             let secondary = Line::from(Span::styled(
                 format!("  {}", shorten_path(&parent_dir, 38)),
                 Style::default().fg(colors.muted),
@@ -244,7 +263,9 @@ fn render_detail_summary(frame: &mut Frame, area: Rect, state: &RuntimeState) {
             .unwrap_or_else(|| "unknown".to_string());
         lines.push(Line::from(Span::styled(
             shorten_path(&file_name, 28),
-            Style::default().fg(colors.text).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(colors.text)
+                .add_modifier(Modifier::BOLD),
         )));
         lines.push(Line::from(Span::styled(
             shorten_path(&parent_dir, 30),
@@ -276,10 +297,16 @@ fn render_detail_summary(frame: &mut Frame, area: Rect, state: &RuntimeState) {
         ]));
         lines.push(Line::from(vec![
             Span::styled("Lines: ", Style::default().fg(colors.muted)),
-            Span::styled(facts.line_count.to_string(), Style::default().fg(colors.text)),
+            Span::styled(
+                facts.line_count.to_string(),
+                Style::default().fg(colors.text),
+            ),
             Span::raw("  "),
             Span::styled("Size: ", Style::default().fg(colors.muted)),
-            Span::styled(format_bytes(facts.byte_size), Style::default().fg(colors.text)),
+            Span::styled(
+                format_bytes(facts.byte_size),
+                Style::default().fg(colors.text),
+            ),
         ]));
         lines.push(Line::from(vec![
             Span::styled("Created: ", Style::default().fg(colors.muted)),
@@ -293,13 +320,30 @@ fn render_detail_summary(frame: &mut Frame, area: Rect, state: &RuntimeState) {
         ]));
         lines.push(Line::from(Span::styled(
             "Why",
-            Style::default().fg(colors.accent).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(colors.accent)
+                .add_modifier(Modifier::BOLD),
         )));
         for reason in attribution_reason_lines(state, file).into_iter().take(3) {
             lines.push(Line::from(vec![
                 Span::styled("- ", Style::default().fg(colors.muted)),
                 Span::styled(reason, Style::default().fg(colors.text)),
             ]));
+        }
+        let candidates = attribution_candidate_lines(state, file);
+        if !candidates.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "Candidates",
+                Style::default()
+                    .fg(colors.accent)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for candidate in candidates.into_iter().take(3) {
+                lines.push(Line::from(vec![
+                    Span::styled("- ", Style::default().fg(colors.muted)),
+                    Span::styled(candidate, Style::default().fg(colors.text)),
+                ]));
+            }
         }
     } else {
         lines.push(Line::from(Span::styled(
@@ -334,11 +378,19 @@ fn render_detail_body(frame: &mut Frame, area: Rect, state: &RuntimeState, cache
     let file_text = match state.detail_mode {
         DetailMode::File => state
             .selected_file()
-            .and_then(|file| cache.detail_text(file, DetailMode::File).map(str::to_string))
+            .and_then(|file| {
+                cache
+                    .detail_text(file, DetailMode::File)
+                    .map(str::to_string)
+            })
             .unwrap_or_else(|| "<loading file preview...>".to_string()),
         DetailMode::Summary | DetailMode::Diff => state
             .selected_file()
-            .and_then(|file| cache.detail_text(file, DetailMode::Diff).map(str::to_string))
+            .and_then(|file| {
+                cache
+                    .detail_text(file, DetailMode::Diff)
+                    .map(str::to_string)
+            })
             .unwrap_or_else(|| "<loading diff...>".to_string()),
     };
     let file_path = state.selected_file().map(|file| file.rel_path.as_str());
@@ -434,6 +486,8 @@ fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, state: &Runtime
         ),
         Span::styled("u", Style::default().fg(colors.accent)),
         Span::styled(" unknown  ", Style::default().fg(colors.muted)),
+        Span::styled("a", Style::default().fg(colors.accent)),
+        Span::styled(" assign  ", Style::default().fg(colors.muted)),
         Span::styled("o", Style::default().fg(colors.accent)),
         Span::styled(" open  ", Style::default().fg(colors.muted)),
         Span::styled("g", Style::default().fg(colors.accent)),
@@ -475,7 +529,10 @@ fn render_title_bar(frame: &mut Frame, area: Rect, state: &RuntimeState) {
         .into_iter()
         .filter(|file| {
             file.conflicted
-                || matches!(file.confidence, crate::models::AttributionConfidence::Unknown)
+                || matches!(
+                    file.confidence,
+                    crate::models::AttributionConfidence::Unknown
+                )
                 || file.last_session_id.is_none()
         })
         .count();
@@ -495,7 +552,11 @@ fn render_title_bar(frame: &mut Frame, area: Rect, state: &RuntimeState) {
             format!(
                 "  {} · {}  ",
                 current_view_label(state),
-                if state.follow_mode { "FOLLOW ON" } else { "FOLLOW OFF" }
+                if state.follow_mode {
+                    "FOLLOW ON"
+                } else {
+                    "FOLLOW OFF"
+                }
             ),
             Style::default()
                 .fg(colors.accent)
@@ -590,10 +651,13 @@ fn time_label(timestamp_ms: i64) -> String {
 fn collect_file_facts(repo_root: &str, rel_path: &str) -> FileFacts {
     let path = Path::new(repo_root).join(rel_path);
     let content = std::fs::read_to_string(&path).ok();
-    let line_count = content.as_ref().map(|text| text.lines().count()).unwrap_or(0);
+    let line_count = content
+        .as_ref()
+        .map(|text| text.lines().count())
+        .unwrap_or(0);
     let byte_size = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
-    let (created_at, git_change_count) = git_file_history(repo_root, rel_path)
-        .unwrap_or_else(|| ("untracked".to_string(), 0));
+    let (created_at, git_change_count) =
+        git_file_history(repo_root, rel_path).unwrap_or_else(|| ("untracked".to_string(), 0));
     FileFacts {
         line_count,
         byte_size,
@@ -618,7 +682,10 @@ fn git_file_history(repo_root: &str, rel_path: &str) -> Option<(String, usize)> 
         return None;
     }
     let stdout = String::from_utf8(output.stdout).ok()?;
-    let lines: Vec<&str> = stdout.lines().filter(|line| !line.trim().is_empty()).collect();
+    let lines: Vec<&str> = stdout
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
     let created_at = lines.last().copied().unwrap_or("untracked").to_string();
     Some((created_at, lines.len()))
 }
@@ -671,11 +738,19 @@ fn render_file_summary_line(state: &RuntimeState, colors: UiPalette) -> Line<'st
         .count();
     let inferred = files
         .iter()
-        .filter(|file| matches!(file.confidence, crate::models::AttributionConfidence::Inferred))
+        .filter(|file| {
+            matches!(
+                file.confidence,
+                crate::models::AttributionConfidence::Inferred
+            )
+        })
         .count();
     let unknown = files.len().saturating_sub(exact + inferred);
     Line::from(vec![
-        Span::styled(format!("{} files", files.len()), Style::default().fg(colors.text)),
+        Span::styled(
+            format!("{} files", files.len()),
+            Style::default().fg(colors.text),
+        ),
         Span::styled(
             format!("  M:{} D:{}  ", modified, deleted),
             Style::default().fg(colors.muted),
@@ -689,11 +764,16 @@ fn render_file_summary_line(state: &RuntimeState, colors: UiPalette) -> Line<'st
 fn render_event_line(entry: &crate::models::EventLogEntry, colors: UiPalette) -> Line<'static> {
     let (action, subject) = split_event_message(&entry.message);
     Line::from(vec![
-        Span::styled(format_ts(entry.observed_at_ms), Style::default().fg(colors.muted)),
+        Span::styled(
+            format_ts(entry.observed_at_ms),
+            Style::default().fg(colors.muted),
+        ),
         Span::raw("  "),
         Span::styled(
             pad_right(&entry.source.label().to_ascii_uppercase(), 6),
-            Style::default().fg(source_color(entry.source)).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(source_color(entry.source))
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
         Span::styled(pad_right(&action, 8), Style::default().fg(colors.accent)),
@@ -710,7 +790,10 @@ fn split_event_message(message: &str) -> (String, String) {
     if first == "watch" || first == "git" {
         (second.to_string(), rest)
     } else {
-        (first.to_string(), [second, rest.as_str()].join(" ").trim().to_string())
+        (
+            first.to_string(),
+            [second, rest.as_str()].join(" ").trim().to_string(),
+        )
     }
 }
 
@@ -742,10 +825,7 @@ fn confidence_summary_label(file: &crate::models::FileView) -> &'static str {
     }
 }
 
-fn attribution_reason_lines(
-    state: &RuntimeState,
-    file: &crate::models::FileView,
-) -> Vec<String> {
+fn attribution_reason_lines(state: &RuntimeState, file: &crate::models::FileView) -> Vec<String> {
     if file.conflicted {
         return vec![
             "multiple sessions touched this file".to_string(),
@@ -771,13 +851,64 @@ fn attribution_reason_lines(
             if active_sessions == 0 {
                 lines.push("no active session hook matched in the window".to_string());
             } else if active_sessions > 1 {
-                lines.push(format!("{active_sessions} active sessions overlapped the window"));
+                lines.push(format!(
+                    "{active_sessions} active sessions overlapped the window"
+                ));
             } else {
                 lines.push("no concrete file-level hook matched the change".to_string());
             }
             lines
         }
     }
+}
+
+fn attribution_candidate_lines(
+    state: &RuntimeState,
+    file: &crate::models::FileView,
+) -> Vec<String> {
+    let parent_dir = Path::new(&file.rel_path)
+        .parent()
+        .map(|parent| parent.to_string_lossy().to_string());
+    let mut candidates: Vec<_> = state
+        .sessions
+        .values()
+        .filter(|session| session.status != "stopped")
+        .map(|session| {
+            let same_dir_count = parent_dir
+                .as_deref()
+                .map(|dir| {
+                    session
+                        .touched_files
+                        .iter()
+                        .filter(|path| path.starts_with(dir))
+                        .count()
+                })
+                .unwrap_or(0);
+            ((same_dir_count, session.last_seen_at_ms), session)
+        })
+        .collect();
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    candidates
+        .into_iter()
+        .take(3)
+        .map(|((same_dir_count, _), session)| {
+            if same_dir_count > 0 {
+                format!(
+                    "{} · {} ago · {} same-dir",
+                    session_display_label(session),
+                    time_ago(session.last_seen_at_ms),
+                    same_dir_count
+                )
+            } else {
+                format!(
+                    "{} · {} ago · {} files",
+                    session_display_label(session),
+                    time_ago(session.last_seen_at_ms),
+                    session.touched_files.len()
+                )
+            }
+        })
+        .collect()
 }
 
 fn split_display_path(path: &str) -> (String, String) {
@@ -828,10 +959,16 @@ pub(super) fn render_diff_stat_spans(diff_stat: &DiffStatSummary) -> Vec<Span<'s
     }
     if let Some(del) = diff_stat.deletions {
         spans.push(Span::raw(" "));
-        spans.push(Span::styled(format!("-{del}"), Style::default().fg(STOPPED)));
+        spans.push(Span::styled(
+            format!("-{del}"),
+            Style::default().fg(STOPPED),
+        ));
     }
     spans.push(Span::styled(
-        pad_right("", 9usize.saturating_sub(diff_stat_display_width(diff_stat))),
+        pad_right(
+            "",
+            9usize.saturating_sub(diff_stat_display_width(diff_stat)),
+        ),
         Style::default(),
     ));
     spans
@@ -886,6 +1023,7 @@ fn source_color(source: crate::models::EventSource) -> Color {
         crate::models::EventSource::Hook => Color::Rgb(126, 156, 181),
         crate::models::EventSource::Git => INFERRED,
         crate::models::EventSource::Watch => ACTIVE,
+        crate::models::EventSource::Attribution => Color::Rgb(188, 162, 104),
     }
 }
 

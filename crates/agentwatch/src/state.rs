@@ -31,6 +31,7 @@ pub enum EventLogFilter {
     Hook,
     Git,
     Watch,
+    Attribution,
 }
 
 impl EventLogFilter {
@@ -40,6 +41,7 @@ impl EventLogFilter {
             EventLogFilter::Hook => "hook",
             EventLogFilter::Git => "git",
             EventLogFilter::Watch => "watch",
+            EventLogFilter::Attribution => "attrib",
         }
     }
 }
@@ -132,6 +134,7 @@ impl RuntimeState {
         let inferred_session_id = self.single_active_session_id(now_ms);
         let seen: BTreeSet<String> = dirty.iter().map(|(p, _, _)| p.clone()).collect();
         let mut watch_events = Vec::new();
+        let mut attrib_events = Vec::new();
 
         for file in self.files.values_mut() {
             if !seen.contains(&file.rel_path) && file.dirty {
@@ -193,12 +196,21 @@ impl RuntimeState {
             }
             if !was_dirty || previous_state != state_code || changed_on_disk {
                 watch_events.push(format!("watch {} {}", file.state_code, rel_path));
+                if inferred_session_id.is_none()
+                    && (file.last_session_id.is_none()
+                        || matches!(file.confidence, AttributionConfidence::Unknown))
+                {
+                    attrib_events.push(format!("miss {}", rel_path));
+                }
             }
         }
         self.last_refresh_at_ms = now_ms;
         self.prune_stale_sessions();
         for event in watch_events {
             self.push_watch_event(now_ms, event);
+        }
+        for event in attrib_events {
+            self.push_attribution_event(now_ms, event);
         }
     }
 
@@ -217,9 +229,10 @@ impl RuntimeState {
                     status: session.status.clone(),
                     tmux_pane: session.tmux_pane.clone(),
                     last_seen_at_ms: session.last_seen_at_ms,
-                    touched_files_count: session.touched_files.len().max(
-                        exact_count + inferred_count + unknown_count,
-                    ),
+                    touched_files_count: session
+                        .touched_files
+                        .len()
+                        .max(exact_count + inferred_count + unknown_count),
                     exact_count,
                     inferred_count,
                     unknown_count,
@@ -454,6 +467,41 @@ impl RuntimeState {
         self.restore_detail_scroll_for_selection();
     }
 
+    pub fn assign_selected_file_to_selected_session(&mut self) -> bool {
+        let Some(session_id) = self.selected_session_id() else {
+            return false;
+        };
+        if session_id == UNKNOWN_SESSION_ID {
+            return false;
+        }
+        let Some(rel_path) = self.selected_file().map(|file| file.rel_path.clone()) else {
+            return false;
+        };
+        let now_ms = Utc::now().timestamp_millis();
+        let Some(file) = self.files.get_mut(&rel_path) else {
+            return false;
+        };
+
+        file.last_session_id = Some(session_id.clone());
+        file.confidence = AttributionConfidence::Inferred;
+        file.conflicted = false;
+        file.touched_by.insert(session_id.clone());
+        file.recent_events
+            .insert(0, format!("manual assign {}", short_session(&session_id)));
+        file.recent_events.truncate(8);
+
+        if let Some(session) = self.sessions.get_mut(&session_id) {
+            session.touched_files.insert(rel_path.clone());
+            session.last_seen_at_ms = now_ms;
+        }
+        self.push_attribution_event(
+            now_ms,
+            format!("assign {} {}", short_session(&session_id), rel_path),
+        );
+        self.clamp_selection();
+        true
+    }
+
     pub fn visible_event_log_items(&self) -> Vec<&EventLogEntry> {
         self.event_log
             .iter()
@@ -462,6 +510,7 @@ impl RuntimeState {
                 EventLogFilter::Hook => entry.source == EventSource::Hook,
                 EventLogFilter::Git => entry.source == EventSource::Git,
                 EventLogFilter::Watch => entry.source == EventSource::Watch,
+                EventLogFilter::Attribution => entry.source == EventSource::Attribution,
             })
             .collect()
     }
@@ -587,6 +636,10 @@ impl RuntimeState {
 
     pub fn push_watch_event(&mut self, observed_at_ms: i64, message: String) {
         self.push_event(observed_at_ms, EventSource::Watch, message);
+    }
+
+    pub fn push_attribution_event(&mut self, observed_at_ms: i64, message: String) {
+        self.push_event(observed_at_ms, EventSource::Attribution, message);
     }
 
     fn push_event(&mut self, observed_at_ms: i64, source: EventSource, message: String) {

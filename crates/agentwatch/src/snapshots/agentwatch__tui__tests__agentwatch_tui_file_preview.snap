@@ -25,4 +25,4 @@ expression: "render_snapshot(&state, &cache, 120, 24)"
 │<ts>  HOOK   live-hook-check Edit Write                                                                           │
 │<ts>  GIT    post-commit main                                                                                     │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-Tab focus  ↑↓ select  Enter inspect  / search  u unknown  o open  g git diff  f follow:on  T theme  Esc clear  q quit
+Tab focus  ↑↓ select  Enter inspect  / search  u unknown  a assign  o open  g git diff  f follow:on  T theme  Esc clear
