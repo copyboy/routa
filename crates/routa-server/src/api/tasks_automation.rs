@@ -151,6 +151,7 @@ fn build_task_prompt(
         "**IMPORTANT**: You are working in Kanban lane automation for exactly one existing card.".to_string(),
         "Only operate on the current card. Do not create a new task, do not switch to a different card, and do not broaden scope.".to_string(),
         "Use the exact MCP tool names exposed by the provider. In OpenCode, prefer `routa-coordination_update_card` and `routa-coordination_move_card`.".to_string(),
+        "When a move is blocked by missing story definition fields, use `routa-coordination_update_task` to update structured fields such as scope, acceptance criteria, verification commands, or test cases.".to_string(),
         "Do NOT use `gh issue create`, browser automation, Playwright, repo-wide debugging, API exploration, or unrelated codebase research unless the card objective explicitly requires it.".to_string(),
         String::new(),
         "## Task Details".to_string(),
@@ -206,9 +207,14 @@ fn build_task_prompt(
         "Use the exact MCP tool names exposed in this session. For OpenCode, the important ones are:".to_string(),
         String::new(),
         format!(
+            "- **routa-coordination_update_task**: Update structured task fields such as scope, acceptanceCriteria, verificationCommands, and testCases. Use taskId: \"{}\" when story readiness is missing.",
+            task.id
+        ),
+        format!(
             "- **routa-coordination_update_card**: Update this card's title, description, priority, or labels. Use cardId: \"{}\"",
             task.id
         ),
+        "- **routa-coordination_update_card is not a story-readiness tool**: card description or comment text does not satisfy move gates for scope, acceptance criteria, verification commands, or test cases.".to_string(),
         format!(
             "- **routa-coordination_move_card**: Move this same card to targetColumnId \"{}\" when the current lane is complete.",
             next_column_id.unwrap_or("the exact next column id listed above")
@@ -218,7 +224,7 @@ fn build_task_prompt(
         String::new(),
         "1. Start work for the current lane immediately.".to_string(),
         "2. Keep changes focused on this card only.".to_string(),
-        "3. Use the exact tool name `routa-coordination_update_card` to record progress on this card.".to_string(),
+        "3. Use `routa-coordination_update_task` to fix missing structured story fields, and `routa-coordination_update_card` only for card text or progress notes.".to_string(),
         format!(
             "4. Use the exact tool name `routa-coordination_move_card` with targetColumnId `{}` only when the current lane is complete.",
             next_column_id.unwrap_or("the exact next column id listed above")

@@ -61,8 +61,9 @@ describe("buildTaskPrompt", () => {
     const prompt = buildTaskPrompt(task);
 
     expect(prompt).toContain("Complete the work assigned to this column stage");
-    expect(prompt).toContain("Start with direct task-scoped tools such as `list_artifacts`, `update_card`, `create_note`, and `move_card`");
+    expect(prompt).toContain("Start with direct task-scoped tools such as `list_artifacts`, `update_task`, `update_card`, `create_note`, and `move_card`");
     expect(prompt).toContain("move_card");
+    expect(prompt).toContain("update_card is not a story-readiness tool");
     expect(prompt).toContain("targetColumnId: \"review\"");
     expect(prompt).toContain("**Board ID:** board-1");
     expect(prompt).toContain("**Current Column ID:** dev");
@@ -225,6 +226,7 @@ describe("buildTaskPrompt", () => {
 
     expect(prompt).toContain("## Story Readiness");
     expect(prompt).toContain("Missing fields: scope, verification_plan");
+    expect(prompt).toContain("call `update_task` to fill the structured task fields before you retry `move_card`");
     expect(prompt).toContain("## INVEST Snapshot");
     expect(prompt).toContain("Overall: WARNING");
     expect(prompt).toContain("## Evidence Bundle");

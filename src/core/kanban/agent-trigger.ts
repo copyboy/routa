@@ -130,6 +130,7 @@ export function buildTaskPrompt(
 
   const availableTools = isBacklogPlanning
     ? [
+        `- **update_task**: Update structured task fields such as scope, acceptanceCriteria, verificationCommands, and testCases. Use taskId: "${task.id}" when the next move is blocked on story readiness.`,
         `- **update_card**: Update this card's title, description, priority, or labels. Use cardId: "${task.id}"`,
         "- **search_cards**: Search the board for duplicates or related work before creating more tasks",
         "- **create_card**: Create exactly one follow-up backlog card if the current card must be refined into a single user story",
@@ -139,15 +140,18 @@ export function buildTaskPrompt(
         "- **provide_artifact**: Save test results, code diffs, or other evidence as structured Kanban artifacts",
         "- **capture_screenshot**: Capture and store a screenshot artifact when visual proof is required",
         "- **update_card is not an artifact tool**: Use it for card metadata only, never as a substitute for evidence upload",
+        "- **update_card is not a story-readiness tool**: Description or comment text does not satisfy move gates for scope, acceptance criteria, verification commands, or test cases. Use `update_task` for those fields.",
         `- **move_card**: Move this card to the next column when your work is complete. Use cardId: "${task.id}", targetColumnId: "${nextColumnId ?? "todo"}"`,
       ]
     : [
+        `- **update_task**: Update structured task fields such as scope, acceptanceCriteria, verificationCommands, and testCases. Use taskId: "${task.id}" when the next move is blocked on story readiness.`,
         `- **update_card**: Update this card's title, description, priority, or labels. Use cardId: "${task.id}"`,
         "- **create_note**: Create notes for documentation or progress tracking",
         "- **list_artifacts**: Check whether the required artifacts already exist for this card",
         "- **provide_artifact**: Save test results, code diffs, or other evidence as structured Kanban artifacts",
         "- **capture_screenshot**: Capture and store a screenshot artifact when visual proof is required",
         "- **update_card is not an artifact tool**: Use it for card metadata only, never as a substitute for evidence upload",
+        "- **update_card is not a story-readiness tool**: Description or comment text does not satisfy move gates for scope, acceptance criteria, verification commands, or test cases. Use `update_task` for those fields.",
         "- **request_previous_lane_handoff**: Ask the immediately previous lane to prepare environment, rerun a command, or clarify setup for this card",
         "- **submit_lane_handoff**: Finish a lane handoff request after you complete the requested support work",
         ...(canAdvanceToNextColumn
@@ -174,8 +178,8 @@ export function buildTaskPrompt(
     : [
         "1. Complete the work assigned to this column stage",
         canAdvanceToNextColumn
-          ? "2. Start with direct task-scoped tools such as `list_artifacts`, `update_card`, `create_note`, and `move_card` before reaching for broader board queries."
-          : "2. Start with direct task-scoped tools such as `list_artifacts`, `update_card`, and `create_note` before reaching for broader board queries.",
+          ? "2. Start with direct task-scoped tools such as `list_artifacts`, `update_task`, `update_card`, `create_note`, and `move_card` before reaching for broader board queries."
+          : "2. Start with direct task-scoped tools such as `list_artifacts`, `update_task`, `update_card`, and `create_note` before reaching for broader board queries.",
         "3. Keep changes focused on this task",
         `4. ${moveInstruction}`,
         canAdvanceToNextColumn
@@ -287,6 +291,9 @@ export function buildTaskPrompt(
         summaryContext.storyReadiness.missing.length > 0
           ? `Missing fields: ${summaryContext.storyReadiness.missing.join(", ")}`
           : "Missing fields: none",
+        summaryContext.storyReadiness.missing.length > 0
+          ? "If fields are missing, call `update_task` to fill the structured task fields before you retry `move_card`. Do not rely on `update_card` description/comment text to satisfy this gate."
+          : "Structured story fields already satisfy the current move gate.",
         `Checks: scope=${summaryContext.storyReadiness.checks.scope ? "present" : "missing"}, `
           + `acceptanceCriteria=${summaryContext.storyReadiness.checks.acceptanceCriteria ? "present" : "missing"}, `
           + `verificationCommands=${summaryContext.storyReadiness.checks.verificationCommands ? "present" : "missing"}, `
