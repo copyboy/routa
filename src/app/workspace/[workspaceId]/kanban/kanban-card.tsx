@@ -398,7 +398,7 @@ export function KanbanCard({
         </div>
       )}
 
-      <p className="line-clamp-2 text-[11px] leading-[1.35] text-slate-600 dark:text-slate-400">{objectiveText}</p>
+      <p className="line-clamp-3 text-[11px] leading-[1.35] text-slate-600 dark:text-slate-400">{objectiveText}</p>
       {hasReviewFeedback && (
         <div
           className={`rounded-lg border px-2 py-1.5 ${reviewFeedbackTone}`}

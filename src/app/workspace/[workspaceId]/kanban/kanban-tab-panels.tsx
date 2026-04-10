@@ -18,6 +18,7 @@ import type { RepoSyncState } from "./kanban-repo-sync-status";
 import type { KanbanSpecialistLanguage } from "./kanban-specialist-language";
 import {
   canSelectTaskSessionInAcp,
+  formatLaneAutomationCompactLabel,
   formatLaneAutomationSummary,
   getTaskLaneSession,
   isA2ATaskSession,
@@ -333,10 +334,12 @@ export function KanbanBoardSurface({
                       className={`flex h-full min-h-26.25 shrink-0 flex-col border border-slate-200/70 bg-white p-3 dark:border-[#1c1f2e] dark:bg-[#12141c] ${widthClass}`}
                       data-testid="kanban-column"
                     >
-                      <div className="mb-3 space-y-2">
-                        <div>
+                      <div className="mb-3 space-y-1.5">
+                        <div className="flex items-baseline justify-between gap-3">
                           <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{column.name}</div>
-                          <div className="text-[11px] text-slate-400 dark:text-slate-500">{columnTasks.length} {t.kanbanBoard.cards}</div>
+                          <div className="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">
+                            {columnTasks.length} {t.kanbanBoard.cards}
+                          </div>
                         </div>
                         <div
                           className="truncate text-[10px] leading-4 text-slate-500 dark:text-slate-400"
@@ -347,7 +350,7 @@ export function KanbanBoardSurface({
                           }) : column.stage === "blocked" ? t.kanbanBoard.manualLaneOnly : t.kanbanBoard.manualLane}
                         >
                           {laneAutomation?.enabled
-                            ? formatLaneAutomationSummary(laneAutomation, providers, specialists, {
+                            ? formatLaneAutomationCompactLabel(laneAutomation, providers, specialists, {
                               autoProviderId: boardAutoProviderId,
                               autoLabel: t.common.auto,
                             })

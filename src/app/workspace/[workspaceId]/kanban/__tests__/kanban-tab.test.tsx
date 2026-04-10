@@ -146,7 +146,7 @@ describe("KanbanTab lane automation labels", () => {
     );
 
     const laneAutomation = screen.getByTestId("kanban-column-automation-backlog");
-    expect(laneAutomation.textContent).toBe("Claude Code · GATE · Verifier ->");
+    expect(laneAutomation.textContent).toBe("Auto · Claude Code · GATE");
   });
 });
 
