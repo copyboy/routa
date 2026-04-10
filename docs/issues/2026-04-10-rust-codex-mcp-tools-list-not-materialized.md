@@ -1,7 +1,8 @@
 ---
-title: "Rust desktop Codex MCP session connects but still exposes no usable Routa tools"
+title: "Rust desktop Codex MCP session initially appeared to expose no usable Routa tools"
 date: "2026-04-10"
-status: investigating
+status: resolved
+resolved_at: "2026-04-10"
 severity: high
 area: "desktop"
 tags: [rust, desktop, codex, mcp, kanban, protocol, tauri]
@@ -10,7 +11,7 @@ related_issues:
   - "2026-04-10-rust-codex-mcp-config-not-injected-on-launch.md"
 ---
 
-# Rust desktop Codex MCP session connects but still exposes no usable Routa tools
+# Rust desktop Codex MCP session initially appeared to expose no usable Routa tools
 
 ## What Happened
 
@@ -28,7 +29,7 @@ Observed behavior:
   - `resources/templates/list`
 - `codex app-server` runtime inspection shows the MCP server entry is present as `routa-coordination`, but its tool inventory is still empty from Codex's point of view.
 
-This means the failure has moved past configuration injection. Codex can see the MCP server, but it is not materializing the Routa tool list into the active session.
+At the time, this made it look like the failure had moved past configuration injection. Codex could see the MCP server, but appeared not to materialize the Routa tool list into the active session.
 
 ## Expected Behavior
 
@@ -41,12 +42,38 @@ This means the failure has moved past configuration injection. Codex can see the
 - Environment: desktop
 - Trigger: open a Rust/Tauri Kanban board, choose Codex, submit a planning request such as `create a js hello world`, then inspect the Codex session transcript and MCP server status.
 
-## Why This Might Happen
+## Why This Looked Broken
 
 - The original working theory was that the Rust `/api/mcp` endpoint diverged from SDK streamable-HTTP semantics.
-- That theory is now weakened: Rust has been switched to the official `rmcp::transport::StreamableHttpService`, and the same empty-tool result can also be reproduced against the Next.js MCP route with a direct `codex app-server` probe.
-- The remaining gap is now more likely in Codex startup inventory hydration or in a compatibility edge between Codex's streamable-HTTP client and the way Routa's MCP routes answer `initialize` / `notifications/initialized` / `tools/list`.
-- `mcpServerStatus/list` only shows tools after Codex's MCP startup path has successfully initialized and loaded tool inventory; if startup partially succeeds but inventory loading fails or yields zero tools, the UI ends up with an empty server entry and no explicit error in the status response.
+- That theory was directionally useful: the hand-written Rust MCP transport did differ from the official streamable-HTTP lifecycle in small but important ways.
+- At the same time, one diagnostic signal was misleading: `codex app-server` `mcpServerStatus/list` could still show `tools: {}` even when the live end-to-end Kanban flow was closer to working than the probe suggested.
+- In practice, this was a layered failure:
+  - Codex launch needed reliable MCP injection.
+  - The desktop MCP route needed to match official `rmcp` streamable-HTTP lifecycle semantics.
+  - Single-point status probes were not enough to prove whether the real Kanban card-creation path was broken or healthy.
+
+## Resolution
+
+The final desktop recovery came from applying both layers together:
+
+1. Routa stopped depending on the user's global Codex config and now injects Routa MCP through:
+   - a Routa-private overlay file at `~/.routa/codex/config.toml`
+   - CLI `-c key=value` overrides
+   - ACP `mcpServers` payloads for `codex-acp`
+2. Rust `/api/mcp` was migrated from a hand-written transport wrapper to the official `rmcp::transport::StreamableHttpService`.
+
+After those changes, the original end-to-end requirement was verified again:
+
+- On the desktop Kanban page, choosing `Codex` and sending a planning request can create a card through the live ACP/MCP session.
+
+## What We Learned
+
+- `mcpServerStatus/list` is an advisory signal, not a final verdict.
+- A live Kanban ACP session is a better truth source than an isolated MCP status probe.
+- If Codex starts and opens a session but the board does not change, always distinguish:
+  - launch/config injection failures
+  - MCP protocol/session lifecycle failures
+  - UI refresh or board-state persistence failures
 
 ## Relevant Files
 
@@ -58,19 +85,33 @@ This means the failure has moved past configuration injection. Codex can see the
 - `/Users/phodal/ai/codex/codex-rs/codex-mcp/src/mcp_connection_manager.rs`
 - `/Users/phodal/ai/codex/codex-rs/rmcp-client/src/rmcp_client.rs`
 
-## Observations
+## Key Observations
 
-- `config/read` from `codex app-server` confirms that `mcp_servers.routa-coordination` is active, with origin `sessionFlags`.
-- `mcpServerStatus/list` from `codex app-server` reports `routa-coordination`, but `tools` remains empty.
-- A concrete protocol bug was already identified in the Rust route: `notifications/initialized` incorrectly returned a JSON-RPC body. That has been fixed locally in the working tree and covered by a Rust test, but the overall tool hydration issue remains unresolved.
-- Rust `/api/mcp` has now been migrated to the official `rmcp` `StreamableHttpService`, and the Rust MCP contract tests pass with SSE initialize + initialized-notification flow.
-- A direct `codex app-server` probe against the Rust route still returns:
-  - `name: "routa-coordination"`
-  - `tools: {}`
-  - `resources: []`
-  - `resourceTemplates: []`
-- Running the same probe against the Next.js `/api/mcp` route also leaves `routa-coordination.tools` empty, which means the empty-tool symptom is no longer isolated to Rust transport implementation.
-- The current evidence suggests the remaining issue is in Codex's MCP startup/inventory path rather than in the Rust route's hand-written transport layer.
+- `config/read` from `codex app-server` confirmed that `mcp_servers.routa-coordination` was active, with origin `sessionFlags`.
+- `mcpServerStatus/list` from `codex app-server` reported `routa-coordination`, but `tools` stayed empty during diagnosis.
+- A concrete protocol bug was identified in the Rust route: `notifications/initialized` incorrectly returned a JSON-RPC body.
+- Rust `/api/mcp` was migrated to the official `rmcp` `StreamableHttpService`, and the Rust MCP contract tests passed with SSE initialize + initialized-notification flow.
+- The user later verified that the original Kanban + Codex card-creation path works again, which means the earlier empty-tool probe was not sufficient to declare the end-to-end feature broken after the transport/config fixes landed.
+
+## Recommended Debugging Order For Similar Failures
+
+1. Confirm the real symptom first.
+   Is the problem “Codex session fails to start”, “session starts but sees no tools”, or “session runs but board state does not change”?
+
+2. Verify launch-time MCP injection.
+   Check that Routa passes MCP through private overlay + CLI overrides + ACP `mcpServers`, without mutating `~/.codex/config.toml`.
+
+3. Verify MCP lifecycle on the server.
+   Confirm `initialize`, `notifications/initialized`, and `tools/list` are handled with official streamable-HTTP semantics.
+
+4. Test the real user flow, not just probes.
+   Use the Kanban page, select `Codex`, submit a planning request, and check whether a card is created.
+
+5. Treat `codex app-server` status as supporting evidence only.
+   If `mcpServerStatus/list` shows `tools: {}`, do not stop there. Compare it with live ACP session behavior and server logs.
+
+6. If the session runs but no card appears, inspect both sides.
+   Check the latest session in `/api/sessions` and the workspace task/card state to separate MCP/tool issues from UI refresh or persistence issues.
 
 ## References
 

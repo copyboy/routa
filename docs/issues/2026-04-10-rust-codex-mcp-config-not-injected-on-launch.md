@@ -61,6 +61,10 @@ In addition, Routa now injects the same MCP server directly into `codex-acp` via
 
 This preserves Codex's highest-precedence `-c/--config` behavior without mutating the user's shared Codex configuration, while also avoiding reliance on Codex discovering config files later in the startup chain.
 
+This fixed the first failure layer: Codex sessions now launch with Routa MCP configuration present in the desktop flow.
+
+It was necessary, but not sufficient by itself for the end-to-end Kanban card-creation path. The final working path also required the Rust desktop MCP route to use the official `rmcp` streamable-HTTP service so that Codex's live MCP session could initialize cleanly.
+
 ## Relevant Files
 
 - `crates/routa-core/src/acp/mcp_setup.rs`
@@ -71,3 +75,4 @@ This preserves Codex's highest-precedence `-c/--config` behavior without mutatin
 - `cargo test -p routa-core codex_cli_overrides_include_trust_and_mcp_server`
 - `cargo test -p routa-core codex_provider_writes_private_overlay_config`
 - `cargo test -p routa-core acp_http_mcp_servers_use_streamable_http_shape`
+- End-to-end desktop verification: Kanban page with `Codex` selected can create a card through the live ACP/MCP session again
