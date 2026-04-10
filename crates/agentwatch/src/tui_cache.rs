@@ -1,4 +1,5 @@
 use super::*;
+use ratatui::text::Text;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
@@ -61,11 +62,23 @@ enum BackgroundResult {
     },
 }
 
+#[derive(Debug, Default)]
+struct PendingCommands {
+    stats: Option<PendingStats>,
+    detail: Option<PendingDetail>,
+    facts: Option<PendingFacts>,
+}
+
+type PendingStats = (String, Vec<(String, String, i64)>);
+type PendingDetail = (String, String, String, i64, DetailMode);
+type PendingFacts = (String, String, i64);
+
 pub(super) struct AppCache {
     pub(super) diff_stats: BTreeMap<String, DiffStatSummary>,
     pub(super) preview_cache: BTreeMap<String, DetailCacheEntry>,
     pub(super) diff_cache: BTreeMap<String, DetailCacheEntry>,
     pub(super) facts_cache: BTreeMap<String, FileFactsEntry>,
+    highlighted_detail_cache: BTreeMap<String, Text<'static>>,
     pending_stats_signature: Option<String>,
     pending_preview_key: Option<String>,
     pending_diff_key: Option<String>,
@@ -84,6 +97,7 @@ impl AppCache {
             preview_cache: BTreeMap::new(),
             diff_cache: BTreeMap::new(),
             facts_cache: BTreeMap::new(),
+            highlighted_detail_cache: BTreeMap::new(),
             pending_stats_signature: None,
             pending_preview_key: None,
             pending_diff_key: None,
@@ -102,10 +116,14 @@ impl AppCache {
                 }
                 BackgroundResult::Detail { entry, mode } => match mode {
                     DetailMode::File => {
+                        self.highlighted_detail_cache
+                            .retain(|key, _| !key.starts_with(&entry.key));
                         self.preview_cache.insert(entry.key.clone(), entry);
                         self.pending_preview_key = None;
                     }
                     DetailMode::Diff => {
+                        self.highlighted_detail_cache
+                            .retain(|key, _| !key.starts_with(&entry.key));
                         self.diff_cache.insert(entry.key.clone(), entry);
                         self.pending_diff_key = None;
                     }
@@ -157,42 +175,32 @@ impl AppCache {
             self.pending_facts_key = None;
             return;
         };
-        let preview_key = detail_cache_key(
+        let active_key = detail_cache_key(
             &file.rel_path,
             &file.state_code,
             file.last_modified_at_ms,
-            DetailMode::File,
+            state.detail_mode,
         );
-        if !self.preview_cache.contains_key(&preview_key)
-            && self.pending_preview_key.as_deref() != Some(preview_key.as_str())
-        {
+        let active_loaded = match state.detail_mode {
+            DetailMode::File => self.preview_cache.contains_key(&active_key),
+            DetailMode::Diff => self.diff_cache.contains_key(&active_key),
+        };
+        let active_pending = match state.detail_mode {
+            DetailMode::File => self.pending_preview_key.as_deref() == Some(active_key.as_str()),
+            DetailMode::Diff => self.pending_diff_key.as_deref() == Some(active_key.as_str()),
+        };
+        if !active_loaded && !active_pending {
             let _ = self.worker_tx.send(BackgroundCommand::LoadDetail {
                 repo_root: state.repo_root.clone(),
                 rel_path: file.rel_path.clone(),
                 state_code: file.state_code.clone(),
                 version: file.last_modified_at_ms,
-                mode: DetailMode::File,
+                mode: state.detail_mode,
             });
-            self.pending_preview_key = Some(preview_key);
-        }
-
-        let diff_key = detail_cache_key(
-            &file.rel_path,
-            &file.state_code,
-            file.last_modified_at_ms,
-            DetailMode::Diff,
-        );
-        if !self.diff_cache.contains_key(&diff_key)
-            && self.pending_diff_key.as_deref() != Some(diff_key.as_str())
-        {
-            let _ = self.worker_tx.send(BackgroundCommand::LoadDetail {
-                repo_root: state.repo_root.clone(),
-                rel_path: file.rel_path.clone(),
-                state_code: file.state_code.clone(),
-                version: file.last_modified_at_ms,
-                mode: DetailMode::Diff,
-            });
-            self.pending_diff_key = Some(diff_key);
+            match state.detail_mode {
+                DetailMode::File => self.pending_preview_key = Some(active_key),
+                DetailMode::Diff => self.pending_diff_key = Some(active_key),
+            }
         }
 
         if !matches!(state.focus, FocusPane::Detail) {
@@ -246,6 +254,32 @@ impl AppCache {
     pub(super) fn file_facts(&self, file: &crate::models::FileView) -> Option<&FileFactsEntry> {
         self.facts_cache
             .get(&facts_cache_key(&file.rel_path, file.last_modified_at_ms))
+    }
+
+    pub(super) fn highlighted_detail_text(
+        &mut self,
+        file: &crate::models::FileView,
+        mode: DetailMode,
+        theme_mode: ThemeMode,
+    ) -> Option<&Text<'static>> {
+        let render_key = format!(
+            "{}:{}:{:?}:{:?}",
+            file.rel_path, file.last_modified_at_ms, mode, theme_mode
+        );
+        if !self.highlighted_detail_cache.contains_key(&render_key) {
+            let raw = self.detail_text(file, mode)?;
+            let rendered = match mode {
+                DetailMode::File => {
+                    super::highlight::highlight_code_text(Some(&file.rel_path), raw, theme_mode)
+                }
+                DetailMode::Diff => {
+                    super::highlight::highlight_diff_text(Some(&file.rel_path), raw, theme_mode)
+                }
+            };
+            self.highlighted_detail_cache
+                .insert(render_key.clone(), rendered);
+        }
+        self.highlighted_detail_cache.get(&render_key)
     }
 }
 
@@ -353,56 +387,73 @@ fn compute_diff_stat(repo_root: &str, rel_path: &str, state_code: &str) -> DiffS
 
 fn background_worker(rx: Receiver<BackgroundCommand>, tx: Sender<BackgroundResult>) {
     while let Ok(command) = rx.recv() {
-        match command {
-            BackgroundCommand::RefreshStats { repo_root, files } => {
-                let mut seen = BTreeSet::new();
-                let entries = files
-                    .into_iter()
-                    .filter_map(|(rel_path, state_code, version)| {
-                        let key = diff_stat_key(&rel_path, &state_code, version);
-                        if !seen.insert(key.clone()) {
-                            return None;
-                        }
-                        Some((key, compute_diff_stat(&repo_root, &rel_path, &state_code)))
-                    })
-                    .collect::<Vec<_>>();
-                let _ = tx.send(BackgroundResult::Stats { entries });
-            }
-            BackgroundCommand::LoadDetail {
-                repo_root,
-                rel_path,
-                state_code,
-                version,
-                mode,
-            } => {
-                let text = match mode {
-                    DetailMode::File => load_file_preview(&repo_root, rel_path.as_str())
+        let mut pending = PendingCommands::default();
+        queue_command(&mut pending, command);
+        while let Ok(next) = rx.try_recv() {
+            queue_command(&mut pending, next);
+        }
+        if let Some((repo_root, files)) = pending.stats.take() {
+            let mut seen = BTreeSet::new();
+            let entries = files
+                .into_iter()
+                .filter_map(|(rel_path, state_code, version)| {
+                    let key = diff_stat_key(&rel_path, &state_code, version);
+                    if !seen.insert(key.clone()) {
+                        return None;
+                    }
+                    Some((key, compute_diff_stat(&repo_root, &rel_path, &state_code)))
+                })
+                .collect::<Vec<_>>();
+            let _ = tx.send(BackgroundResult::Stats { entries });
+        }
+        if let Some((repo_root, rel_path, state_code, version, mode)) = pending.detail.take() {
+            let text = match mode {
+                DetailMode::File => load_file_preview(&repo_root, rel_path.as_str())
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "<no file content available>".to_string()),
+                DetailMode::Diff => {
+                    load_diff_text(&repo_root, rel_path.as_str(), state_code.as_str())
                         .ok()
                         .flatten()
-                        .unwrap_or_else(|| "<no file content available>".to_string()),
-                    DetailMode::Diff => {
-                        load_diff_text(&repo_root, rel_path.as_str(), state_code.as_str())
-                            .ok()
-                            .flatten()
-                            .unwrap_or_else(|| "<no diff available>".to_string())
-                    }
-                };
-                let _ = tx.send(BackgroundResult::Detail {
-                    entry: DetailCacheEntry {
-                        key: detail_cache_key(&rel_path, &state_code, version, mode),
-                        text,
-                    },
-                    mode,
-                });
-            }
-            BackgroundCommand::LoadFacts {
-                repo_root,
-                rel_path,
-                version,
-            } => {
-                let entry = load_file_facts(&repo_root, &rel_path, version);
-                let _ = tx.send(BackgroundResult::Facts { entry });
-            }
+                        .unwrap_or_else(|| "<no diff available>".to_string())
+                }
+            };
+            let _ = tx.send(BackgroundResult::Detail {
+                entry: DetailCacheEntry {
+                    key: detail_cache_key(&rel_path, &state_code, version, mode),
+                    text,
+                },
+                mode,
+            });
+        }
+        if let Some((repo_root, rel_path, version)) = pending.facts.take() {
+            let entry = load_file_facts(&repo_root, &rel_path, version);
+            let _ = tx.send(BackgroundResult::Facts { entry });
+        }
+    }
+}
+
+fn queue_command(pending: &mut PendingCommands, command: BackgroundCommand) {
+    match command {
+        BackgroundCommand::RefreshStats { repo_root, files } => {
+            pending.stats = Some((repo_root, files));
+        }
+        BackgroundCommand::LoadDetail {
+            repo_root,
+            rel_path,
+            state_code,
+            version,
+            mode,
+        } => {
+            pending.detail = Some((repo_root, rel_path, state_code, version, mode));
+        }
+        BackgroundCommand::LoadFacts {
+            repo_root,
+            rel_path,
+            version,
+        } => {
+            pending.facts = Some((repo_root, rel_path, version));
         }
     }
 }

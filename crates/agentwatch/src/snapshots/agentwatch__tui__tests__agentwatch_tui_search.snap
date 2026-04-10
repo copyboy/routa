@@ -1,7 +1,7 @@
 ---
 source: crates/agentwatch/src/tui_tests.rs
-assertion_line: 440
-expression: "render_snapshot(&state, &cache, 120, 24)"
+assertion_line: 441
+expression: "render_snapshot(&state, &mut cache, 120, 24)"
 ---
  AgentWatch   repo:routa-js  branch:main    FILES VIEW · FOLLOW ON  rpc:socket  ag:2 act:1  dirty:1  unknown:1  synced 2
 ┌Agents──────────────────────┐┌Files───────────────────────────────────────────┐┌Diff Preview──────────────────────────┐
@@ -9,8 +9,8 @@ expression: "render_snapshot(&state, &cache, 120, 24)"
 │                            ││1 files  M:0 D:1  E:0 I:0 U:1                   ││-use old                              │
 │4211 ◈ Codex  ACTIVE        ││────────────────────────────────────────────────││+use new                              │
 │cpu  2.5%  mem 128MB  up    ││> route.ts                                      ││+use cache                            │
-│01:35                       ││  src/app/api/a2a/card                          ││                                      │
-│proj project  conf 80%      ││D  -12        5m  UNKNOWN                       ││                                      │
+│01:35                       ││  src/app/api/a2a/card  D  -12        5m  UNKNOW││                                      │
+│proj project  conf 80%      ││                                                ││                                      │
 │                            ││                                                ││                                      │
 │9001 ◆ Claude  IDLE         ││                                                ││                                      │
 │cpu  0.1%  mem 96MB  up     ││                                                ││                                      │

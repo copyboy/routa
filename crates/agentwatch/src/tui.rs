@@ -114,7 +114,7 @@ fn run_loop(terminal: &mut DefaultTerminal, ctx: RepoContext, poll_interval_ms: 
         cache.warm_visible_files(&state);
         cache.warm_selected_detail(&state);
 
-        terminal.draw(|frame| render(frame, &state, &feed, &cache))?;
+        terminal.draw(|frame| render(frame, &state, &feed, &mut cache))?;
 
         if event::poll(Duration::from_millis(100)).context("poll terminal events")?
             && handle_event(&mut state)?
@@ -276,7 +276,6 @@ use cache::*;
 
 #[path = "tui_highlight.rs"]
 mod highlight;
-use highlight::*;
 
 #[path = "tui_render.rs"]
 mod render;

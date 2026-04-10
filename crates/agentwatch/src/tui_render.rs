@@ -47,7 +47,7 @@ pub(super) fn render(
     frame: &mut Frame,
     state: &RuntimeState,
     _feed: &RuntimeFeed,
-    cache: &AppCache,
+    cache: &mut AppCache,
 ) {
     let colors = palette(state.theme_mode);
     frame.render_widget(
@@ -138,7 +138,7 @@ fn render_files(
         split[1],
     );
     let visible_rows = split[2].height.saturating_sub(1) as usize;
-    let items_per_page = (visible_rows / 3).max(1);
+    let items_per_page = (visible_rows / 2).max(1);
     let all_files = state.file_items();
     let start = file_window_start(all_files.len(), state.selected_file, items_per_page);
     let end = (start + items_per_page).min(all_files.len());
@@ -161,17 +161,13 @@ fn render_files(
                 format!(
                     "{} {}",
                     if selected { ">" } else { " " },
-                    shorten_path(&file_name, 34)
+                    shorten_path(&file_name, 40)
                 ),
                 row_style(selected, state.focus == FocusPane::Files, colors)
                     .add_modifier(Modifier::BOLD),
             )]);
-            let secondary = Line::from(Span::styled(
-                format!("  {}", shorten_path(&parent_dir, 38)),
-                Style::default().fg(colors.muted),
-            ));
-            let tertiary = render_file_secondary_line(file, &diff_stat, colors);
-            let mut item = ListItem::new(vec![primary, secondary, tertiary]);
+            let secondary = render_file_meta_line(file, &parent_dir, &diff_stat, colors);
+            let mut item = ListItem::new(vec![primary, secondary]);
             if selected {
                 item = item.style(row_style(selected, state.focus == FocusPane::Files, colors));
             }
@@ -299,27 +295,19 @@ fn render_details_panel(frame: &mut Frame, area: Rect, state: &RuntimeState, cac
     );
 }
 
-fn render_preview_panel(frame: &mut Frame, area: Rect, state: &RuntimeState, cache: &AppCache) {
+fn render_preview_panel(frame: &mut Frame, area: Rect, state: &RuntimeState, cache: &mut AppCache) {
     let colors = palette(state.theme_mode);
     let title = match state.detail_mode {
         DetailMode::File => "File Preview",
         DetailMode::Diff => "Diff Preview",
     };
     let block = panel_block(title, state.focus == FocusPane::Detail, colors);
+    let inner = block.inner(area);
     let text = if let Some(file) = state.selected_file() {
-        match cache.detail_text(file, state.detail_mode) {
-            Some(content) if !content.trim().is_empty() => match state.detail_mode {
-                DetailMode::File => highlight_code_text(
-                    Some(&file.rel_path),
-                    content,
-                    state.theme_mode,
-                ),
-                DetailMode::Diff => highlight_diff_text(
-                    Some(&file.rel_path),
-                    content,
-                    state.theme_mode,
-                ),
-            },
+        match cache.highlighted_detail_text(file, state.detail_mode, state.theme_mode) {
+            Some(content) if !content.lines.is_empty() => {
+                visible_text_slice(content, state.detail_scroll as usize, inner.height as usize)
+            }
             Some(_) => Text::from(Line::from(Span::styled(
                 "<empty>",
                 Style::default().fg(colors.muted),
@@ -340,10 +328,18 @@ fn render_preview_panel(frame: &mut Frame, area: Rect, state: &RuntimeState, cac
         Paragraph::new(text)
             .block(block)
             .style(Style::default().bg(colors.surface).fg(colors.text))
-            .wrap(Wrap { trim: false })
-            .scroll((state.detail_scroll, 0)),
+            .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+fn visible_text_slice(text: &Text<'static>, start: usize, max_lines: usize) -> Text<'static> {
+    if max_lines == 0 || text.lines.is_empty() {
+        return Text::default();
+    }
+    let start = start.min(text.lines.len().saturating_sub(1));
+    let end = (start + max_lines).min(text.lines.len());
+    Text::from(text.lines[start..end].to_vec())
 }
 
 fn render_log(frame: &mut Frame, area: ratatui::layout::Rect, state: &RuntimeState) {
@@ -502,10 +498,16 @@ fn render_agent_rows(state: &RuntimeState, colors: UiPalette) -> Vec<Line<'stati
                 ]),
                 Line::from(vec![
                     Span::styled("cpu ", Style::default().fg(colors.muted)),
-                    Span::styled(format!("{:>4.1}%", agent.cpu_percent), Style::default().fg(status_color)),
+                    Span::styled(
+                        format!("{:>4.1}%", agent.cpu_percent),
+                        Style::default().fg(status_color),
+                    ),
                     Span::raw("  "),
                     Span::styled("mem ", Style::default().fg(colors.muted)),
-                    Span::styled(format!("{:.0}MB", agent.mem_mb), Style::default().fg(colors.text)),
+                    Span::styled(
+                        format!("{:.0}MB", agent.mem_mb),
+                        Style::default().fg(colors.text),
+                    ),
                     Span::raw("  "),
                     Span::styled("up ", Style::default().fg(colors.muted)),
                     Span::styled(
@@ -515,7 +517,10 @@ fn render_agent_rows(state: &RuntimeState, colors: UiPalette) -> Vec<Line<'stati
                 ]),
                 Line::from(vec![
                     Span::styled("proj ", Style::default().fg(colors.muted)),
-                    Span::styled(shorten_path(&agent.project, 10), Style::default().fg(colors.text)),
+                    Span::styled(
+                        shorten_path(&agent.project, 10),
+                        Style::default().fg(colors.text),
+                    ),
                     Span::raw("  "),
                     Span::styled("conf ", Style::default().fg(colors.muted)),
                     Span::styled(
@@ -691,6 +696,22 @@ fn render_file_secondary_line(
         spans.push(Span::raw("  "));
         spans.push(Span::styled("CONFLICT", Style::default().fg(STOPPED)));
     }
+    Line::from(spans)
+}
+
+fn render_file_meta_line(
+    file: &crate::models::FileView,
+    parent_dir: &str,
+    diff_stat: &DiffStatSummary,
+    colors: UiPalette,
+) -> Line<'static> {
+    let mut spans = Vec::new();
+    spans.push(Span::styled(
+        format!("  {}", shorten_path(parent_dir, 24)),
+        Style::default().fg(colors.muted),
+    ));
+    spans.push(Span::styled("  ", Style::default().fg(colors.muted)));
+    spans.extend(render_file_secondary_line(file, diff_stat, colors).spans);
     Line::from(spans)
 }
 

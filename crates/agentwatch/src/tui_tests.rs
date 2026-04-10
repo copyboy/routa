@@ -4,6 +4,7 @@ use crate::models::{
     RuntimeServiceInfo, SessionView,
 };
 use crate::state::{DetailMode, FileListMode, FocusPane, ThemeMode, UNKNOWN_SESSION_ID};
+use crate::tui::highlight::highlight_code_text;
 use pretty_assertions::assert_eq;
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
@@ -239,7 +240,7 @@ fn sample_cache(state: &RuntimeState) -> AppCache {
     cache
 }
 
-fn render_snapshot(state: &RuntimeState, cache: &AppCache, width: u16, height: u16) -> String {
+fn render_snapshot(state: &RuntimeState, cache: &mut AppCache, width: u16, height: u16) -> String {
     let dir = tempdir().expect("tempdir");
     let feed = RuntimeFeed::open(&dir.path().join("events.jsonl")).expect("feed");
     let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
@@ -421,10 +422,10 @@ fn selected_file_assignment_message_is_attribution_event() {
 #[test]
 fn tui_snapshot_summary_mode() {
     let state = sample_state();
-    let cache = sample_cache(&state);
+    let mut cache = sample_cache(&state);
     insta::assert_snapshot!(
         "agentwatch_tui_summary",
-        render_snapshot(&state, &cache, 120, 28)
+        render_snapshot(&state, &mut cache, 120, 28)
     );
 }
 
@@ -436,10 +437,10 @@ fn tui_snapshot_search_mode() {
     state.file_list_mode = FileListMode::Global;
     state.selected_file = 0;
     state.refresh_views();
-    let cache = sample_cache(&state);
+    let mut cache = sample_cache(&state);
     insta::assert_snapshot!(
         "agentwatch_tui_search",
-        render_snapshot(&state, &cache, 120, 24)
+        render_snapshot(&state, &mut cache, 120, 24)
     );
 }
 
@@ -448,10 +449,10 @@ fn tui_snapshot_file_preview_mode() {
     let mut state = sample_state();
     state.detail_mode = DetailMode::File;
     state.refresh_views();
-    let cache = sample_cache(&state);
+    let mut cache = sample_cache(&state);
     insta::assert_snapshot!(
         "agentwatch_tui_file_preview",
-        render_snapshot(&state, &cache, 120, 24)
+        render_snapshot(&state, &mut cache, 120, 24)
     );
 }
 

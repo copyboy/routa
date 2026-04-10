@@ -1,7 +1,7 @@
 ---
 source: crates/agentwatch/src/tui_tests.rs
-assertion_line: 425
-expression: "render_snapshot(&state, &cache, 120, 28)"
+assertion_line: 426
+expression: "render_snapshot(&state, &mut cache, 120, 28)"
 ---
  AgentWatch   repo:routa-js  branch:main    FILES VIEW · FOLLOW ON  rpc:socket  ag:2 act:1  dirty:2  unknown:1  synced 2
 ┌Agents──────────────────────┐┌Files───────────────────────────────────────────┐┌Diff Preview──────────────────────────┐
@@ -9,11 +9,11 @@ expression: "render_snapshot(&state, &cache, 120, 28)"
 │                            ││2 files  M:1 D:1  E:1 I:0 U:1                   ││-use old                              │
 │4211 ◈ Codex  ACTIVE        ││────────────────────────────────────────────────││+use new                              │
 │cpu  2.5%  mem 128MB  up    ││> tui.rs                                        ││+use cache                            │
-│01:35                       ││  crates/agentwatch/src                         ││                                      │
-│proj project  conf 80%      ││M  +38 -5     4m  EXACT                         ││                                      │
-│                            ││  route.ts                                      ││                                      │
-│9001 ◆ Claude  IDLE         ││  src/app/api/a2a/card                          ││                                      │
-│cpu  0.1%  mem 96MB  up     ││D  -12        5m  UNKNOWN                       ││                                      │
+│01:35                       ││  crates/agentwatch/src  M  +38 -5     4m  EXACT││                                      │
+│proj project  conf 80%      ││  route.ts                                      ││                                      │
+│                            ││  src/app/api/a2a/card  D  -12        5m  UNKNOW││                                      │
+│9001 ◆ Claude  IDLE         ││                                                ││                                      │
+│cpu  0.1%  mem 96MB  up     ││                                                ││                                      │
 │<ts>                    ││                                                ││                                      │
 │proj elsewhere  conf 80%    ││                                                ││                                      │
 │                            ││                                                ││                                      │
