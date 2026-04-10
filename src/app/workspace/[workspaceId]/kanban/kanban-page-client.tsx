@@ -457,7 +457,6 @@ export function KanbanPageClient() {
     <DesktopAppShell
       workspaceId={workspaceId}
       workspaceTitle={workspace?.title}
-      workspaceSwitcher={<div className="w-0" aria-hidden="true" />}
     >
       <div className="flex h-full flex-col overflow-hidden bg-desktop-bg-primary" data-testid="kanban-page-shell">
         <div className="flex-1 min-h-0 overflow-hidden">
