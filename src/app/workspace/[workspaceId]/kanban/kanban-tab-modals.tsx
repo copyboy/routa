@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { CodebaseData } from "@/client/hooks/use-workspaces";
 import { RepoPicker, type RepoSelection } from "@/client/components/repo-picker";
 import { useTranslation } from "@/i18n";
+import type { KanbanRequiredTaskField } from "@/core/models/kanban";
 import type { TaskInfo, WorktreeInfo } from "../types";
 import { RefreshCw, TriangleAlert, Info, Trash2 } from "lucide-react";
 
@@ -738,15 +739,46 @@ export function KanbanDeleteTaskModal({
 }
 
 export function KanbanMoveBlockedModal({
-  message,
+  blocked,
   onClose,
+  onOpenCard,
 }: {
-  message: string | null;
+  blocked: {
+    message: string;
+    storyReadiness?: TaskInfo["storyReadiness"];
+    missingTaskFields?: string[];
+  } | null;
   onClose: () => void;
+  onOpenCard?: () => void;
 }) {
   const { t } = useTranslation();
 
-  if (!message) return null;
+  if (!blocked) return null;
+
+  const formatFieldLabel = (field: KanbanRequiredTaskField): string => {
+    switch (field) {
+      case "scope":
+        return t.kanbanDetail.scope;
+      case "acceptance_criteria":
+        return t.kanbanDetail.acceptanceCriteria;
+      case "verification_commands":
+        return t.kanbanDetail.verificationCommands;
+      case "test_cases":
+        return t.kanbanDetail.testCases;
+      case "verification_plan":
+        return t.kanbanDetail.verificationPlan;
+      case "dependencies_declared":
+        return t.kanbanDetail.dependenciesDeclared;
+      default:
+        return field;
+    }
+  };
+
+  const requiredLabels = blocked.storyReadiness?.requiredTaskFields.map((field) => formatFieldLabel(field)) ?? [];
+  const missingLabels = blocked.storyReadiness?.missing.map((field) => formatFieldLabel(field)) ?? [];
+  const fallbackMissingLabels = missingLabels.length > 0
+    ? missingLabels
+    : (blocked.missingTaskFields ?? []);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 animate-in fade-in duration-150">
@@ -762,11 +794,37 @@ export function KanbanMoveBlockedModal({
             </div>
             <div className="flex-1">
               <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{t.kanbanModals.moveBlockedTitle}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-400">{message}</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-400">{blocked.message}</p>
+              {blocked.storyReadiness ? (
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/10 dark:text-amber-100">
+                  <div className="font-medium">
+                    {t.kanbanModals.moveBlockedStoryReadinessHint}
+                  </div>
+                  <div className="mt-2 text-xs leading-5 text-amber-800 dark:text-amber-200">
+                    {requiredLabels.length > 0
+                      ? `${t.kanbanDetail.requiredForNextMove}: ${requiredLabels.join(", ")}`
+                      : t.kanbanDetail.gateNotConfigured}
+                  </div>
+                  <div className="mt-1 text-xs leading-5 text-amber-800 dark:text-amber-200">
+                    {fallbackMissingLabels.length > 0
+                      ? `${t.kanbanDetail.missingFields}: ${fallbackMissingLabels.join(", ")}`
+                      : t.kanbanDetail.allRequiredFields}
+                  </div>
+                </div>
+              ) : null}
+              <p className="mt-3 text-xs leading-5 text-amber-700 dark:text-amber-300">{t.kanbanModals.moveBlockedToolHint}</p>
               <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">{t.kanbanModals.moveBlockedHint}</p>
             </div>
           </div>
-          <div className="mt-6 flex justify-end">
+          <div className="mt-6 flex justify-end gap-3">
+            {onOpenCard ? (
+              <button
+                onClick={onOpenCard}
+                className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200 dark:hover:bg-amber-900/30"
+              >
+                {t.kanban.openCard}
+              </button>
+            ) : null}
             <button
               onClick={onClose}
               className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-[#0d1018] dark:text-slate-300 dark:hover:bg-[#191c28]"

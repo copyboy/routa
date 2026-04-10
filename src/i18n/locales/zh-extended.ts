@@ -874,6 +874,8 @@ export const zhExtended: ExtendedTranslationDictionarySections = {
     deleteTaskGithubNote: "注意：此操作仅删除本地任务。GitHub Issue",
     moveBlockedTitle: "无法移动卡片",
     moveBlockedHint: "这次手动移动被当前 lane 的工作流阻止了。请先完成或重新运行剩余步骤，再尝试移动卡片。",
+    moveBlockedStoryReadinessHint: "这次移动被目标泳道的故事就绪门禁阻止了。",
+    moveBlockedToolHint: "请用 `update_task` 补结构化字段，例如 scope、acceptance criteria、verification commands 或 test cases。`update_card` 只会改卡片文本，不能满足这个 gate。",
     more: "更多",
   },
 

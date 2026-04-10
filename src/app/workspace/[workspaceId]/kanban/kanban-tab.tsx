@@ -79,6 +79,32 @@ const MIN_DETAIL_SPLIT_RATIO = 0.32;
 const MAX_DETAIL_SPLIT_RATIO = 0.72;
 const LIVE_SESSION_TAIL_POLL_MS = 10_000;
 
+type MoveBlockedState = {
+  message: string;
+  taskId: string;
+  targetColumnId: string;
+  storyReadiness?: TaskInfo["storyReadiness"];
+  missingTaskFields?: string[];
+};
+
+class TaskPatchError extends Error {
+  storyReadiness?: TaskInfo["storyReadiness"];
+  missingTaskFields?: string[];
+
+  constructor(
+    message: string,
+    options?: {
+      storyReadiness?: TaskInfo["storyReadiness"];
+      missingTaskFields?: string[];
+    },
+  ) {
+    super(message);
+    this.name = "TaskPatchError";
+    this.storyReadiness = options?.storyReadiness;
+    this.missingTaskFields = options?.missingTaskFields;
+  }
+}
+
 function isPlanBacklogBoard(board: KanbanBoardInfo): boolean {
   return board.name.trim().replace(/\s+/g, " ").toLowerCase() === "plan backlog";
 }
@@ -189,7 +215,7 @@ export function KanbanTab({
   const [deleteConfirmTask, setDeleteConfirmTask] = useState<TaskInfo | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
-  const [moveBlockedMessage, setMoveBlockedMessage] = useState<string | null>(null);
+  const [moveBlockedState, setMoveBlockedState] = useState<MoveBlockedState | null>(null);
   const detailSplitContainerRef = useRef<HTMLDivElement | null>(null);
   const [isTaskDetailFullscreen, setIsTaskDetailFullscreen] = useState(false);
   const [fileChangesOpen, setFileChangesOpen] = useState(false);
@@ -372,7 +398,12 @@ export function KanbanTab({
     });
     const data = await response.json();
     if (!response.ok) {
-      throw new Error(data.error ?? "Failed to update task");
+      throw new TaskPatchError(data.error ?? "Failed to update task", {
+        storyReadiness: data.storyReadiness,
+        missingTaskFields: Array.isArray(data.missingTaskFields)
+          ? data.missingTaskFields.filter((item: unknown): item is string => typeof item === "string")
+          : undefined,
+      });
     }
     const updated = data.task as TaskInfo;
     setLocalTasks((current) => current.map((task) => (task.id === taskId ? updated : task)));
@@ -1395,7 +1426,7 @@ export function KanbanTab({
     if (!movingTask) return;
     await ensureBoardAutoProviderPersisted();
     setMoveError(null);
-    setMoveBlockedMessage(null);
+    setMoveBlockedState(null);
 
     let shouldCleanupWorktree = false;
     if (targetColumnId === "done" && movingTask.worktreeId) {
@@ -1447,7 +1478,13 @@ export function KanbanTab({
       console.error(error);
       const message = error instanceof Error ? error.message : "Failed to move task";
       if (message.startsWith("Cannot move ")) {
-        setMoveBlockedMessage(message);
+        setMoveBlockedState({
+          message,
+          taskId,
+          targetColumnId,
+          storyReadiness: error instanceof TaskPatchError ? error.storyReadiness : undefined,
+          missingTaskFields: error instanceof TaskPatchError ? error.missingTaskFields : undefined,
+        });
         setMoveError(null);
       } else {
         setMoveError(message);
@@ -1729,9 +1766,18 @@ export function KanbanTab({
     onConfirm: executeDeleteTask,
   };
 
+  const blockedTask = moveBlockedState
+    ? localTasks.find((task) => task.id === moveBlockedState.taskId)
+      ?? tasks.find((task) => task.id === moveBlockedState.taskId)
+      ?? null
+    : null;
   const moveBlockedModalProps = {
-    message: moveBlockedMessage,
-    onClose: () => setMoveBlockedMessage(null),
+    blocked: moveBlockedState,
+    onClose: () => setMoveBlockedState(null),
+    onOpenCard: blockedTask ? () => {
+      void openTaskDetail(blockedTask);
+      setMoveBlockedState(null);
+    } : undefined,
   };
 
   const statusBarProps = {

@@ -3,6 +3,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { KanbanTab } from "../kanban-tab";
 import { KanbanCardDetail } from "../kanban-card-detail";
 import { KanbanCardActivityPanel } from "../kanban-card-activity";
+import { KanbanMoveBlockedModal } from "../kanban-tab-modals";
 import { buildKanbanSessionRestorePrompt } from "../kanban-tab-panels";
 import type { KanbanBoardInfo, TaskInfo } from "../../types";
 import type { UseAcpActions, UseAcpState } from "@/client/hooks/use-acp";
@@ -105,6 +106,41 @@ describe("kanban session restore prompt", () => {
     expect(prompt).not.toContain("Starting Routa backend server");
     expect(prompt).not.toContain("test result: ok");
     expect(prompt).not.toContain("running 100 tests");
+  });
+});
+
+describe("kanban move blocked modal", () => {
+  it("surfaces story-readiness remediation with update_task guidance", () => {
+    render(
+      <KanbanMoveBlockedModal
+        blocked={{
+          message: 'Cannot move task to "Dev": missing required task fields: scope, verification plan.',
+          storyReadiness: {
+            ready: false,
+            missing: ["scope", "verification_plan"],
+            requiredTaskFields: ["scope", "acceptance_criteria", "verification_plan"],
+            checks: {
+              scope: false,
+              acceptanceCriteria: true,
+              verificationCommands: false,
+              testCases: true,
+              verificationPlan: true,
+              dependenciesDeclared: false,
+            },
+          },
+          missingTaskFields: ["scope", "verification plan"],
+        }}
+        onClose={vi.fn()}
+        onOpenCard={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Cannot Move Card")).toBeTruthy();
+    expect(screen.getByText("This move is blocked by the story-readiness gate for the target lane.")).toBeTruthy();
+    expect(screen.getByText(/Required for next move:/)).toBeTruthy();
+    expect(screen.getByText(/Missing fields:/)).toBeTruthy();
+    expect(screen.getByText(/Use `update_task` to fill structured fields/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open" })).toBeTruthy();
   });
 });
 
