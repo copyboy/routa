@@ -1,32 +1,15 @@
 # Routa.js — Multi-agent coordination platform with dual-backend architecture (Next.js + Rust/Axum).
 
-## Repository Map
+Routa.js is a workspace-first multi-agent coordination platform with two runtime surfaces:
 
-- `docs/product-specs/FEATURE_TREE.md`: Auto-generated product and API surface index. Start here for route and endpoint discovery.
+- Web: Next.js app and API in `src/`
+- Desktop: Tauri app in `apps/desktop/` backed by Axum in `crates/routa-server/`
+
+The project is intentionally not "two separate products". Web and desktop differ in deployment model and storage, but they are expected to preserve the same domain semantics, API shape, and agent-coordination behavior.
+
 - `docs/ARCHITECTURE.md`: Canonical architecture boundaries, domain model, protocol stack, and cross-backend invariants.
 - `docs/adr/`: Durable architectural decisions. Start here for "why".
 - `docs/design-docs/`: Human-reviewed design intent and normalized decisions migrated from `.kiro/specs/`.
-- `docs/exec-plans/active/`: Short-lived implementation plans for in-flight work.
-- `docs/exec-plans/completed/`: Archived plans that reflect what shipped.
-- `docs/exec-plans/tech-debt-tracker.md`: Cross-cutting debt ledger.
-- `docs/issues/`: Incident and repro records. Capture WHAT happened and WHY it mattered.
-- `docs/fitness/`: Executable quality/testing/contract rulebook consumed by `entrix`.
-- `docs/coding-style.md`: Canonical coding style guidance for Rust, TypeScript/frontend, naming, and testing preferences.
-- `docs/REFACTOR.md`: Long-file refactor playbook.
-- `docs/references/`: Distilled external references for frequent dependencies.
-- `docs/release-guide.md`: Full release guide for CLI/Desktop/distribution.
-- `docs/RELEASE_CHECKLIST.md`: Quick release checklist.
-- `tools/entrix/docs/adr/README.md`: Entrix-specific ADRs and long-file heuristics.
-
-## Reading Order
-
-When starting work on this repository, read in this order:
-
-1. This entry file (`AGENTS.md` or `CLAUDE.md`) — operating contract and pointers.
-2. `docs/ARCHITECTURE.md` — runtime topology and boundaries.
-3. `docs/adr/README.md` — decision index, then relevant ADRs.
-4. `docs/fitness/README.md` — quality gates and verification flow.
-5. Task-specific files in `docs/design-docs/` or `docs/exec-plans/`.
 
 ## Documentation Rules
 
@@ -81,8 +64,7 @@ entrix run --tier normal   # when behavior/shared modules/APIs/workflow orchestr
 ### Co-Author Format
 
 - If closing an issue in commit text, verify against `main` first: `gh issue view <issue-id>`.
-- If the change is co-authored by an agent, append trailer(s) in this format.
-- Agent commits should enforce this via `prepare-commit-msg` + `commit-msg` hooks, using explicit env like `ROUTA_COAUTHOR_EMAIL` plus `ROUTA_COAUTHOR_NAME`, or `ROUTA_AGENT_NAME` + `ROUTA_AGENT_MODEL`.
+- Each commit should add co-authored, append trailer(s) in this format.
 
 ```text
 Co-authored-by: Kiro AI (Claude Opus 4.6) <kiro@kiro.dev>
@@ -104,3 +86,28 @@ Co-authored-by: gemini-cli (...) <218195315+gemini-cli@users.noreply.github.com>
 - Run issue hygiene/garbage collection at least once every 7 days. Track the last sweep time in `docs/issues/issue-gc-state.yaml` (`last_reviewed_at`).
 - If `last_reviewed_at` is 7+ days old when an agent reads this contract, the agent should invoke `AskUserQuestion` first: whether to run issue sync/cleanup now.
 - After finishing an issue GC pass, update `docs/issues/issue-gc-state.yaml` with the new `last_reviewed_at`.
+
+
+## Repository Map
+
+- `docs/product-specs/FEATURE_TREE.md`: Auto-generated product and API surface index. Start here for route and endpoint discovery.
+- `docs/exec-plans/active/`: Short-lived implementation plans for in-flight work.
+- `docs/exec-plans/completed/`: Archived plans that reflect what shipped.
+- `docs/exec-plans/tech-debt-tracker.md`: Cross-cutting debt ledger.
+- `docs/issues/`: Incident and repro records. Capture WHAT happened and WHY it mattered.
+- `docs/fitness/`: Executable quality/testing/contract rulebook consumed by `entrix`.
+- `docs/coding-style.md`: Canonical coding style guidance for Rust, TypeScript/frontend, naming, and testing preferences.
+- `docs/REFACTOR.md`: Long-file refactor playbook.
+- `docs/references/`: Distilled external references for frequent dependencies.
+- `docs/release-guide.md`: Full release guide for CLI/Desktop/distribution.
+- `docs/RELEASE_CHECKLIST.md`: Quick release checklist.
+- `tools/entrix/docs/adr/README.md`: Entrix-specific ADRs and long-file heuristics.
+
+## Reading Order
+
+When starting work on this repository, read in this order:
+
+1. `docs/ARCHITECTURE.md` — runtime topology and boundaries.
+2. `docs/adr/README.md` — decision index, then relevant ADRs.
+3. `docs/fitness/README.md` — quality gates and verification flow.
+4. Task-specific files in `docs/design-docs/` or `docs/exec-plans/`.
