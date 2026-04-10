@@ -159,7 +159,7 @@ impl ArtifactStore {
                 for artifact in rows {
                     result
                         .entry(artifact.task_id.clone())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(artifact);
                 }
 

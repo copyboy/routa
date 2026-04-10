@@ -661,7 +661,7 @@ pub struct GitCommitDetail {
 }
 
 fn git_refs_map(refs: &GitRefsResult) -> HashMap<String, Vec<GitLogRef>> {
-    let mut map = HashMap::new();
+    let mut map: HashMap<String, Vec<GitLogRef>> = HashMap::new();
 
     for git_ref in refs
         .head
@@ -672,7 +672,7 @@ fn git_refs_map(refs: &GitRefsResult) -> HashMap<String, Vec<GitLogRef>> {
         .chain(refs.tags.iter().cloned())
     {
         map.entry(git_ref.commit_sha.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(git_ref);
     }
 

@@ -263,9 +263,7 @@ impl AcpManager {
             return;
         }
         let mut history = self.history.write().await;
-        let entries = history
-            .entry(session_id.to_string())
-            .or_insert_with(Vec::new);
+        let entries = history.entry(session_id.to_string()).or_default();
         entries.push(notification);
         // Cap at 500 entries (same limit as Next.js backend)
         if entries.len() > 500 {
