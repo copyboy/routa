@@ -285,6 +285,10 @@ pub fn default_poll_ms() -> u64 {
 mod cache;
 use cache::*;
 
+#[path = "tui_highlight.rs"]
+mod highlight;
+use highlight::*;
+
 #[path = "tui_render.rs"]
 mod render;
 use render::*;
