@@ -650,6 +650,35 @@ fn unmatched_repo_local_agents_become_synthetic_runs() {
 }
 
 #[test]
+fn agents_from_recovered_repo_alias_still_count_as_repo_local_runs() {
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut state = RuntimeState::new(
+        "/Users/phodal/ai/routa-js".to_string(),
+        "routa-js".to_string(),
+        "main".to_string(),
+    );
+    state.last_refresh_at_ms = now;
+    state.set_detected_agents(vec![DetectedAgent {
+        key: "codex:5297".to_string(),
+        name: "Codex".to_string(),
+        vendor: "OpenAI".to_string(),
+        icon: "◈".to_string(),
+        pid: 5297,
+        cwd: Some("/Users/phodal/ai/routa-js-broken-20260411-205048".to_string()),
+        cpu_percent: 0.0,
+        mem_mb: 143.0,
+        uptime_seconds: 1_000,
+        status: "IDLE".to_string(),
+        confidence: 75,
+        project: "routa-js-broken-20260411-205048".to_string(),
+        command: "codex --full-auto".to_string(),
+    }]);
+
+    let runs = state.runs();
+    assert!(runs.iter().any(|run| run.is_synthetic_agent_run && run.display_name == "Codex#5297"));
+}
+
+#[test]
 fn ambiguous_agents_become_candidates_instead_of_false_matches() {
     let mut state = sample_state();
     state.set_detected_agents(vec![

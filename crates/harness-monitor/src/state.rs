@@ -1298,7 +1298,9 @@ fn is_repo_local_agent(agent: &DetectedAgent, repo_root: &str) -> bool {
     agent.cwd.as_deref().is_some_and(|cwd| {
         let repo_root = normalize_match_path(repo_root);
         let cwd = normalize_match_path(cwd);
-        cwd == repo_root || path_contains(&repo_root, &cwd) || path_contains(&cwd, &repo_root)
+        cwd == repo_root
+            || path_contains(&repo_root, &cwd)
+            || canonical_repo_identity(&cwd) == canonical_repo_identity(&repo_root)
     })
 }
 
@@ -1379,6 +1381,22 @@ fn session_agent_match_score(session: &SessionView, agent: &DetectedAgent) -> us
 
 fn normalize_match_path(path: &str) -> String {
     path.trim_end_matches('/').to_string()
+}
+
+fn canonical_repo_identity(path: &str) -> String {
+    let normalized = normalize_match_path(path);
+    let basename = normalized
+        .rsplit('/')
+        .next()
+        .unwrap_or(normalized.as_str());
+
+    let canonical = basename
+        .split_once("-broken-")
+        .map(|(prefix, _)| prefix)
+        .or_else(|| basename.split_once("-remote-").map(|(prefix, _)| prefix))
+        .unwrap_or(basename);
+
+    canonical.to_string()
 }
 
 fn path_contains(base: &str, candidate: &str) -> bool {
