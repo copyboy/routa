@@ -86,41 +86,17 @@ if (!platformTarball) {
 
 const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "routa-cli-verify-"));
 try {
-  const npmCacheDir = path.join(tempRoot, ".npm-cache");
-  const commandEnv = {
-    ...process.env,
-    NPM_CONFIG_CACHE: npmCacheDir,
-  };
-
   await fsp.writeFile(
     path.join(tempRoot, "package.json"),
     `${JSON.stringify({ name: "routa-cli-release-verify", private: true }, null, 2)}\n`,
     "utf8",
   );
-  await fsp.mkdir(npmCacheDir, { recursive: true });
 
-  run(
-    "npm",
-    [
-      "install",
-      "--ignore-scripts",
-      "--omit=optional",
-      "--no-package-lock",
-      "--no-fund",
-      "--no-audit",
-      mainTarball,
-      platformTarball,
-    ],
-    {
-      cwd: tempRoot,
-      env: commandEnv,
-    },
-  );
-
-  const cliResult = run("npx", ["--no-install", "routa", "--version"], {
+  run("npm", ["install", "--ignore-scripts", "--no-package-lock", "--no-fund", "--no-audit", mainTarball, platformTarball], {
     cwd: tempRoot,
-    env: commandEnv,
   });
+
+  const cliResult = run("npx", ["--no-install", "routa", "--version"], { cwd: tempRoot });
   const report = {
     status: "passed",
     platform: platformKey,
