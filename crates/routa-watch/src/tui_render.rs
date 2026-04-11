@@ -250,18 +250,27 @@ fn render_fitness_panel(frame: &mut Frame, area: Rect, state: &RuntimeState, cac
                 ),
                 Span::raw("  "),
                 Span::styled(
-                    if snapshot.has_coverage_metric() {
-                        "coverage metric sampled"
+                    if snapshot.coverage_summary.has_any_sampled_source() {
+                        fitness::coverage_status_line(snapshot)
                     } else {
-                        "coverage not sampled in fast set"
+                        "coverage evidence missing".to_string()
                     },
-                    Style::default().fg(if snapshot.has_coverage_metric() {
+                    Style::default().fg(if snapshot.coverage_summary.has_any_sampled_source() {
                         INFERRED
                     } else {
                         colors.muted
                     }),
                 ),
             ]));
+            if let Some(coverage_generated_at_ms) = snapshot.coverage_summary.generated_at_ms {
+                lines.push(Line::from(vec![
+                    Span::styled("coverage updated: ", Style::default().fg(colors.muted)),
+                    Span::styled(
+                        format_ts(coverage_generated_at_ms),
+                        Style::default().fg(colors.text),
+                    ),
+                ]));
+            }
         }
         lines.push(Line::from(vec![
             Span::styled("mode: ", Style::default().fg(colors.muted)),

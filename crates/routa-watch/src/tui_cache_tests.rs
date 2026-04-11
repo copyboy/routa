@@ -48,6 +48,7 @@ fn app_cache_restores_fitness_history_on_startup() {
                     duration_ms: 1234.0,
                     metric_count: 10,
                     coverage_metric_available: false,
+                    coverage_summary: fitness::CoverageSummary::default(),
                     dimensions: vec![],
                     slowest_metrics: vec![],
                 }),

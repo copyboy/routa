@@ -7,6 +7,7 @@ use routa_entrix::scoring::{score_dimension, score_report};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
+use std::fs;
 use std::path::Path;
 use std::thread;
 use std::time::Instant;
@@ -63,13 +64,51 @@ pub struct FitnessSnapshot {
     pub duration_ms: f64,
     pub metric_count: usize,
     pub coverage_metric_available: bool,
+    #[serde(default)]
+    pub coverage_summary: CoverageSummary,
     pub dimensions: Vec<FitnessDimensionSummary>,
     pub slowest_metrics: Vec<FitnessMetricSummary>,
 }
 
-impl FitnessSnapshot {
-    pub fn has_coverage_metric(&self) -> bool {
-        self.coverage_metric_available
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CoverageSummary {
+    #[serde(default)]
+    pub generated_at_ms: Option<i64>,
+    #[serde(default)]
+    pub typescript: CoverageSourceSummary,
+    #[serde(default)]
+    pub rust: CoverageSourceSummary,
+}
+
+impl CoverageSummary {
+    pub fn has_any_sampled_source(&self) -> bool {
+        self.typescript.is_sampled() || self.rust.is_sampled()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CoverageSourceSummary {
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub generated_at_ms: Option<i64>,
+    #[serde(default)]
+    pub artifact_path: Option<String>,
+    #[serde(default)]
+    pub line_percent: Option<f64>,
+    #[serde(default)]
+    pub branch_percent: Option<f64>,
+    #[serde(default)]
+    pub function_percent: Option<f64>,
+    #[serde(default)]
+    pub statement_percent: Option<f64>,
+    #[serde(default)]
+    pub region_percent: Option<f64>,
+}
+
+impl CoverageSourceSummary {
+    pub fn is_sampled(&self) -> bool {
+        self.status == "sampled" && self.line_percent.is_some()
     }
 }
 
@@ -178,6 +217,7 @@ pub fn run_fitness(repo_root: &str, mode: FitnessRunMode) -> Result<FitnessSnaps
             .unwrap_or(Ordering::Equal)
     });
     let report = score_report(&all_results, policy.min_score);
+    let coverage_summary = load_coverage_summary(root);
 
     Ok(FitnessSnapshot {
         mode,
@@ -187,9 +227,41 @@ pub fn run_fitness(repo_root: &str, mode: FitnessRunMode) -> Result<FitnessSnaps
         duration_ms: start.elapsed().as_secs_f64() * 1000.0,
         metric_count,
         coverage_metric_available,
+        coverage_summary,
         dimensions: dim_summaries,
         slowest_metrics: slowest_metrics.into_iter().take(5).collect(),
     })
+}
+
+fn load_coverage_summary(repo_root: &Path) -> CoverageSummary {
+    let summary_path = repo_root.join("target").join("coverage").join("fitness-summary.json");
+    let Ok(payload) = fs::read_to_string(summary_path) else {
+        return CoverageSummary::default();
+    };
+    let Ok(record) = serde_json::from_str::<CoverageSummaryRecord>(&payload) else {
+        return CoverageSummary::default();
+    };
+    CoverageSummary {
+        generated_at_ms: record.generated_at_ms,
+        typescript: record.sources.typescript,
+        rust: record.sources.rust,
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CoverageSummaryRecord {
+    #[serde(default)]
+    generated_at_ms: Option<i64>,
+    #[serde(default)]
+    sources: CoverageSummarySources,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct CoverageSummarySources {
+    #[serde(default)]
+    typescript: CoverageSourceSummary,
+    #[serde(default)]
+    rust: CoverageSourceSummary,
 }
 
 fn rewrite_fast_metrics_for_watch(repo_root: &str, dimensions: Vec<Dimension>) -> Vec<Dimension> {
@@ -413,4 +485,17 @@ pub fn passed_metric_count(snapshot: &FitnessSnapshot) -> usize {
         .flat_map(|dim| dim.metrics.iter())
         .filter(|metric| matches!(metric.state.as_str(), "pass" | "waived"))
         .count()
+}
+
+pub fn coverage_status_line(snapshot: &FitnessSnapshot) -> String {
+    let ts = coverage_source_label("TS", &snapshot.coverage_summary.typescript);
+    let rust = coverage_source_label("Rust", &snapshot.coverage_summary.rust);
+    format!("{ts}  {rust}")
+}
+
+fn coverage_source_label(name: &str, source: &CoverageSourceSummary) -> String {
+    if let Some(line_percent) = source.line_percent {
+        return format!("{name} {line_percent:.1}%");
+    }
+    format!("{name} missing")
 }

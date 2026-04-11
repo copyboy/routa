@@ -74,7 +74,7 @@ enum BackgroundResult {
         entry: FileFactsEntry,
     },
     Fitness {
-        result: Result<fitness::FitnessSnapshot, String>,
+        result: Box<Result<fitness::FitnessSnapshot, String>>,
     },
 }
 
@@ -261,6 +261,7 @@ impl AppCache {
                     self.pending_facts_key = None;
                 }
                 BackgroundResult::Fitness { result } => {
+                    let result = *result;
                     self.fitness_is_running = false;
                     let entry = self.active_fitness_history_mut();
                     entry.last_run_ms = Some(chrono::Utc::now().timestamp_millis());
@@ -813,7 +814,9 @@ fn background_worker(rx: Receiver<BackgroundCommand>, tx: Sender<BackgroundResul
         if let Some((repo_root, cache_key, mode)) = pending.fitness.take() {
             let result = fitness::run_fitness(&repo_root, mode).map_err(|error| error.to_string());
             let _ = cache_key;
-            let _ = tx.send(BackgroundResult::Fitness { result });
+            let _ = tx.send(BackgroundResult::Fitness {
+                result: Box::new(result),
+            });
         }
     }
 }
