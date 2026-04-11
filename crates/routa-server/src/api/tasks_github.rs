@@ -83,6 +83,19 @@ fn github_token() -> Option<String> {
                 .ok()
                 .filter(|value| !value.is_empty())
         })
+        .or_else(|| {
+            let output = Command::new("gh").args(["auth", "token"]).output().ok()?;
+            if !output.status.success() {
+                return None;
+            }
+
+            let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if token.is_empty() {
+                None
+            } else {
+                Some(token)
+            }
+        })
 }
 
 fn github_request(

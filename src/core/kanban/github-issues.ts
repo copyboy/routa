@@ -46,7 +46,20 @@ export interface GitHubPRListItem {
 }
 
 function getGitHubToken(): string | undefined {
-  return process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const envToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  if (envToken) {
+    return envToken;
+  }
+
+  try {
+    const token = getServerBridge()
+      .process
+      .execSync("gh auth token")
+      .trim();
+    return token || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function getHeaders(token?: string) {
