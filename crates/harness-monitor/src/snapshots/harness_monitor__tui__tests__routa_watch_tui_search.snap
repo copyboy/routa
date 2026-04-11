@@ -1,10 +1,11 @@
 ---
 source: crates/harness-monitor/src/tui_tests.rs
+assertion_line: 644
 expression: "render_snapshot(&state, &mut cache, 120, 24)"
 ---
  Harness Monitor   repo:routa-js  branch:main  agents:2 active:1  dirty:1  unknown:1  synced 2m ago
 ┌Git Status──────────────────────────────────────────────────────────────────────────┐┌Diff Preview────────────────────┐
-│ 1 file, 5 commits, branch: main, 2 worktrees                                       ││@@ -1,2 +1,3 @@                 │
+│ 1 file, 5 commits, run: review, branch: main, 2 worktrees                          ││@@ -1,2 +1,3 @@                 │
 │────────────────────────────────────────────────────────────────────────────────────││-use old                        │
 │> route.ts                                      card/            D  -12        5m   ││+use new                        │
 │                                                                                    ││+use cache                      │
@@ -19,10 +20,10 @@ expression: "render_snapshot(&state, &mut cache, 120, 24)"
 │                                                                                    ││src/app/api/a2a/card            │
 └────────────────────────────────────────────────────────────────────────────────────┘│Lines: ...  Size: ...  Git      │
 ┌Fitness (Entrix Fast)───────────────────────────────────────────────────────────────┐│changes: ...                    │
-│Health Run: idle (press g refresh, m switch mode)                                   ││                                │
-│                                                                                    ││                                │
-│                                                                                    ││                                │
-│                                                                                    ││                                │
-│                                                                                    ││                                │
+│Score: PASS 91.0% (0/12) 4200ms                                                     ││                                │
+│[ 91.0%] █████████████████████████░░░                                               ││                                │
+│mode: Entrix Fast  press m to switch                                                ││                                │
+│Dimension scores:                                                                   ││                                │
+│92% code_quality           w18  4/4  ██████████████████████████░░                   ││                                │
 └────────────────────────────────────────────────────────────────────────────────────┘└────────────────────────────────┘
 Tab Runs/Files/Detail/Fitness  ↑↓ select  S run sort  v run filter  u unknown  d preview/diff  Pg scroll  f follow:on  T

@@ -474,6 +474,20 @@ impl AppCache {
         self.sync_cache_key_from_active_mode();
     }
 
+    #[cfg(test)]
+    pub(super) fn set_fitness_snapshot_for_tests(
+        &mut self,
+        mode: fitness::FitnessRunMode,
+        snapshot: fitness::FitnessSnapshot,
+    ) {
+        self.fitness_mode = mode;
+        self.fitness_history_by_mode
+            .entry(mode.as_str().to_string())
+            .or_default()
+            .snapshot = Some(snapshot);
+        self.sync_cache_key_from_active_mode();
+    }
+
     fn active_fitness_history(&self) -> Option<&FitnessHistoryEntry> {
         self.fitness_history_by_mode.get(self.fitness_mode.as_str())
     }

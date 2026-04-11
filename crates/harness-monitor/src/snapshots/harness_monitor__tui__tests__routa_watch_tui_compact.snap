@@ -1,22 +1,23 @@
 ---
 source: crates/harness-monitor/src/tui_tests.rs
+assertion_line: 666
 expression: "render_snapshot(&state, &mut cache, 96, 24)"
 ---
- Harness Monitor   repo:routa-js  branch:main  agents:2 active:1  dirty:2  unknown:1  synced 2m
+ Harness Monitor   repo:routa-js  branch:main  agents:2 active:1  dirty:1  unknown:0  synced 2m
 ┌Git Status────────────────────────────────────────────────────────────────────────────────────┐
-│ 2 files, 5 commits, branch: main, 2 worktrees                                                │
+│ 1 file, 5 commits, run: impl-buddy, branch: main, 2 worktrees                                │
 │──────────────────────────────────────────────────────────────────────────────────────────────│
 │> tui.rs                                                                                      │
 │  ...s-monitor/src  M  +38 -5     4m                                                          │
-│  route.ts                                                                                    │
-│  .../api/a2a/card  D  -12        5m                                                          │
+│                                                                                              │
+│                                                                                              │
 │                                                                                              │
 │                                                                                              │
 │                                                                                              │
 │                                                                                              │
 └──────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌Fitness (Entrix Fast)─────────────────────────────────────────────────────────────────────────┐
-│Health Run: idle (press g refresh, m switch mode)                                             │
+│Score: PASS 91.0% (0/12) 4200ms                                                               │
 └──────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌Diff Preview──────────────────────────────────────────────────────────────────────────────────┐
 │@@ -1,2 +1,3 @@                                                                               │

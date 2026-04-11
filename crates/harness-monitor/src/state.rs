@@ -323,6 +323,18 @@ impl RuntimeState {
         &self.cached_session_items
     }
 
+    pub fn selected_run_scope_label(&self) -> String {
+        self.selected_run_item()
+            .map(|run| {
+                if run.is_unknown_bucket {
+                    "review".to_string()
+                } else {
+                    run.display_name.clone()
+                }
+            })
+            .unwrap_or_else(|| "all".to_string())
+    }
+
     fn compute_session_items(&self) -> Vec<SessionListItem> {
         let agent_matches = self.compute_agent_match_state();
         let mut items: Vec<_> = self
@@ -454,6 +466,7 @@ impl RuntimeState {
             .files
             .values()
             .filter(|file| file.dirty || file.conflicted)
+            .filter(|file| self.matches_selected_run_file_scope(file))
             .filter(|file| self.matches_file_search(file))
             .collect();
         match self.file_list_mode {
@@ -1022,7 +1035,10 @@ impl RuntimeState {
                 item.is_unknown_bucket
                     || item.is_synthetic_agent_run
                     || item.unknown_count > 0
-                    || matches!(item.status.as_str(), "idle" | "unknown" | "stopped" | "ended")
+                    || matches!(
+                        item.status.as_str(),
+                        "idle" | "unknown" | "stopped" | "ended"
+                    )
             }
         }
     }
@@ -1030,6 +1046,14 @@ impl RuntimeState {
     fn set_selected_run(&mut self, index: usize) {
         self.selected_run = index;
         self.selected_session = index;
+        self.cached_file_item_keys = self.compute_file_item_keys();
+        let file_len = self.cached_file_item_keys.len();
+        if file_len == 0 {
+            self.selected_file = 0;
+        } else {
+            self.selected_file = self.selected_file.min(file_len - 1);
+        }
+        self.restore_detail_scroll_for_selection();
     }
 
     fn unmatched_agents_for_runs<'a>(
@@ -1041,6 +1065,26 @@ impl RuntimeState {
             .filter(|agent| !matches.matched_agent_keys.contains(&agent.key))
             .filter(|agent| is_repo_local_agent(agent, &self.repo_root))
             .collect()
+    }
+
+    fn matches_selected_run_file_scope(&self, file: &FileView) -> bool {
+        let Some(run) = self.selected_run_item() else {
+            return true;
+        };
+
+        if run.is_unknown_bucket {
+            return file.conflicted
+                || matches!(file.confidence, AttributionConfidence::Unknown)
+                || file.last_session_id.is_none()
+                || file.touched_by.is_empty();
+        }
+
+        if run.is_synthetic_agent_run {
+            return false;
+        }
+
+        file.last_session_id.as_deref() == Some(run.session_id.as_str())
+            || file.touched_by.contains(&run.session_id)
     }
 
     fn matches_session_search(&self, session: &SessionView) -> bool {
@@ -1272,7 +1316,11 @@ impl AgentMatchState {
     }
 }
 
-fn compare_run_items(a: &SessionListItem, b: &SessionListItem, sort_mode: RunSortMode) -> std::cmp::Ordering {
+fn compare_run_items(
+    a: &SessionListItem,
+    b: &SessionListItem,
+    sort_mode: RunSortMode,
+) -> std::cmp::Ordering {
     let primary = match sort_mode {
         RunSortMode::Recent => b.last_seen_at_ms.cmp(&a.last_seen_at_ms),
         RunSortMode::Started => b.started_at_ms.cmp(&a.started_at_ms),
@@ -1385,10 +1433,7 @@ fn normalize_match_path(path: &str) -> String {
 
 fn canonical_repo_identity(path: &str) -> String {
     let normalized = normalize_match_path(path);
-    let basename = normalized
-        .rsplit('/')
-        .next()
-        .unwrap_or(normalized.as_str());
+    let basename = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
 
     let canonical = basename
         .split_once("-broken-")

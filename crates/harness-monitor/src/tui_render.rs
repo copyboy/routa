@@ -1,5 +1,10 @@
 use super::fitness;
 use super::*;
+use crate::domain::evidence::{EvidenceRequirement, EvidenceType};
+use crate::domain::policy::{EffectClass, PolicyDecisionKind};
+use crate::domain::run::Role;
+use crate::domain::workspace::WorkspaceState;
+use crate::models::{AttributionConfidence, FileView};
 use crate::state::FocusPane;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -30,6 +35,30 @@ pub(super) struct UiPalette {
     accent: Color,
     selection_focus: Color,
     selection_blur: Color,
+}
+
+#[derive(Clone)]
+struct EvidenceRequirementStatus {
+    requirement: EvidenceRequirement,
+    satisfied: bool,
+}
+
+struct RunOperatorModel {
+    role: Role,
+    origin_label: &'static str,
+    operator_state: String,
+    workspace_path: String,
+    workspace_state: WorkspaceState,
+    effect_classes: Vec<EffectClass>,
+    policy_decision: PolicyDecisionKind,
+    approval_label: String,
+    block_reason: Option<String>,
+    eval_summary: Option<String>,
+    evidence: Vec<EvidenceRequirementStatus>,
+    integrity_warning: Option<String>,
+    next_action: String,
+    handoff_summary: Option<String>,
+    changed_files: Vec<String>,
 }
 
 pub(super) fn palette(theme_mode: ThemeMode) -> UiPalette {
@@ -347,7 +376,10 @@ fn render_fitness_panel(frame: &mut Frame, area: Rect, state: &RuntimeState, cac
             )];
             row.push(Span::raw(" "));
             row.push(Span::styled(
-                format!("{:<dim_name_width$}", truncate_short(&dim.name, dim_name_width)),
+                format!(
+                    "{:<dim_name_width$}",
+                    truncate_short(&dim.name, dim_name_width)
+                ),
                 Style::default().fg(colors.text),
             ));
             row.push(Span::raw(" "));
@@ -612,7 +644,11 @@ fn render_runs_panel(frame: &mut Frame, area: ratatui::layout::Rect, state: &Run
     let summary_line = Line::from(vec![
         Span::styled(
             format!(" {} active", active_runs),
-            Style::default().fg(if active_runs > 0 { ACTIVE } else { colors.muted }),
+            Style::default().fg(if active_runs > 0 {
+                ACTIVE
+            } else {
+                colors.muted
+            }),
         ),
         Span::styled(
             format!("  {} total", sessions.len()),
@@ -666,13 +702,16 @@ fn render_runs_panel(frame: &mut Frame, area: ratatui::layout::Rect, state: &Run
                 colors.surface
             };
 
-            let status_color = run_status_color(&session.status);
+            let list_state = run_list_state_label(session);
+            let status_color = run_status_color(list_state);
             let icon = crate::models::HookClient::from_str(&session.client).icon();
             let run_name = if session.is_unknown_bucket {
                 "unattributed".to_string()
             } else {
                 session.display_name.clone()
             };
+            let role = infer_run_role(session);
+            let origin = run_origin_label(session);
             let run_label_width = split[1].width.saturating_sub(18) as usize;
             let event_label = match (&session.last_event_name, &session.last_tool_name) {
                 (Some(event), Some(tool)) if !tool.is_empty() => format!("{event}/{tool}"),
@@ -689,7 +728,10 @@ fn render_runs_panel(frame: &mut Frame, area: ratatui::layout::Rect, state: &Run
                     format!(
                         "{} {}",
                         icon,
-                        pad_right(&shorten_path(&run_name, run_label_width.max(12)), run_label_width)
+                        pad_right(
+                            &shorten_path(&run_name, run_label_width.max(12)),
+                            run_label_width
+                        )
                     ),
                     Style::default()
                         .fg(if session.is_unknown_bucket {
@@ -701,7 +743,7 @@ fn render_runs_panel(frame: &mut Frame, area: ratatui::layout::Rect, state: &Run
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!(" {}", session.status),
+                    format!(" {}", list_state),
                     Style::default().fg(status_color).bg(bg),
                 ),
                 Span::styled(
@@ -712,7 +754,9 @@ fn render_runs_panel(frame: &mut Frame, area: ratatui::layout::Rect, state: &Run
             let secondary = Line::from(vec![
                 Span::styled(
                     format!(
-                        "  {}  files:{}  e/i/?:{}/{}/{}",
+                        "  {}  {}  {}  files:{}  e/i/?:{}/{}/{}",
+                        role.as_str(),
+                        origin,
                         session.client,
                         session.touched_files_count,
                         session.exact_count,
@@ -868,7 +912,7 @@ fn render_details_panel(frame: &mut Frame, area: Rect, state: &RuntimeState, cac
     let colors = palette(state.theme_mode);
     if state.focus == FocusPane::Runs {
         let block = panel_block("Run Details", false, colors);
-        let lines = render_run_details(state, area.width, colors);
+        let lines = render_run_details(state, cache, area.width, colors);
         frame.render_widget(
             Paragraph::new(lines)
                 .block(block)
@@ -1041,9 +1085,10 @@ fn render_file_header_line(state: &RuntimeState, cache: &AppCache, _width: u16) 
         .map(|count| count.to_string())
         .unwrap_or_else(|| "...".to_string());
     let summary = format!(
-        "{}, {}, branch: {}, {}",
+        "{}, {}, run: {}, branch: {}, {}",
         pluralize(files.len(), "file"),
         pluralize_count_text(&commit_total, "commit"),
+        state.selected_run_scope_label(),
         state.branch,
         pluralize_count_text(&worktree_total, "worktree"),
     );
@@ -1097,7 +1142,10 @@ fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, state: &Runtime
     } else {
         Line::from(vec![
             Span::styled("Tab", Style::default().fg(colors.accent)),
-            Span::styled(" Runs/Files/Detail/Fitness  ", Style::default().fg(colors.muted)),
+            Span::styled(
+                " Runs/Files/Detail/Fitness  ",
+                Style::default().fg(colors.muted),
+            ),
             Span::styled("↑↓", Style::default().fg(colors.accent)),
             Span::styled(" select  ", Style::default().fg(colors.muted)),
             Span::styled("S", Style::default().fg(colors.accent)),
@@ -1177,7 +1225,12 @@ fn render_agent_stats_line(state: &RuntimeState, colors: UiPalette) -> Line<'sta
     ])
 }
 
-fn render_run_details(state: &RuntimeState, width: u16, colors: UiPalette) -> Vec<Line<'static>> {
+fn render_run_details(
+    state: &RuntimeState,
+    cache: &AppCache,
+    width: u16,
+    colors: UiPalette,
+) -> Vec<Line<'static>> {
     let Some(run) = state.selected_run_item() else {
         return vec![Line::from(Span::styled(
             "No run selected",
@@ -1185,9 +1238,18 @@ fn render_run_details(state: &RuntimeState, width: u16, colors: UiPalette) -> Ve
         ))];
     };
 
-    if run.is_synthetic_agent_run {
-        return render_synthetic_run_details(state, run, width, colors);
-    }
+    let model = build_run_operator_model(state, cache, run);
+    let state_color = run_status_color(&model.operator_state);
+    let block_text = model
+        .block_reason
+        .clone()
+        .unwrap_or_else(|| "ready".to_string());
+    let workspace_path = shorten_path(&model.workspace_path, width.saturating_sub(18) as usize);
+    let next_text = model
+        .handoff_summary
+        .as_ref()
+        .map(|handoff| format!("{}  {}", model.next_action, handoff))
+        .unwrap_or_else(|| model.next_action.clone());
 
     let mut lines = vec![
         Line::from(Span::styled(
@@ -1196,51 +1258,88 @@ fn render_run_details(state: &RuntimeState, width: u16, colors: UiPalette) -> Ve
                 .fg(colors.text)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(Span::styled(
-            run.session_id.clone(),
-            Style::default().fg(colors.muted),
-        )),
         Line::from(vec![
-            Span::styled("Client: ", Style::default().fg(colors.muted)),
-            Span::styled(run.client.clone(), Style::default().fg(colors.text)),
+            Span::styled(
+                shorten_path(&run.session_id, 18),
+                Style::default().fg(colors.muted),
+            ),
+            Span::raw("  "),
+            Span::styled(model.role.as_str(), Style::default().fg(colors.text)),
+            Span::raw("  "),
+            Span::styled(model.origin_label, Style::default().fg(colors.accent)),
+        ]),
+        Line::from(vec![
+            Span::styled("State: ", Style::default().fg(colors.muted)),
+            Span::styled(
+                model.operator_state.clone(),
+                Style::default().fg(state_color),
+            ),
+            Span::raw("  "),
+            Span::styled("Block: ", Style::default().fg(colors.muted)),
+            Span::styled(block_text, Style::default().fg(colors.text)),
             Span::raw("  "),
             Span::styled("Mode: ", Style::default().fg(colors.muted)),
-            Span::styled("unmanaged", Style::default().fg(colors.accent)),
+            Span::styled("unmanaged", Style::default().fg(colors.text)),
         ]),
         Line::from(vec![
-            Span::styled("Status: ", Style::default().fg(colors.muted)),
-            Span::styled(run.status.clone(), Style::default().fg(run_status_color(&run.status))),
-            Span::raw("  "),
-            Span::styled("Seen: ", Style::default().fg(colors.muted)),
-            Span::styled(time_ago(run.last_seen_at_ms), Style::default().fg(colors.text)),
-        ]),
-        Line::from(vec![
-            Span::styled("Started: ", Style::default().fg(colors.muted)),
-            Span::styled(format_ts(run.started_at_ms), Style::default().fg(colors.text)),
-            Span::raw("  "),
-            Span::styled("Files: ", Style::default().fg(colors.muted)),
+            Span::styled("Workspace: ", Style::default().fg(colors.muted)),
             Span::styled(
-                run.touched_files_count.to_string(),
+                model.workspace_state.as_str(),
                 Style::default().fg(colors.accent),
             ),
+            Span::raw("  "),
+            Span::styled("Path: ", Style::default().fg(colors.muted)),
+            Span::styled(workspace_path, Style::default().fg(colors.text)),
         ]),
         Line::from(vec![
-            Span::styled("Attribution: ", Style::default().fg(colors.muted)),
+            Span::styled("Eval: ", Style::default().fg(colors.muted)),
             Span::styled(
-                format!("{}/{}/{}", run.exact_count, run.inferred_count, run.unknown_count),
+                model
+                    .eval_summary
+                    .clone()
+                    .unwrap_or_else(|| "pending".to_string()),
                 Style::default().fg(colors.text),
             ),
             Span::raw("  "),
-            Span::styled("Sort: ", Style::default().fg(colors.muted)),
-            Span::styled(state.run_sort_mode.label(), Style::default().fg(colors.accent)),
+            Span::styled("Evidence: ", Style::default().fg(colors.muted)),
+            Span::styled(
+                evidence_inline_summary(&model.evidence),
+                Style::default().fg(colors.text),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Policy: ", Style::default().fg(colors.muted)),
+            Span::styled(
+                model.policy_decision.as_str(),
+                Style::default().fg(colors.accent),
+            ),
+            Span::raw("  "),
+            Span::styled("Approval: ", Style::default().fg(colors.muted)),
+            Span::styled(
+                model.approval_label.clone(),
+                Style::default().fg(colors.text),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Effects: ", Style::default().fg(colors.muted)),
+            Span::styled(
+                effect_classes_summary(&model.effect_classes),
+                Style::default().fg(colors.text),
+            ),
+            Span::raw("  "),
+            Span::styled("Next: ", Style::default().fg(colors.muted)),
+            Span::styled(
+                shorten_path(&next_text, width.saturating_sub(20) as usize),
+                Style::default().fg(colors.text),
+            ),
         ]),
     ];
 
-    if let Some(model) = &run.model {
+    if let Some(model_name) = &run.model {
         lines.push(Line::from(vec![
             Span::styled("Model: ", Style::default().fg(colors.muted)),
             Span::styled(
-                shorten_path(model, width.saturating_sub(12) as usize),
+                shorten_path(model_name, width.saturating_sub(12) as usize),
                 Style::default().fg(colors.text),
             ),
         ]));
@@ -1256,6 +1355,16 @@ fn render_run_details(state: &RuntimeState, width: u16, colors: UiPalette) -> Ve
         ]));
     }
 
+    if let Some(warning) = &model.integrity_warning {
+        lines.push(Line::from(vec![
+            Span::styled("Guard: ", Style::default().fg(colors.muted)),
+            Span::styled(
+                shorten_path(warning, width.saturating_sub(12) as usize),
+                Style::default().fg(INFERRED),
+            ),
+        ]));
+    }
+
     if let Some(event) = &run.last_event_name {
         let tool = run
             .last_tool_name
@@ -1263,7 +1372,7 @@ fn render_run_details(state: &RuntimeState, width: u16, colors: UiPalette) -> Ve
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| "-".to_string());
         lines.push(Line::from(vec![
-            Span::styled("Last hook: ", Style::default().fg(colors.muted)),
+            Span::styled("Last: ", Style::default().fg(colors.muted)),
             Span::styled(event.clone(), Style::default().fg(colors.accent)),
             Span::raw("  "),
             Span::styled("Tool: ", Style::default().fg(colors.muted)),
@@ -1271,109 +1380,44 @@ fn render_run_details(state: &RuntimeState, width: u16, colors: UiPalette) -> Ve
         ]));
     }
 
-    if let Some(session) = state.sessions.get(&run.session_id) {
-        lines.push(Line::from(vec![
-            Span::styled("CWD: ", Style::default().fg(colors.muted)),
-            Span::styled(
-                shorten_path(&session.cwd, width.saturating_sub(10) as usize),
-                Style::default().fg(colors.text),
-            ),
-        ]));
-        if let Some(tmux) = &run.tmux_pane {
+    if run.is_synthetic_agent_run {
+        if let Some(agent) = run
+            .attached_agent_key
+            .as_ref()
+            .and_then(|key| state.detected_agents.iter().find(|agent| &agent.key == key))
+        {
             lines.push(Line::from(vec![
-                Span::styled("Tmux: ", Style::default().fg(colors.muted)),
-                Span::styled(tmux.clone(), Style::default().fg(colors.text)),
-            ]));
-        }
-    }
-
-    if run.is_unknown_bucket {
-        lines.push(Line::from(vec![
-            Span::styled("Review: ", Style::default().fg(colors.muted)),
-            Span::styled(
-                "unknown or conflicted file ownership",
-                Style::default().fg(INFERRED),
-            ),
-        ]));
-    }
-
-    lines
-}
-
-fn render_synthetic_run_details(
-    state: &RuntimeState,
-    run: &crate::state::SessionListItem,
-    width: u16,
-    colors: UiPalette,
-) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        Line::from(Span::styled(
-            shorten_path(&run.display_name, width.saturating_sub(4) as usize),
-            Style::default()
-                .fg(colors.text)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            run.session_id.clone(),
-            Style::default().fg(colors.muted),
-        )),
-        Line::from(vec![
-            Span::styled("Client: ", Style::default().fg(colors.muted)),
-            Span::styled(run.client.clone(), Style::default().fg(colors.text)),
-            Span::raw("  "),
-            Span::styled("Mode: ", Style::default().fg(colors.muted)),
-            Span::styled("unmanaged", Style::default().fg(colors.accent)),
-        ]),
-        Line::from(vec![
-            Span::styled("Attach: ", Style::default().fg(colors.muted)),
-            Span::styled(
-                "synthetic fallback from process scan",
-                Style::default().fg(INFERRED),
-            ),
-        ]),
-    ];
-
-    if let Some(agent) = run
-        .attached_agent_key
-        .as_ref()
-        .and_then(|key| state.detected_agents.iter().find(|agent| &agent.key == key))
-    {
-        lines.push(Line::from(vec![
-            Span::styled("PID: ", Style::default().fg(colors.muted)),
-            Span::styled(agent.pid.to_string(), Style::default().fg(colors.text)),
-            Span::raw("  "),
-            Span::styled("Status: ", Style::default().fg(colors.muted)),
-            Span::styled(
-                agent.status.to_ascii_lowercase(),
-                Style::default().fg(run_status_color(&run.status)),
-            ),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled("CPU: ", Style::default().fg(colors.muted)),
-            Span::styled(format!("{:.1}%", agent.cpu_percent), Style::default().fg(colors.text)),
-            Span::raw("  "),
-            Span::styled("Mem: ", Style::default().fg(colors.muted)),
-            Span::styled(format!("{:.0}MB", agent.mem_mb), Style::default().fg(colors.text)),
-            Span::raw("  "),
-            Span::styled("Up: ", Style::default().fg(colors.muted)),
-            Span::styled(
-                crate::detect::format_uptime(agent.uptime_seconds),
-                Style::default().fg(colors.text),
-            ),
-        ]));
-        if let Some(cwd) = &agent.cwd {
-            lines.push(Line::from(vec![
-                Span::styled("CWD: ", Style::default().fg(colors.muted)),
+                Span::styled("PID: ", Style::default().fg(colors.muted)),
+                Span::styled(agent.pid.to_string(), Style::default().fg(colors.text)),
+                Span::raw("  "),
+                Span::styled("Status: ", Style::default().fg(colors.muted)),
                 Span::styled(
-                    shorten_path(cwd, width.saturating_sub(10) as usize),
+                    agent.status.to_ascii_lowercase(),
+                    Style::default().fg(run_status_color(&model.operator_state)),
+                ),
+                Span::raw("  "),
+                Span::styled("CPU: ", Style::default().fg(colors.muted)),
+                Span::styled(
+                    format!("{:.1}%", agent.cpu_percent),
+                    Style::default().fg(colors.text),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("Cmd: ", Style::default().fg(colors.muted)),
+                Span::styled(
+                    shorten_path(&agent.command, width.saturating_sub(10) as usize),
                     Style::default().fg(colors.text),
                 ),
             ]));
         }
+    } else if !model.changed_files.is_empty() {
         lines.push(Line::from(vec![
-            Span::styled("Cmd: ", Style::default().fg(colors.muted)),
+            Span::styled("Files: ", Style::default().fg(colors.muted)),
             Span::styled(
-                shorten_path(&agent.command, width.saturating_sub(10) as usize),
+                shorten_path(
+                    &model.changed_files.join(", "),
+                    width.saturating_sub(12) as usize,
+                ),
                 Style::default().fg(colors.text),
             ),
         ]));
@@ -1384,10 +1428,506 @@ fn render_synthetic_run_details(
 
 fn run_status_color(status: &str) -> Color {
     match status {
-        "active" => ACTIVE,
-        "stopped" | "ended" => STOPPED,
-        "unknown" => INFERRED,
+        "active" | "executing" | "succeeded" => ACTIVE,
+        "stopped" | "ended" | "failed" => STOPPED,
+        "unknown" | "attention" | "evaluating" | "awaiting_approval" => INFERRED,
         _ => IDLE,
+    }
+}
+
+fn build_run_operator_model(
+    state: &RuntimeState,
+    cache: &AppCache,
+    run: &crate::state::SessionListItem,
+) -> RunOperatorModel {
+    let changed_files = changed_files_for_run(state, run);
+    let role = infer_run_role(run);
+    let origin_label = run_origin_label(run);
+    let workspace_path = workspace_path_for_run(state, run);
+    let effect_classes = infer_effect_classes(run, &changed_files);
+    let policy_decision = infer_policy_decision(run, &effect_classes);
+    let evidence = build_evidence_requirements(cache, run, &changed_files, policy_decision.clone());
+    let integrity_warning = integrity_warning_for_run(run, &changed_files);
+    let workspace_state = infer_workspace_state(
+        cache,
+        state,
+        run,
+        &changed_files,
+        integrity_warning.as_ref(),
+    );
+    let block_reason = infer_block_reason(cache, run, policy_decision.clone(), &evidence);
+    let operator_state = infer_operator_state(cache, run, block_reason.as_deref());
+    let approval_label = approval_label_for(policy_decision.clone(), &evidence);
+    let next_action = next_action_for(run, policy_decision.clone(), block_reason.as_deref());
+    let handoff_summary = handoff_summary_for(
+        role.clone(),
+        operator_state.as_str(),
+        block_reason.as_deref(),
+    );
+
+    RunOperatorModel {
+        role,
+        origin_label,
+        operator_state,
+        workspace_path,
+        workspace_state,
+        effect_classes,
+        policy_decision,
+        approval_label,
+        block_reason,
+        eval_summary: cache.fitness_snapshot().map(summarize_eval_snapshot),
+        evidence,
+        integrity_warning,
+        next_action,
+        handoff_summary,
+        changed_files,
+    }
+}
+
+fn run_list_state_label(run: &crate::state::SessionListItem) -> &'static str {
+    if run.is_unknown_bucket {
+        "attention"
+    } else if run.is_synthetic_agent_run {
+        if run.status == "active" {
+            "executing"
+        } else {
+            "observing"
+        }
+    } else {
+        match run.status.as_str() {
+            "active" => "executing",
+            "idle" | "stopped" | "ended" => "evaluating",
+            "unknown" => "attention",
+            _ => "idle",
+        }
+    }
+}
+
+fn changed_files_for_run(state: &RuntimeState, run: &crate::state::SessionListItem) -> Vec<String> {
+    let mut files: Vec<&FileView> = state
+        .files
+        .values()
+        .filter(|file| file.dirty || file.conflicted)
+        .filter(|file| file_matches_run(file, run))
+        .collect();
+    files.sort_by(|a, b| {
+        b.last_modified_at_ms
+            .cmp(&a.last_modified_at_ms)
+            .then_with(|| a.rel_path.cmp(&b.rel_path))
+    });
+    files
+        .into_iter()
+        .take(3)
+        .map(|file| file.rel_path.clone())
+        .collect()
+}
+
+fn file_matches_run(file: &FileView, run: &crate::state::SessionListItem) -> bool {
+    if run.is_unknown_bucket {
+        return file.conflicted
+            || matches!(file.confidence, AttributionConfidence::Unknown)
+            || file.last_session_id.is_none()
+            || file.touched_by.is_empty();
+    }
+    if run.is_synthetic_agent_run {
+        return false;
+    }
+    file.last_session_id.as_deref() == Some(run.session_id.as_str())
+        || file.touched_by.contains(&run.session_id)
+}
+
+fn infer_run_role(run: &crate::state::SessionListItem) -> Role {
+    let mut haystack = run.display_name.to_ascii_lowercase();
+    haystack.push(' ');
+    haystack.push_str(&run.session_id.to_ascii_lowercase());
+    if let Some(event) = &run.last_event_name {
+        haystack.push(' ');
+        haystack.push_str(&event.to_ascii_lowercase());
+    }
+
+    if haystack.contains("planner") || haystack.contains("plan") {
+        Role::Planner
+    } else if haystack.contains("review") || haystack.contains("test") {
+        Role::Reviewer
+    } else if haystack.contains("fix") {
+        Role::Fixer
+    } else if haystack.contains("release") {
+        Role::Release
+    } else if haystack.contains("care") || haystack.contains("cleanup") {
+        Role::Caretaker
+    } else {
+        Role::Builder
+    }
+}
+
+fn run_origin_label(run: &crate::state::SessionListItem) -> &'static str {
+    if run.is_unknown_bucket {
+        "attribution-review"
+    } else if run.is_synthetic_agent_run {
+        "process-scan"
+    } else {
+        "hook-backed"
+    }
+}
+
+fn workspace_path_for_run(state: &RuntimeState, run: &crate::state::SessionListItem) -> String {
+    if let Some(agent) = run
+        .attached_agent_key
+        .as_ref()
+        .and_then(|key| state.detected_agents.iter().find(|agent| &agent.key == key))
+    {
+        return agent.cwd.clone().unwrap_or_else(|| state.repo_root.clone());
+    }
+    state
+        .sessions
+        .get(&run.session_id)
+        .map(|session| session.cwd.clone())
+        .unwrap_or_else(|| state.repo_root.clone())
+}
+
+fn infer_effect_classes(
+    run: &crate::state::SessionListItem,
+    changed_files: &[String],
+) -> Vec<EffectClass> {
+    let mut effects = Vec::new();
+    if !changed_files.is_empty() || run.touched_files_count > 0 || run.is_unknown_bucket {
+        effects.push(EffectClass::RepoWrite);
+    }
+    match run
+        .last_tool_name
+        .as_deref()
+        .map(|value| value.to_ascii_lowercase())
+    {
+        Some(tool) if tool == "websearch" => effects.push(EffectClass::NetworkRead),
+        Some(tool) if matches!(tool.as_str(), "write" | "edit" | "multiedit") => {
+            effects.push(EffectClass::RepoWrite)
+        }
+        Some(tool) if tool == "bash" => effects.push(EffectClass::LocalWrite),
+        Some(tool) if matches!(tool.as_str(), "read" | "search" | "grep" | "glob" | "ls") => {
+            effects.push(EffectClass::ReadOnly)
+        }
+        _ => {}
+    }
+    if effects.is_empty() {
+        effects.push(EffectClass::ReadOnly);
+    }
+    effects.sort();
+    effects.dedup();
+    effects
+}
+
+fn infer_policy_decision(
+    run: &crate::state::SessionListItem,
+    effect_classes: &[EffectClass],
+) -> PolicyDecisionKind {
+    if run.is_unknown_bucket {
+        return PolicyDecisionKind::Deny;
+    }
+    if effect_classes
+        .iter()
+        .any(EffectClass::requires_explicit_allow)
+    {
+        PolicyDecisionKind::RequireApproval
+    } else if effect_classes.iter().any(|effect| {
+        matches!(
+            effect,
+            EffectClass::RepoWrite
+                | EffectClass::GitWrite
+                | EffectClass::PrCreate
+                | EffectClass::Merge
+                | EffectClass::Deploy
+                | EffectClass::ProdWrite
+        )
+    }) {
+        PolicyDecisionKind::AllowWithEvidence
+    } else {
+        PolicyDecisionKind::Allow
+    }
+}
+
+fn build_evidence_requirements(
+    cache: &AppCache,
+    run: &crate::state::SessionListItem,
+    changed_files: &[String],
+    policy_decision: PolicyDecisionKind,
+) -> Vec<EvidenceRequirementStatus> {
+    let mut evidence = Vec::new();
+    let has_eval = cache.fitness_snapshot().is_some();
+    let has_coverage = cache
+        .fitness_snapshot()
+        .is_some_and(|snapshot| snapshot.coverage_summary.has_any_sampled_source());
+
+    if !changed_files.is_empty() || run.touched_files_count > 0 || run.is_unknown_bucket {
+        evidence.push(EvidenceRequirementStatus {
+            requirement: EvidenceRequirement {
+                kind: EvidenceType::DiffSummary,
+                description: "dirty diff recorded".to_string(),
+                required: true,
+            },
+            satisfied: !changed_files.is_empty() || run.is_unknown_bucket,
+        });
+        evidence.push(EvidenceRequirementStatus {
+            requirement: EvidenceRequirement {
+                kind: EvidenceType::TestReport,
+                description: "fitness evidence attached".to_string(),
+                required: true,
+            },
+            satisfied: has_eval,
+        });
+        evidence.push(EvidenceRequirementStatus {
+            requirement: EvidenceRequirement {
+                kind: EvidenceType::CoverageReport,
+                description: "coverage evidence attached".to_string(),
+                required: true,
+            },
+            satisfied: has_coverage,
+        });
+    }
+
+    if changed_files.iter().any(|path| path.contains("/api/")) {
+        evidence.push(EvidenceRequirementStatus {
+            requirement: EvidenceRequirement {
+                kind: EvidenceType::ContractReport,
+                description: "API contract verified".to_string(),
+                required: true,
+            },
+            satisfied: cache
+                .fitness_snapshot()
+                .is_some_and(api_contract_dimension_passed),
+        });
+    }
+
+    if matches!(
+        policy_decision,
+        PolicyDecisionKind::RequireApproval | PolicyDecisionKind::Deny
+    ) {
+        evidence.push(EvidenceRequirementStatus {
+            requirement: EvidenceRequirement {
+                kind: EvidenceType::HumanApproval,
+                description: "operator approval recorded".to_string(),
+                required: true,
+            },
+            satisfied: false,
+        });
+    }
+
+    evidence
+}
+
+fn api_contract_dimension_passed(snapshot: &fitness::FitnessSnapshot) -> bool {
+    snapshot
+        .dimensions
+        .iter()
+        .find(|dim| dim.name.eq_ignore_ascii_case("api_contract"))
+        .is_some_and(|dim| dim.hard_gate_failures.is_empty())
+}
+
+fn integrity_warning_for_run(
+    run: &crate::state::SessionListItem,
+    changed_files: &[String],
+) -> Option<String> {
+    if run.is_unknown_bucket {
+        Some(format!(
+            "{} dirty file(s) need ownership review",
+            run.unknown_count.max(changed_files.len())
+        ))
+    } else if run.is_synthetic_agent_run {
+        Some("process detected without hook-backed session".to_string())
+    } else if run.unknown_count > 0 {
+        Some(format!(
+            "{} file(s) lack confident attribution",
+            run.unknown_count
+        ))
+    } else {
+        None
+    }
+}
+
+fn infer_workspace_state(
+    cache: &AppCache,
+    state: &RuntimeState,
+    run: &crate::state::SessionListItem,
+    changed_files: &[String],
+    integrity_warning: Option<&String>,
+) -> WorkspaceState {
+    if integrity_warning.is_some() {
+        return WorkspaceState::Dirty;
+    }
+    if !changed_files.is_empty() || run.touched_files_count > 0 || run.is_unknown_bucket {
+        return WorkspaceState::Dirty;
+    }
+    if cache.fitness_snapshot().is_some_and(|snapshot| {
+        !snapshot.hard_gate_blocked && !snapshot.score_blocked && state.file_items().is_empty()
+    }) {
+        WorkspaceState::Validated
+    } else {
+        WorkspaceState::Ready
+    }
+}
+
+fn infer_block_reason(
+    cache: &AppCache,
+    run: &crate::state::SessionListItem,
+    policy_decision: PolicyDecisionKind,
+    evidence: &[EvidenceRequirementStatus],
+) -> Option<String> {
+    if run.is_unknown_bucket {
+        return Some("ownership ambiguity".to_string());
+    }
+    if matches!(policy_decision, PolicyDecisionKind::RequireApproval) {
+        return Some("approval required".to_string());
+    }
+    if matches!(policy_decision, PolicyDecisionKind::Deny) {
+        return Some("manual review required".to_string());
+    }
+    if let Some(snapshot) = cache.fitness_snapshot() {
+        if snapshot.hard_gate_blocked {
+            return Some("hard gate failure".to_string());
+        }
+        if snapshot.score_blocked {
+            return Some("score threshold failed".to_string());
+        }
+    }
+    evidence
+        .iter()
+        .find(|item| item.requirement.required && !item.satisfied)
+        .map(|item| format!("missing {}", item.requirement.kind.as_str()))
+}
+
+fn infer_operator_state(
+    cache: &AppCache,
+    run: &crate::state::SessionListItem,
+    block_reason: Option<&str>,
+) -> String {
+    if run
+        .last_event_name
+        .as_deref()
+        .is_some_and(|event| event.to_ascii_lowercase().contains("replay"))
+    {
+        return "replayed".to_string();
+    }
+    if block_reason.is_some_and(|reason| reason.contains("approval")) {
+        return "awaiting_approval".to_string();
+    }
+    if cache
+        .fitness_snapshot()
+        .is_some_and(|snapshot| snapshot.hard_gate_blocked || snapshot.score_blocked)
+    {
+        return "failed".to_string();
+    }
+    if run.status == "active" {
+        return "executing".to_string();
+    }
+    if run.is_synthetic_agent_run {
+        return "observing".to_string();
+    }
+    if matches!(run.status.as_str(), "idle" | "stopped" | "ended") {
+        return "evaluating".to_string();
+    }
+    "ready".to_string()
+}
+
+fn approval_label_for(
+    policy_decision: PolicyDecisionKind,
+    evidence: &[EvidenceRequirementStatus],
+) -> String {
+    if matches!(policy_decision, PolicyDecisionKind::RequireApproval) {
+        "required".to_string()
+    } else if evidence
+        .iter()
+        .any(|item| item.requirement.required && !item.satisfied)
+    {
+        "waiting_on_evidence".to_string()
+    } else if matches!(policy_decision, PolicyDecisionKind::Deny) {
+        "blocked".to_string()
+    } else {
+        "not_required".to_string()
+    }
+}
+
+fn summarize_eval_snapshot(snapshot: &fitness::FitnessSnapshot) -> String {
+    let status = if snapshot.hard_gate_blocked {
+        "blocked(hard)"
+    } else if snapshot.score_blocked {
+        "blocked(score)"
+    } else {
+        "pass"
+    };
+    format!(
+        "{} {} {:.1}%",
+        snapshot.mode.as_str(),
+        status,
+        snapshot.final_score
+    )
+}
+
+fn evidence_inline_summary(evidence: &[EvidenceRequirementStatus]) -> String {
+    if evidence.is_empty() {
+        return "none".to_string();
+    }
+    evidence
+        .iter()
+        .map(|item| {
+            let status = if item.satisfied { "ok" } else { "missing" };
+            format!("{status}:{}", item.requirement.kind.as_str())
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn effect_classes_summary(effect_classes: &[EffectClass]) -> String {
+    effect_classes
+        .iter()
+        .map(EffectClass::as_str)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn next_action_for(
+    run: &crate::state::SessionListItem,
+    policy_decision: PolicyDecisionKind,
+    block_reason: Option<&str>,
+) -> String {
+    if matches!(policy_decision, PolicyDecisionKind::RequireApproval) {
+        "grant approval or reduce effect scope".to_string()
+    } else if block_reason.is_some_and(|reason| reason.contains("hard gate")) {
+        "fix failing hard gates and rerun fast eval".to_string()
+    } else if block_reason.is_some_and(|reason| reason.contains("score")) {
+        "improve fitness score before continuing".to_string()
+    } else if block_reason.is_some_and(|reason| reason.contains("coverage")) {
+        "generate coverage evidence".to_string()
+    } else if run.is_synthetic_agent_run {
+        "attach hooks or keep observing unmanaged run".to_string()
+    } else if run.is_unknown_bucket {
+        "resolve file ownership before continuing".to_string()
+    } else {
+        "handoff to reviewer or continue execution".to_string()
+    }
+}
+
+fn handoff_summary_for(
+    role: Role,
+    operator_state: &str,
+    block_reason: Option<&str>,
+) -> Option<String> {
+    let next_role = if block_reason.is_some() || operator_state == "failed" {
+        Some(Role::Fixer)
+    } else if matches!(operator_state, "evaluating" | "ready") {
+        Some(Role::Reviewer)
+    } else if role == Role::Planner && operator_state == "executing" {
+        Some(Role::Builder)
+    } else {
+        None
+    }?;
+
+    if next_role.as_str() == role.as_str() {
+        None
+    } else {
+        Some(format!(
+            "handoff {} -> {}",
+            role.as_str(),
+            next_role.as_str()
+        ))
     }
 }
 

@@ -91,7 +91,6 @@ enum Command {
     },
 
     // ── Domain commands (Phase 0 stubs) ────────────────────────────────────
-
     /// Task management commands.
     Task {
         #[command(subcommand)]
@@ -544,17 +543,21 @@ fn handle_task_command(action: TaskCommand, db: &Db, repo_root: &str) -> Result<
                 println!("No active tasks.");
                 return Ok(());
             }
-            println!("{:<36}  {:<12}  {:<12}  CWD", "SESSION / TASK", "CLIENT", "STATUS");
+            println!(
+                "{:<36}  {:<12}  {:<12}  CWD",
+                "SESSION / TASK", "CLIENT", "STATUS"
+            );
             println!("{}", "-".repeat(90));
             for (session_id, cwd, _model, _started, _last, client, status, _ended) in &sessions {
-                println!("{:<36}  {:<12}  {:<12}  {}", session_id, client, status, cwd);
+                println!(
+                    "{:<36}  {:<12}  {:<12}  {}",
+                    session_id, client, status, cwd
+                );
             }
         }
         TaskCommand::Show { id } => {
             let sessions = db.list_active_sessions(repo_root)?;
-            let found = sessions
-                .iter()
-                .find(|(session_id, ..)| session_id == &id);
+            let found = sessions.iter().find(|(session_id, ..)| session_id == &id);
             match found {
                 Some((session_id, cwd, model, started_at_ms, _last, client, status, ended)) => {
                     println!("id:      {session_id}");
@@ -594,17 +597,21 @@ fn handle_run_command(action: RunCommand, db: &Db, repo_root: &str) -> Result<()
                 println!("No active runs.");
                 return Ok(());
             }
-            println!("{:<36}  {:<10}  {:<12}  STATUS", "RUN / SESSION", "MODE", "CLIENT");
+            println!(
+                "{:<36}  {:<10}  {:<12}  STATUS",
+                "RUN / SESSION", "MODE", "CLIENT"
+            );
             println!("{}", "-".repeat(80));
             for (session_id, _cwd, _model, _started, _last, client, status, _ended) in &sessions {
-                println!("{:<36}  {:<10}  {:<12}  {}", session_id, "unmanaged", client, status);
+                println!(
+                    "{:<36}  {:<10}  {:<12}  {}",
+                    session_id, "unmanaged", client, status
+                );
             }
         }
         RunCommand::Show { id } => {
             let sessions = db.list_active_sessions(repo_root)?;
-            let found = sessions
-                .iter()
-                .find(|(session_id, ..)| session_id == &id);
+            let found = sessions.iter().find(|(session_id, ..)| session_id == &id);
             match found {
                 Some((session_id, cwd, model, _started, _last, client, status, _ended)) => {
                     println!("run_id:  {session_id}");

@@ -89,7 +89,11 @@ impl EvalSnapshot {
         format!(
             "score={:.1} gate={} mode={}",
             self.overall_score,
-            if self.hard_gate_blocked { "BLOCKED" } else { "ok" },
+            if self.hard_gate_blocked {
+                "BLOCKED"
+            } else {
+                "ok"
+            },
             self.mode.as_str()
         )
     }

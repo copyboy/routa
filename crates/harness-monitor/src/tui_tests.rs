@@ -173,18 +173,20 @@ fn sample_cache(state: &RuntimeState) -> AppCache {
             deletions: Some(5),
         },
     );
-    cache.diff_stats.insert(
-        diff_stat_key(
-            "src/app/api/a2a/card/route.ts",
-            "delete",
-            state.files["src/app/api/a2a/card/route.ts"].last_modified_at_ms,
-        ),
-        DiffStatSummary {
-            status: "D".to_string(),
-            additions: None,
-            deletions: Some(12),
-        },
-    );
+    if let Some(route_file) = state.files.get("src/app/api/a2a/card/route.ts") {
+        cache.diff_stats.insert(
+            diff_stat_key(
+                "src/app/api/a2a/card/route.ts",
+                "delete",
+                route_file.last_modified_at_ms,
+            ),
+            DiffStatSummary {
+                status: "D".to_string(),
+                additions: None,
+                deletions: Some(12),
+            },
+        );
+    }
     cache.preview_cache.insert(
         detail_cache_key(
             &file.rel_path,
@@ -217,6 +219,40 @@ fn sample_cache(state: &RuntimeState) -> AppCache {
                 DetailMode::Diff,
             ),
             text: "@@ -1,2 +1,3 @@\n-use old\n+use new\n+use cache".to_string(),
+        },
+    );
+    cache.set_fitness_snapshot_for_tests(
+        fitness::FitnessRunMode::Fast,
+        fitness::FitnessSnapshot {
+            mode: fitness::FitnessRunMode::Fast,
+            final_score: 91.0,
+            hard_gate_blocked: false,
+            score_blocked: false,
+            duration_ms: 4200.0,
+            metric_count: 12,
+            coverage_metric_available: false,
+            coverage_summary: fitness::CoverageSummary::default(),
+            dimensions: vec![
+                fitness::FitnessDimensionSummary {
+                    name: "code_quality".to_string(),
+                    weight: 18,
+                    score: 92.0,
+                    passed: 4,
+                    total: 4,
+                    hard_gate_failures: Vec::new(),
+                    metrics: Vec::new(),
+                },
+                fitness::FitnessDimensionSummary {
+                    name: "api_contract".to_string(),
+                    weight: 10,
+                    score: 95.0,
+                    passed: 2,
+                    total: 2,
+                    hard_gate_failures: Vec::new(),
+                    metrics: Vec::new(),
+                },
+            ],
+            slowest_metrics: Vec::new(),
         },
     );
     cache
@@ -305,8 +341,17 @@ fn search_filters_sessions_and_files() {
 fn assign_selected_file_to_selected_session_updates_owner() {
     let mut state = sample_state();
     state.file_list_mode = FileListMode::Global;
-    state.selected_session = 0;
-    state.selected_file = 1;
+    state.selected_run = state
+        .runs()
+        .iter()
+        .position(|run| run.session_id == UNKNOWN_SESSION_ID)
+        .expect("unknown run");
+    state.selected_session = state
+        .runs()
+        .iter()
+        .position(|run| run.session_id == "live-hook-check")
+        .expect("live run");
+    state.selected_file = 0;
     state.refresh_views();
 
     let message = state
@@ -406,8 +451,17 @@ fn toggling_fitness_mode_updates_cache_key_prefix() {
 fn selected_file_assignment_message_is_attribution_event() {
     let mut state = sample_state();
     state.file_list_mode = FileListMode::Global;
-    state.selected_session = 0;
-    state.selected_file = 1;
+    state.selected_run = state
+        .runs()
+        .iter()
+        .position(|run| run.session_id == UNKNOWN_SESSION_ID)
+        .expect("unknown run");
+    state.selected_session = state
+        .runs()
+        .iter()
+        .position(|run| run.session_id == "live-hook-check")
+        .expect("live run");
+    state.selected_file = 0;
     state.refresh_views();
 
     let message = state
@@ -466,6 +520,115 @@ fn tui_snapshot_full_runs_mode() {
         "routa_watch_tui_full_runs",
         render_snapshot(&state, &mut cache, 180, 28)
     );
+}
+
+#[test]
+fn run_details_surface_run_centric_operator_context() {
+    let mut state = sample_state();
+    state.focus = FocusPane::Runs;
+    let mut cache = sample_cache(&state);
+
+    let snapshot = render_snapshot(&state, &mut cache, 180, 40);
+
+    assert!(snapshot.contains("live-hook-check  builder  hook-backed"));
+    assert!(snapshot.contains("Policy: allow_with_evidence"));
+    assert!(snapshot.contains("Workspace: dirty"));
+    assert!(snapshot.contains("missing coverage_report"));
+}
+
+#[test]
+fn hard_gate_failure_blocks_selected_run() {
+    let mut state = sample_state();
+    state.focus = FocusPane::Runs;
+    let mut cache = sample_cache(&state);
+    cache.set_fitness_snapshot_for_tests(
+        fitness::FitnessRunMode::Fast,
+        fitness::FitnessSnapshot {
+            mode: fitness::FitnessRunMode::Fast,
+            final_score: 62.0,
+            hard_gate_blocked: true,
+            score_blocked: false,
+            duration_ms: 1800.0,
+            metric_count: 6,
+            coverage_metric_available: false,
+            coverage_summary: fitness::CoverageSummary::default(),
+            dimensions: vec![fitness::FitnessDimensionSummary {
+                name: "code_quality".to_string(),
+                weight: 18,
+                score: 62.0,
+                passed: 1,
+                total: 3,
+                hard_gate_failures: vec!["lint_pass".to_string()],
+                metrics: Vec::new(),
+            }],
+            slowest_metrics: Vec::new(),
+        },
+    );
+
+    let snapshot = render_snapshot(&state, &mut cache, 180, 40);
+
+    assert!(snapshot.contains("failed"));
+    assert!(snapshot.contains("Block: hard gate failure"));
+}
+
+#[test]
+fn synthetic_run_details_surface_process_scan_origin() {
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut state = RuntimeState::new(
+        "/tmp/project".to_string(),
+        "routa-js".to_string(),
+        "main".to_string(),
+    );
+    state.last_refresh_at_ms = now;
+    state.sync_dirty_files(vec![(
+        "crates/harness-monitor/src/tui_render.rs".to_string(),
+        "modify".to_string(),
+        Some(now),
+        EntryKind::File,
+    )]);
+    state.set_detected_agents(vec![DetectedAgent {
+        key: "codex:5297".to_string(),
+        name: "Codex".to_string(),
+        vendor: "OpenAI".to_string(),
+        icon: "◈".to_string(),
+        pid: 5297,
+        cwd: Some("/tmp/project".to_string()),
+        cpu_percent: 0.4,
+        mem_mb: 143.0,
+        uptime_seconds: 1_000,
+        status: "IDLE".to_string(),
+        confidence: 75,
+        project: "project".to_string(),
+        command: "codex --cwd /tmp/project".to_string(),
+    }]);
+    state.focus = FocusPane::Runs;
+    state.refresh_views();
+    state.selected_run = state
+        .runs()
+        .iter()
+        .position(|run| run.is_synthetic_agent_run)
+        .expect("synthetic run");
+
+    let mut cache = AppCache::new(&state.repo_root);
+    cache.set_fitness_snapshot_for_tests(
+        fitness::FitnessRunMode::Fast,
+        fitness::FitnessSnapshot {
+            mode: fitness::FitnessRunMode::Fast,
+            final_score: 88.0,
+            hard_gate_blocked: false,
+            score_blocked: false,
+            duration_ms: 1000.0,
+            metric_count: 4,
+            coverage_metric_available: false,
+            coverage_summary: fitness::CoverageSummary::default(),
+            dimensions: Vec::new(),
+            slowest_metrics: Vec::new(),
+        },
+    );
+    let snapshot = render_snapshot(&state, &mut cache, 180, 40);
+
+    assert!(snapshot.contains("process-scan"));
+    assert!(snapshot.contains("observing"));
 }
 
 #[test]
@@ -579,8 +742,12 @@ fn run_filter_attention_keeps_unknown_review_bucket() {
     assert!(runs.iter().any(|run| run.session_id == UNKNOWN_SESSION_ID));
     assert!(runs.iter().all(|run| {
         run.is_unknown_bucket
+            || run.is_synthetic_agent_run
             || run.unknown_count > 0
-            || matches!(run.status.as_str(), "idle" | "unknown" | "stopped" | "ended")
+            || matches!(
+                run.status.as_str(),
+                "idle" | "unknown" | "stopped" | "ended"
+            )
     }));
 }
 
@@ -591,8 +758,14 @@ fn run_sort_by_name_orders_named_runs_alphabetically() {
     state.refresh_views();
 
     let runs = state.runs();
-    assert_eq!(runs.first().map(|run| run.display_name.as_str()), Some("impl-buddy"));
-    assert_eq!(runs.get(1).map(|run| run.display_name.as_str()), Some("test-master"));
+    assert_eq!(
+        runs.first().map(|run| run.display_name.as_str()),
+        Some("impl-buddy")
+    );
+    assert_eq!(
+        runs.get(1).map(|run| run.display_name.as_str()),
+        Some("test-master")
+    );
 }
 
 #[test]
@@ -644,8 +817,12 @@ fn unmatched_repo_local_agents_become_synthetic_runs() {
     ]);
 
     let runs = state.runs();
-    assert!(runs.iter().any(|run| run.is_synthetic_agent_run && run.display_name == "Codex#5297"));
-    assert!(runs.iter().any(|run| run.is_synthetic_agent_run && run.display_name == "Claude#19765"));
+    assert!(runs
+        .iter()
+        .any(|run| run.is_synthetic_agent_run && run.display_name == "Codex#5297"));
+    assert!(runs
+        .iter()
+        .any(|run| run.is_synthetic_agent_run && run.display_name == "Claude#19765"));
     assert!(runs.iter().any(|run| run.session_id == UNKNOWN_SESSION_ID));
 }
 
@@ -675,7 +852,26 @@ fn agents_from_recovered_repo_alias_still_count_as_repo_local_runs() {
     }]);
 
     let runs = state.runs();
-    assert!(runs.iter().any(|run| run.is_synthetic_agent_run && run.display_name == "Codex#5297"));
+    assert!(runs
+        .iter()
+        .any(|run| run.is_synthetic_agent_run && run.display_name == "Codex#5297"));
+}
+
+#[test]
+fn file_list_follows_selected_run_scope() {
+    let mut state = sample_state();
+    state.focus = FocusPane::Runs;
+
+    assert_eq!(state.selected_run_scope_label(), "impl-buddy");
+    assert_eq!(state.file_items().len(), 1);
+    assert_eq!(
+        state.file_items()[0].rel_path,
+        "crates/harness-monitor/src/tui.rs"
+    );
+
+    state.move_selection_down();
+    assert_eq!(state.selected_run_scope_label(), "test-master");
+    assert_eq!(state.file_items().len(), 0);
 }
 
 #[test]

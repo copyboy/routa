@@ -234,7 +234,10 @@ pub fn run_fitness(repo_root: &str, mode: FitnessRunMode) -> Result<FitnessSnaps
 }
 
 fn load_coverage_summary(repo_root: &Path) -> CoverageSummary {
-    let summary_path = repo_root.join("target").join("coverage").join("fitness-summary.json");
+    let summary_path = repo_root
+        .join("target")
+        .join("coverage")
+        .join("fitness-summary.json");
     let Ok(payload) = fs::read_to_string(summary_path) else {
         return CoverageSummary::default();
     };

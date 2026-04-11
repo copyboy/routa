@@ -780,9 +780,7 @@ impl Db {
             "SELECT payload_json FROM eval_snapshots WHERE run_id = ?1 ORDER BY evaluated_at_ms DESC LIMIT ?2",
         ).context("prepare eval run query")?;
         let rows = stmt
-            .query_map(params![run_id, limit as i64], |row| {
-                row.get::<_, String>(0)
-            })
+            .query_map(params![run_id, limit as i64], |row| row.get::<_, String>(0))
             .context("query eval snapshots for run")?;
         let mut out = Vec::new();
         for row in rows {
