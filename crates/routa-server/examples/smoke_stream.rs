@@ -46,28 +46,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut event_count = 0;
     let mut has_data_frame = false;
 
-    let collection = timeout(
-        Duration::from_secs(STREAM_TIMEOUT_SECS),
-        async {
-            let mut stream = event_stream;
-            while let Some(chunk) = stream.next().await {
-                match chunk {
-                    Ok(bytes) => {
-                        let text = String::from_utf8_lossy(&bytes);
-                        println!("Received chunk: {:?}", text);
-                        if text.contains("data:") && !text.contains("comment") {
-                            has_data_frame = true;
-                            event_count += 1;
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Stream error: {}", e);
-                        break;
+    let collection = timeout(Duration::from_secs(STREAM_TIMEOUT_SECS), async {
+        let mut stream = event_stream;
+        while let Some(chunk) = stream.next().await {
+            match chunk {
+                Ok(bytes) => {
+                    let text = String::from_utf8_lossy(&bytes);
+                    println!("Received chunk: {:?}", text);
+                    if text.contains("data:") && !text.contains("comment") {
+                        has_data_frame = true;
+                        event_count += 1;
                     }
                 }
+                Err(e) => {
+                    eprintln!("Stream error: {}", e);
+                    break;
+                }
             }
-        },
-    )
+        }
+    })
     .await;
 
     match collection {
