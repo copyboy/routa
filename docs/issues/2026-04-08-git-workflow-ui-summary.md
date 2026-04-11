@@ -1,3 +1,20 @@
+---
+title: "Git workflow UI enhancement summary for Kanban file changes"
+date: "2026-04-08"
+status: resolved
+severity: low
+area: "ui"
+tags: ["kanban", "git", "ui", "summary", "github-sync"]
+reported_by: "agent"
+related_issues:
+  - "https://github.com/phodal/routa/issues/396"
+  - "2026-04-08-enhanced-git-workflow-ui-for-kanban-file-changes.md"
+github_issue: 396
+github_state: "closed"
+github_url: "https://github.com/phodal/routa/issues/396"
+resolved_at: "2026-04-08"
+---
+
 # Git Workflow UI Enhancement - Summary
 
 **Date**: 2026-04-08  

@@ -1,3 +1,14 @@
+---
+title: "Test git credentials leaked into production commits before commit validation"
+date: "2026-04-06"
+status: investigating
+severity: medium
+area: "git"
+tags: ["git", "credentials", "commit", "safety", "cleanup"]
+reported_by: "agent"
+related_issues: []
+---
+
 # Test Git Credentials Leaking to Production Commits
 
 **Date**: 2026-04-06  

@@ -1,3 +1,14 @@
+---
+title: "Canonical story YAML needs a contract gate to stop backlog/todo bounce loops"
+date: "2026-04-08"
+status: open
+severity: high
+area: "kanban"
+tags: ["kanban", "yaml", "contract", "automation", "loop-prevention"]
+reported_by: "agent"
+related_issues: []
+---
+
 # Canonical Story YAML Contract Gate Loop
 
 ## What Happened

@@ -1,3 +1,16 @@
+---
+title: "Rust tasks API performance analysis confirmed similar hot-path issues"
+date: "2026-04-09"
+status: investigating
+severity: medium
+area: "backend"
+tags: ["rust", "tasks-api", "performance", "analysis"]
+reported_by: "agent"
+related_issues:
+  - "https://github.com/phodal/routa/issues/406"
+  - "2026-04-09-next-task-api-head-of-line-blocking.md"
+---
+
 # Rust Tasks API Performance Analysis
 
 **Date:** 2026-04-09  

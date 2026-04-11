@@ -1,3 +1,19 @@
+---
+title: "Issue #314 fix batch completed for harness engineering follow-up"
+date: "2026-04-06"
+status: investigating
+severity: medium
+area: "fitness"
+tags: ["harness", "playbook", "verification", "github-sync"]
+reported_by: "agent"
+related_issues:
+  - "https://github.com/phodal/routa/issues/314"
+  - "2026-04-06-playbook-verification-report.md"
+github_issue: 314
+github_state: "open"
+github_url: "https://github.com/phodal/routa/issues/314"
+---
+
 # Issue #314 修复完成报告
 
 > **Date**: 2026-04-06  
