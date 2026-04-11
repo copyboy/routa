@@ -1,45 +1,13 @@
 use std::collections::HashSet;
-use std::fs;
-use std::path::PathBuf;
-use std::time::Duration;
 
-use reqwest::{header::CONTENT_TYPE, Client, Response, StatusCode};
+use reqwest::{header::CONTENT_TYPE, Response, StatusCode};
 use serde_json::{json, Value};
 
-use routa_server::{start_server, ServerConfig};
-
-struct ApiFixture {
-    base_url: String,
-    client: Client,
-    db_path: PathBuf,
-}
+#[path = "common/mod.rs"]
+mod common;
+use common::ApiFixture;
 
 impl ApiFixture {
-    async fn new() -> Self {
-        let db_path = random_db_path();
-        let config = ServerConfig {
-            host: "127.0.0.1".to_string(),
-            port: 0,
-            db_path: db_path.to_string_lossy().to_string(),
-            static_dir: None,
-        };
-
-        let addr = start_server(config)
-            .await
-            .expect("start server for mcp route tests");
-        let fixture = Self {
-            base_url: format!("http://{addr}"),
-            client: Client::new(),
-            db_path,
-        };
-        fixture.wait_until_ready().await;
-        fixture
-    }
-
-    fn endpoint(&self, path: &str) -> String {
-        format!("{}{}", self.base_url, path)
-    }
-
     fn mcp_endpoint(&self, query: Option<&str>) -> String {
         let mut endpoint = "/api/mcp".to_string();
         if let Some(query) = query {
@@ -47,22 +15,6 @@ impl ApiFixture {
             endpoint.push_str(query);
         }
         self.endpoint(&endpoint)
-    }
-
-    async fn wait_until_ready(&self) {
-        for _ in 0..50 {
-            if self
-                .client
-                .get(self.endpoint("/api/health"))
-                .send()
-                .await
-                .is_ok_and(|resp| resp.status() == StatusCode::OK)
-            {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        panic!("server did not become ready");
     }
 
     async fn post_mcp(
@@ -165,16 +117,6 @@ impl ApiFixture {
             "notifications/initialized should not return a body, got: {body:?}"
         );
     }
-}
-
-impl Drop for ApiFixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.db_path);
-    }
-}
-
-fn random_db_path() -> PathBuf {
-    std::env::temp_dir().join(format!("routa-server-mcp-api-{}.db", uuid::Uuid::new_v4()))
 }
 
 async fn read_json(response: Response, label: &str) -> Value {
