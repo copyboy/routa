@@ -9,6 +9,8 @@ module.exports = {
     {
       type: "category",
       label: "Getting Started",
+      collapsible: false,
+      collapsed: false,
       items: [
         {
           type: "doc",
@@ -30,6 +32,8 @@ module.exports = {
     {
       type: "category",
       label: "Core Concepts",
+      collapsible: false,
+      collapsed: false,
       items: [
         {
           type: "doc",
@@ -61,6 +65,8 @@ module.exports = {
     {
       type: "category",
       label: "Use Routa",
+      collapsible: false,
+      collapsed: false,
       items: [
         {
           type: "doc",
@@ -92,6 +98,8 @@ module.exports = {
     {
       type: "category",
       label: "Platforms",
+      collapsible: false,
+      collapsed: false,
       items: [
         {
           type: "doc",
@@ -118,6 +126,8 @@ module.exports = {
     {
       type: "category",
       label: "Deployment",
+      collapsible: false,
+      collapsed: false,
       items: [
         {
           type: "doc",
@@ -134,6 +144,8 @@ module.exports = {
     {
       type: "category",
       label: "Configuration",
+      collapsible: false,
+      collapsed: false,
       items: [
         {
           type: "doc",
@@ -155,6 +167,8 @@ module.exports = {
     {
       type: "category",
       label: "Reference",
+      collapsible: false,
+      collapsed: false,
       items: [
         {
           type: "doc",
