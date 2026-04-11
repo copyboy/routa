@@ -14,6 +14,17 @@ const FITNESS_HISTORY_FILE: &str = "fitness-history.json";
 const FITNESS_TREND_CAPACITY: usize = 12;
 
 #[derive(Clone, Debug, Default)]
+pub(super) struct SccSummary {
+    pub(super) code: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct SccLanguageSummary {
+    #[serde(rename = "Code")]
+    code: usize,
+}
+
+#[derive(Clone, Debug, Default)]
 pub(super) struct DiffStatSummary {
     pub(super) status: String,
     pub(super) additions: Option<usize>,
@@ -60,6 +71,9 @@ enum BackgroundCommand {
         cache_key: String,
         mode: fitness::FitnessRunMode,
     },
+    RefreshScc {
+        repo_root: String,
+    },
 }
 
 #[derive(Debug)]
@@ -77,6 +91,9 @@ enum BackgroundResult {
     Fitness {
         result: Box<Result<fitness::FitnessSnapshot, String>>,
     },
+    Scc {
+        result: Result<SccSummary, String>,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -85,6 +102,7 @@ struct PendingCommands {
     detail: Option<PendingDetail>,
     facts: Option<PendingFacts>,
     fitness: Option<(String, String, fitness::FitnessRunMode)>,
+    scc: Option<String>,
 }
 
 type PendingStats = (String, Vec<(String, String, i64, crate::models::EntryKind)>);
@@ -102,12 +120,14 @@ pub(super) struct AppCache {
     pending_diff_key: Option<String>,
     pending_facts_key: Option<String>,
     pending_fitness: bool,
+    pending_scc: bool,
     queued_fitness_refresh: Option<(String, String, bool, fitness::FitnessRunMode)>,
     fitness_mode: fitness::FitnessRunMode,
     fitness_history_by_mode: BTreeMap<String, FitnessHistoryEntry>,
     fitness_is_running: bool,
     fitness_cache_key: Option<String>,
     fitness_repo_root: String,
+    scc_summary: Option<SccSummary>,
     worker_tx: Sender<BackgroundCommand>,
     worker_rx: Receiver<BackgroundResult>,
 }
@@ -160,12 +180,14 @@ impl AppCache {
             pending_diff_key: None,
             pending_facts_key: None,
             pending_fitness: false,
+            pending_scc: false,
             queued_fitness_refresh: None,
             fitness_mode: fitness::FitnessRunMode::Fast,
             fitness_history_by_mode: BTreeMap::new(),
             fitness_is_running: false,
             fitness_cache_key: None,
             fitness_repo_root: repo_root.to_string(),
+            scc_summary: None,
             worker_tx,
             worker_rx,
         };
@@ -288,6 +310,12 @@ impl AppCache {
                         self.queued_fitness_refresh.take()
                     {
                         self.request_fitness_refresh(repo_root, cache_key, force, mode);
+                    }
+                }
+                BackgroundResult::Scc { result } => {
+                    self.pending_scc = false;
+                    if let Ok(summary) = result {
+                        self.scc_summary = Some(summary);
                     }
                 }
             }
@@ -484,6 +512,23 @@ impl AppCache {
             FitnessViewMode::Full => fitness::FitnessRunMode::Full,
         };
         self.sync_cache_key_from_active_mode();
+    }
+
+    pub(super) fn request_scc_refresh(&mut self, repo_root: String, force: bool) {
+        if self.pending_scc {
+            return;
+        }
+        if !force && self.scc_summary.is_none() {
+            let _ = self.worker_tx.send(BackgroundCommand::RefreshScc { repo_root });
+            self.pending_scc = true;
+            return;
+        }
+        let _ = self.worker_tx.send(BackgroundCommand::RefreshScc { repo_root });
+        self.pending_scc = true;
+    }
+
+    pub(super) fn scc_summary(&self) -> Option<&SccSummary> {
+        self.scc_summary.as_ref()
     }
 
     #[cfg(test)]
@@ -865,6 +910,11 @@ fn background_worker(rx: Receiver<BackgroundCommand>, tx: Sender<BackgroundResul
                 result: Box::new(result),
             });
         }
+        if let Some(repo_root) = pending.scc.take() {
+            let _ = tx.send(BackgroundResult::Scc {
+                result: run_scc_summary(&repo_root),
+            });
+        }
     }
 }
 
@@ -897,7 +947,75 @@ fn queue_command(pending: &mut PendingCommands, command: BackgroundCommand) {
         } => {
             pending.fitness = Some((repo_root, cache_key, mode));
         }
+        BackgroundCommand::RefreshScc { repo_root } => {
+            pending.scc = Some(repo_root);
+        }
     }
+}
+
+fn run_scc_summary(repo_root: &str) -> Result<SccSummary, String> {
+    let mut command = Command::new("scc");
+    command
+        .arg("--no-cocomo")
+        .arg("--no-complexity")
+        .arg("--no-size")
+        .arg("--no-gen")
+        .arg("--format")
+        .arg("json");
+    let exclude_dirs = scc_exclude_dirs(repo_root);
+    if !exclude_dirs.is_empty() {
+        command.arg("--exclude-dir").arg(exclude_dirs.join(","));
+    }
+    command.arg(repo_root);
+
+    let output = command.output().map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "scc failed".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    let summaries: Vec<SccLanguageSummary> =
+        serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())?;
+    Ok(SccSummary {
+        code: summaries.into_iter().map(|summary| summary.code).sum(),
+    })
+}
+
+fn scc_exclude_dirs(repo_root: &str) -> Vec<String> {
+    let mut dirs = vec![".git".to_string(), ".hg".to_string(), ".svn".to_string()];
+    dirs.extend(git_submodule_paths(repo_root));
+    dirs
+}
+
+fn git_submodule_paths(repo_root: &str) -> Vec<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("ls-files")
+        .arg("--stage")
+        .output();
+
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            if !line.starts_with("160000 ") {
+                return None;
+            }
+            let path = line.split('\t').nth(1)?;
+            Some(path.to_string())
+        })
+        .collect()
 }
 
 fn load_file_facts(
@@ -953,6 +1071,39 @@ fn git_file_change_count(repo_root: &str, rel_path: &str) -> Option<usize> {
             .filter(|line| !line.trim().is_empty())
             .count(),
     )
+}
+
+#[cfg(test)]
+mod scc_tests {
+    use super::git_submodule_paths;
+    use std::process::Command;
+    use tempfile::tempdir;
+
+    #[test]
+    fn git_submodule_paths_reads_gitlinks() {
+        let dir = tempdir().expect("tempdir");
+        Command::new("git")
+            .arg("init")
+            .arg(dir.path())
+            .output()
+            .expect("init repo");
+        Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .arg("update-index")
+            .arg("--add")
+            .arg("--cacheinfo")
+            .arg("160000")
+            .arg("a745c6f9664e4525be45e02582e7dc970158ec74")
+            .arg("tools/entrix")
+            .output()
+            .expect("register gitlink");
+
+        assert_eq!(
+            git_submodule_paths(&dir.path().to_string_lossy()),
+            vec!["tools/entrix"]
+        );
+    }
 }
 
 #[cfg(test)]

@@ -49,6 +49,7 @@ const TRANSPORT_REFRESH_MS: u64 = 1200;
 const REPO_STATUS_REFRESH_MS: u64 = 5000;
 const AGENT_SCAN_REFRESH_MS: u64 = 15_000;
 const FITNESS_AUTO_REFRESH_MS: u64 = 10 * 60 * 1000;
+const SCC_REFRESH_MS: u64 = 60 * 1000;
 const FALLBACK_SCAN_REFRESH_MS: u64 = 15_000;
 const FALLBACK_SCAN_IDLE_WINDOW_MS: i64 = 15_000;
 
@@ -84,6 +85,7 @@ fn run_loop(terminal: &mut DefaultTerminal, ctx: RepoContext, poll_interval_ms: 
     state.set_worktree_count(current_worktree_count(&ctx).ok());
     let mut cache = AppCache::new(&repo_root);
     cache.set_fitness_mode(state.fitness_view_mode);
+    cache.request_scc_refresh(state.repo_root.clone(), false);
     let bootstrap_cutoff = bootstrap_history_cutoff(chrono::Utc::now().timestamp_millis());
     for message in feed.read_recent_since(bootstrap_cutoff)? {
         state.apply_message(message);
@@ -94,6 +96,7 @@ fn run_loop(terminal: &mut DefaultTerminal, ctx: RepoContext, poll_interval_ms: 
         Instant::now() - Duration::from_millis(REPO_STATUS_REFRESH_MS);
     let mut last_agent_refresh = Instant::now() - Duration::from_millis(AGENT_SCAN_REFRESH_MS);
     let mut last_fitness_refresh = Instant::now();
+    let mut last_scc_refresh = Instant::now();
     if !cache.has_fitness_data() {
         cache.request_fitness_refresh(
             state.repo_root.clone(),
@@ -164,6 +167,10 @@ fn run_loop(terminal: &mut DefaultTerminal, ctx: RepoContext, poll_interval_ms: 
             );
             last_fitness_refresh = Instant::now();
         }
+        if last_scc_refresh.elapsed() >= Duration::from_millis(SCC_REFRESH_MS) {
+            cache.request_scc_refresh(state.repo_root.clone(), false);
+            last_scc_refresh = Instant::now();
+        }
         cache.sync_results();
         cache.warm_visible_files(&state);
         cache.warm_selected_detail(&state);
@@ -218,6 +225,7 @@ fn handle_event(state: &mut RuntimeState, cache: &mut AppCache) -> Result<bool> 
                         true,
                         fitness_run_mode_for(state),
                     );
+                    cache.request_scc_refresh(state.repo_root.clone(), true);
                 }
                 KeyCode::Char('m') | KeyCode::Char('M') => {
                     state.toggle_fitness_view_mode();
@@ -467,6 +475,10 @@ mod highlight;
 
 #[path = "tui_fitness.rs"]
 pub(crate) mod fitness;
+
+#[path = "tui_panels.rs"]
+mod panels;
+use panels::*;
 
 #[path = "tui_render.rs"]
 mod render;
