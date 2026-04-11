@@ -209,6 +209,33 @@ describe("KanbanTab lane automation labels", () => {
   });
 });
 
+describe("KanbanTab session task visibility", () => {
+  it("hides session-only tasks from the board", () => {
+    render(
+      <KanbanTab
+        workspaceId="workspace-1"
+        boards={[board]}
+        tasks={[
+          createTask("task-visible", "Board Story"),
+          createTask("task-session", "Session Scratchpad", {
+            boardId: undefined,
+            columnId: undefined,
+            creationSource: "session",
+          }),
+        ]}
+        sessions={[]}
+        providers={[]}
+        specialists={[]}
+        codebases={[]}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Board Story")).toBeTruthy();
+    expect(screen.queryByText("Session Scratchpad")).toBeNull();
+  });
+});
+
 describe("KanbanTab drag and drop", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

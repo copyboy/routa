@@ -652,6 +652,7 @@ export function KanbanTab({
   const boardTasks = useMemo(() => {
     const effectiveBoardId = selectedBoardId ?? defaultBoardId;
     return localTasks
+      .filter((task) => task.creationSource !== "session")
       .filter((task) => (task.boardId ?? defaultBoardId) === effectiveBoardId)
       .sort((left, right) => (left.position ?? 0) - (right.position ?? 0));
   }, [defaultBoardId, localTasks, selectedBoardId]);

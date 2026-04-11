@@ -5,6 +5,7 @@
  */
 
 import type { KanbanRequiredTaskField } from "./kanban";
+import type { TaskCreationSource } from "../kanban/task-creation-policy";
 
 export enum TaskStatus {
   PENDING = "PENDING",
@@ -237,6 +238,7 @@ export interface Task {
   workspaceId: string;
   /** Session ID that created this task (for session-scoped filtering) */
   sessionId?: string;
+  creationSource?: TaskCreationSource;
   /** Associated codebase IDs for this task */
   codebaseIds: string[];
   /** Git worktree ID created for this task when it enters the dev column */
@@ -259,6 +261,7 @@ export function createTask(params: {
   workspaceId: string;
   triggerSessionId?: string;
   sessionId?: string;
+  creationSource?: TaskCreationSource;
   scope?: string;
   acceptanceCriteria?: string[];
   verificationCommands?: string[];
@@ -325,6 +328,7 @@ export function createTask(params: {
     parallelGroup: params.parallelGroup,
     workspaceId: params.workspaceId,
     sessionId: params.sessionId,
+    creationSource: params.creationSource,
     codebaseIds: params.codebaseIds ?? [],
     worktreeId: params.worktreeId,
     triggerSessionId: params.triggerSessionId,

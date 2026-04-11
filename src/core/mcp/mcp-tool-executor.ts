@@ -148,6 +148,7 @@ export async function executeMcpTool(
           verificationCommands: args.verificationCommands as string[] | undefined,
           dependencies: args.dependencies as string[] | undefined,
           parallelGroup: args.parallelGroup as string | undefined,
+          creationSource: args.creationSource as "manual" | "agent" | "api" | "session" | undefined,
         })
       );
     case "list_tasks":

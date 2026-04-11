@@ -404,6 +404,7 @@ export async function POST(request: NextRequest) {
     githubSyncedAt,
     lastSyncError,
     isPullRequest: normalizedIsPullRequest,
+    creationSource: normalizedCreationSource,
     codebaseIds: normalizedCodebaseIds,
   });
 
@@ -523,6 +524,7 @@ async function serializeTask(
     parallelGroup: task.parallelGroup,
     workspaceId: task.workspaceId,
     sessionId: task.sessionId,
+    creationSource: task.creationSource,
     codebaseIds: task.codebaseIds ?? [],
     worktreeId: task.worktreeId,
     completionSummary: task.completionSummary,

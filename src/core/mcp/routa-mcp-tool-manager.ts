@@ -220,6 +220,7 @@ export class RoutaMcpToolManager {
         verificationCommands: z.array(z.string()).optional().describe("Commands to run for verification"),
         dependencies: z.array(z.string()).optional().describe("Task IDs that must complete first"),
         parallelGroup: z.string().optional().describe("Group ID for parallel execution"),
+        creationSource: z.enum(["manual", "agent", "api", "session"]).optional().describe("How the task was created"),
       },
       async (params) => {
         const result = await this.tools.createTask({

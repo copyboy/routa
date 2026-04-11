@@ -129,4 +129,30 @@ describe("mcp-tool-executor artifact support", () => {
       assignedProvider: "codex",
     }));
   });
+
+  it("passes task creation source through create_task", async () => {
+    const createTask = vi.fn().mockResolvedValue({
+      success: true,
+      data: { taskId: "task-1" },
+    });
+
+    await executeMcpTool(
+      {
+        createTask,
+      } as unknown as AgentTools,
+      "create_task",
+      {
+        workspaceId: "workspace-1",
+        title: "Session subtask",
+        objective: "Keep this local to the session",
+        creationSource: "session",
+      },
+    );
+
+    expect(createTask).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "workspace-1",
+      title: "Session subtask",
+      creationSource: "session",
+    }));
+  });
 });

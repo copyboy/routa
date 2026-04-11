@@ -358,6 +358,7 @@ export function useSessionCrafters(params: UseSessionCraftersParams): UseSession
       const createResult = await callMcpTool("create_task", {
         title: task.title,
         objective: task.objective,
+        creationSource: "session",
         scope: task.scope || undefined,
         sessionId,
         acceptanceCriteria: task.definitionOfDone
@@ -605,6 +606,7 @@ export function useSessionCrafters(params: UseSessionCraftersParams): UseSession
       const createResult = await callMcpTool("create_task", {
         title: note.title,
         objective: note.content || note.title,
+        creationSource: "session",
         workspaceId,
         sessionId,
       });

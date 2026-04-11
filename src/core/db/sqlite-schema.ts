@@ -18,6 +18,7 @@ import {
   primaryKey,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import type { TaskCreationSource } from "../kanban/task-creation-policy";
 import type { KanbanColumn } from "../models/kanban";
 import type { TaskCommentEntry, TaskDeliverySnapshot, TaskLaneHandoff, TaskLaneSession } from "../models/task";
 
@@ -104,6 +105,7 @@ export const tasks = sqliteTable("tasks", {
   workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   /** Session ID that created this task (for session-scoped filtering) */
   sessionId: text("session_id"),
+  creationSource: text("creation_source").$type<TaskCreationSource>(),
   /** Associated codebase IDs for this task */
   codebaseIds: text("codebase_ids", { mode: "json" }).$type<string[]>().default([]),
   /** Git worktree ID created for this task when it enters the dev column */

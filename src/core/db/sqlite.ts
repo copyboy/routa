@@ -199,6 +199,7 @@ function initializeSqliteTables(db: SqliteDatabase): void {
   runAddColumn(sql`ALTER TABLE tasks ADD COLUMN is_pull_request INTEGER`);
   runAddColumn(sql`ALTER TABLE tasks ADD COLUMN test_cases TEXT`);
   runAddColumn(sql`ALTER TABLE tasks ADD COLUMN session_id TEXT`);
+  runAddColumn(sql`ALTER TABLE tasks ADD COLUMN creation_source TEXT`);
   runAddColumn(sql`ALTER TABLE tasks ADD COLUMN codebase_ids TEXT DEFAULT '[]'`);
   runAddColumn(sql`ALTER TABLE tasks ADD COLUMN worktree_id TEXT`);
   runAddColumn(sql`ALTER TABLE tasks ADD COLUMN delivery_snapshot TEXT`);

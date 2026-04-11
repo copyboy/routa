@@ -42,6 +42,7 @@ import { TaskStore } from "../store/task-store";
 import { ArtifactStore } from "../store/artifact-store";
 import { EventBus, AgentEventType } from "../events/event-bus";
 import { getKanbanEventBroadcaster } from "../kanban/kanban-event-broadcaster";
+import type { TaskCreationSource } from "../kanban/task-creation-policy";
 import { ToolResult, successResult, errorResult } from './tool-result';
 import { applySandboxPermissionConstraints, SandboxPermissionConstraints } from "../sandbox";
 import {
@@ -136,6 +137,7 @@ export class AgentTools {
     testCases?: string[];
     dependencies?: string[];
     parallelGroup?: string;
+    creationSource?: TaskCreationSource;
   }): Promise<ToolResult> {
     const task = createTaskModel({
       id: uuidv4(),
@@ -148,6 +150,7 @@ export class AgentTools {
       testCases: params.testCases,
       dependencies: params.dependencies,
       parallelGroup: params.parallelGroup,
+      creationSource: params.creationSource,
     });
 
     await this.taskStore.save(task);

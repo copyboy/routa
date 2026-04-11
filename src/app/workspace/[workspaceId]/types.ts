@@ -195,6 +195,7 @@ export interface TaskInfo {
   sessionId?: string;
   dependencies?: string[];
   parallelGroup?: string;
+  creationSource?: "manual" | "agent" | "api" | "session";
   /** Associated codebase IDs for this task */
   codebaseIds?: string[];
   /** Git worktree ID for this task */
