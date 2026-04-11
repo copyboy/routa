@@ -292,6 +292,6 @@ Current ADRs:
 - Product/API index: [docs/product-specs/FEATURE_TREE.md](./product-specs/FEATURE_TREE.md)
 - Architecture decisions: [docs/adr/](./adr/)
 - Design intent: [docs/design-docs/](./design-docs/)
-- Fitness and verification: [docs/fitness/README.md](./fitness/README.md)
-- Repository operating contract: [AGENTS.md](../AGENTS.md)
+- Fitness and verification: [docs/fitness/README.md](https://github.com/phodal/routa/blob/main/docs/fitness/README.md)
+- Repository operating contract: [AGENTS.md](https://github.com/phodal/routa/blob/main/AGENTS.md)
 - [MCP Spec](https://modelcontextprotocol.io/) · [ACP Spec](https://github.com/agentclientprotocol/typescript-sdk) · [A2A Spec](https://a2aprotocol.ai/)

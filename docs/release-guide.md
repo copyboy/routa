@@ -318,9 +318,9 @@ It does **not** sync:
 
 ## Related Documentation
 
-- [Cargo.toml workspace config](../../Cargo.toml)
-- [NPM package structure](../../packages/routa-cli/package.json)
-- [CLI Release workflow](../../.github/workflows/cli-release.yml)
-- [Cargo Release workflow](../../.github/workflows/cargo-release.yml)
-- [Desktop Release workflow](../../.github/workflows/tauri-release.yml)
+- [Cargo.toml workspace config](https://github.com/phodal/routa/blob/main/Cargo.toml)
+- [NPM package structure](https://github.com/phodal/routa/blob/main/packages/routa-cli/package.json)
+- [CLI Release workflow](https://github.com/phodal/routa/blob/main/.github/workflows/cli-release.yml)
+- [Cargo Release workflow](https://github.com/phodal/routa/blob/main/.github/workflows/cargo-release.yml)
+- [Desktop Release workflow](https://github.com/phodal/routa/blob/main/.github/workflows/tauri-release.yml)
 - [Release Checklist](./RELEASE_CHECKLIST.md)

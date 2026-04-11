@@ -473,8 +473,8 @@ Evidence: 5/5 runs successful with this order.
 
 - [Harness Trace Learning - Feature Overview](../features/harness-trace-learning.md)
 - [Harness Trace Learning - Phase 2 Design](../design-docs/harness-trace-learning-phase2.md)
-- [Fitness Function Rulebook](../fitness/README.md)
-- [Harness Fitness Blog](../blog/harness-fitness-function.md)
+- [Fitness Function Rulebook](https://github.com/phodal/routa/blob/main/docs/fitness/README.md)
+- [Harness Fitness Blog](/blog/harness-fitness-function)
 
 ## Feedback
 

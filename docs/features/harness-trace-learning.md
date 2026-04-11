@@ -182,7 +182,7 @@ Evolution history entries include `sessionId` to link with full agent execution 
 - What was the exact tool call sequence?
 - What was the Git state before/after?
 
-See [Trace Learning Analysis](../design-docs/trace-learning-analysis.md) for details.
+See [Harness Trace Learning - Phase 2 Design](../design-docs/harness-trace-learning-phase2.md) for the follow-up design and operational direction.
 
 ## Roadmap
 
@@ -193,8 +193,8 @@ See [Trace Learning Analysis](../design-docs/trace-learning-analysis.md) for det
 
 ## Related
 
-- [Fitness Function Rulebook](../fitness/README.md)
-- [Harness Fitness Blog](../blog/harness-fitness-function.md)
+- [Fitness Function Rulebook](https://github.com/phodal/routa/blob/main/docs/fitness/README.md)
+- [Harness Fitness Blog](/blog/harness-fitness-function)
 - [Architecture](../ARCHITECTURE.md)
 - Issue [#294](https://github.com/phodal/routa/issues/294) - Trace Learning
 - PR [#342](https://github.com/phodal/routa/pull/342) - Design RFC
