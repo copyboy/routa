@@ -120,6 +120,8 @@ fn sample_state() -> RuntimeState {
     state.selected_file = 0;
     state.last_refresh_at_ms = now - 120_000;
     state.runtime_transport = "socket".to_string();
+    state.set_ahead_count(Some(5));
+    state.set_worktree_count(Some(2));
     state.set_detected_agents(vec![
         DetectedAgent {
             key: "codex:4211".to_string(),

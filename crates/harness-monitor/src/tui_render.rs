@@ -1,6 +1,6 @@
 use super::fitness;
 use super::*;
-use crate::state::{FileListMode, FocusPane};
+use crate::state::FocusPane;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
@@ -587,7 +587,7 @@ fn render_files(
     density: FileRowDensity,
 ) {
     let colors = palette(state.theme_mode);
-    let outer_block = panel_block("Files", state.focus == FocusPane::Files, colors);
+    let outer_block = panel_block("Git Status", state.focus == FocusPane::Files, colors);
     let inner = outer_block.inner(area);
     frame.render_widget(outer_block, area);
     let split = Layout::default()
@@ -823,11 +823,17 @@ fn render_file_header_line(state: &RuntimeState, cache: &AppCache, _width: u16) 
         .ahead_count
         .map(|count| count.to_string())
         .unwrap_or_else(|| "...".to_string());
-    let label = match state.file_list_mode {
-        FileListMode::Global => "ALL FILES",
-        FileListMode::UnknownConflict => "UNKNOWN ONLY",
-    };
-    let summary = format!("{label}  {} files  commits:{commit_total}", files.len());
+    let worktree_total = state
+        .worktree_count
+        .map(|count| count.to_string())
+        .unwrap_or_else(|| "...".to_string());
+    let summary = format!(
+        "{}, {}, branch: {}, {}",
+        pluralize(files.len(), "file"),
+        pluralize_count_text(&commit_total, "commit"),
+        state.branch,
+        pluralize_count_text(&worktree_total, "worktree"),
+    );
     Line::from(vec![Span::styled(
         format!(" {summary} "),
         Style::default()
@@ -835,6 +841,21 @@ fn render_file_header_line(state: &RuntimeState, cache: &AppCache, _width: u16) 
             .bg(colors.border)
             .add_modifier(Modifier::BOLD),
     )])
+}
+
+fn pluralize(count: usize, noun: &str) -> String {
+    if count == 1 {
+        format!("{count} {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
+}
+
+fn pluralize_count_text(count: &str, noun: &str) -> String {
+    match count.parse::<usize>() {
+        Ok(value) => pluralize(value, noun),
+        Err(_) => format!("{count} {noun}s"),
+    }
 }
 
 fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, state: &RuntimeState) {

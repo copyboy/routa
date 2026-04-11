@@ -80,6 +80,7 @@ fn run_loop(terminal: &mut DefaultTerminal, ctx: RepoContext, poll_interval_ms: 
     let mut state = RuntimeState::new(repo_root.clone(), repo_name, branch);
     state.set_runtime_transport(read_runtime_transport(&ctx));
     state.set_ahead_count(current_ahead_count(&ctx).ok());
+    state.set_worktree_count(current_worktree_count(&ctx).ok());
     let mut cache = AppCache::new(&repo_root);
     cache.set_fitness_mode(state.fitness_view_mode);
     let bootstrap_cutoff = bootstrap_history_cutoff(chrono::Utc::now().timestamp_millis());
@@ -144,6 +145,7 @@ fn run_loop(terminal: &mut DefaultTerminal, ctx: RepoContext, poll_interval_ms: 
                 state.branch = branch;
             }
             state.set_ahead_count(current_ahead_count(&ctx).ok());
+            state.set_worktree_count(current_worktree_count(&ctx).ok());
             last_repo_status_refresh = Instant::now();
         }
         if last_agent_refresh.elapsed() >= Duration::from_millis(AGENT_SCAN_REFRESH_MS) {
@@ -314,6 +316,28 @@ fn current_ahead_count(ctx: &RepoContext) -> Result<usize> {
         .trim()
         .parse::<usize>()
         .unwrap_or(0))
+}
+
+fn current_worktree_count(ctx: &RepoContext) -> Result<usize> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&ctx.repo_root)
+        .arg("worktree")
+        .arg("list")
+        .arg("--porcelain")
+        .output()
+        .context("run git worktree list --porcelain")?;
+    if !output.status.success() {
+        anyhow::bail!("git worktree list --porcelain failed");
+    }
+
+    let count = String::from_utf8(output.stdout)
+        .context("decode worktree list output")?
+        .lines()
+        .filter(|line| line.starts_with("worktree "))
+        .count();
+
+    Ok(count.max(1))
 }
 
 fn upstream_or_main_ref(ctx: &RepoContext) -> Result<String> {
