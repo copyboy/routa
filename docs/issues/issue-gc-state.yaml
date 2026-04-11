@@ -5,6 +5,7 @@ notes: "Weekly issue hygiene heartbeat for status/implementation sync checks."
 last_cleanup_summary: |
   2026-04-11 cleanup:
   - Synced closed GitHub issues back into local records: #296, #303, #363, #394, #399, #401, #409
+  - Continued sync: closed local issue #222 and filled active tracking metadata for #406
   - Normalized local status vocabulary to the template set (`open`, `investigating`, `resolved`)
   - Reclassified unresolved ACP inventory mismatch as active open work: #364
   - Remaining active local issues were trimmed to the still-open or still-investigating set

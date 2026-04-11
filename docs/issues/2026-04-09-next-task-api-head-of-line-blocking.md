@@ -6,6 +6,7 @@ severity: high
 area: "kanban"
 tags: [api, kanban, performance, nextjs, fitness-candidate]
 github_issue: 406
+github_state: "open"
 github_url: "https://github.com/phodal/routa/issues/406"
 related_issues:
   - "docs/issues/2026-04-07-task-changes-api-performance.md"
