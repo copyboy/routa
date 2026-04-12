@@ -1,23 +1,18 @@
-mod application;
-mod cli_operator;
-mod db;
-mod detect;
 #[allow(dead_code)]
-mod domain;
-mod hooks;
-mod ipc;
-mod models;
+mod context;
+mod run;
 mod observe;
-mod operator_guardrails;
-mod repo;
-mod state;
-mod tui;
+mod attribute;
+mod evaluate;
+mod govern;
+mod shared;
+mod ui;
 
-use crate::db::Db;
-use crate::ipc::{RuntimeSocket, RuntimeTcp};
-use crate::models::RuntimeServiceInfo;
+use crate::shared::db::Db;
+use crate::observe::ipc::{RuntimeSocket, RuntimeTcp};
+use crate::shared::models::RuntimeServiceInfo;
 use crate::observe::Snapshot;
-use crate::repo::{resolve, resolve_runtime};
+use crate::observe::{resolve, resolve_runtime};
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use std::collections::BTreeMap;
@@ -37,7 +32,7 @@ struct Cli {
     repo: Option<String>,
 
     /// Inference window in milliseconds when choosing a fallback session.
-    #[arg(long, default_value_t = models::DEFAULT_INFERENCE_WINDOW_MS)]
+    #[arg(long, default_value_t = shared::models::DEFAULT_INFERENCE_WINDOW_MS)]
     infer_window_ms: i64,
 
     /// SQLite database path override (fallback location used when .git is not writable)
@@ -53,7 +48,7 @@ enum Command {
     /// Launch the realtime Harness Monitor terminal UI.
     Tui {
         /// Poll interval in milliseconds for git status refresh.
-        #[arg(long, default_value_t = models::DEFAULT_TUI_POLL_MS)]
+        #[arg(long, default_value_t = shared::models::DEFAULT_TUI_POLL_MS)]
         interval_ms: u64,
     },
     /// Show current active sessions in this repo.
@@ -187,15 +182,15 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let db_hint = resolve_db_hint(cli.db.as_deref());
     match cli.command.unwrap_or(Command::Tui {
-        interval_ms: models::DEFAULT_TUI_POLL_MS,
+        interval_ms: shared::models::DEFAULT_TUI_POLL_MS,
     }) {
         Command::Tui { interval_ms } => {
             let ctx = resolve_runtime(cli.repo.as_deref())?;
-            tui::run(ctx, interval_ms)?;
+            ui::tui::run(ctx, interval_ms)?;
         }
         Command::Hook { client, event } => {
-            let payload = hooks::parse_stdin_payload()?;
-            hooks::handle_hook(
+            let payload = observe::hooks::parse_stdin_payload()?;
+            observe::hooks::handle_hook(
                 &client,
                 &event,
                 cli.repo.as_deref(),
@@ -205,7 +200,7 @@ fn main() -> Result<()> {
         }
         Command::GitHook { event, args } => {
             let ctx = resolve(cli.repo.as_deref(), db_hint.as_deref())?;
-            hooks::handle_git_event(&ctx, &event, &args)?;
+            observe::hooks::handle_git_event(&ctx, &event, &args)?;
         }
         Command::Sessions => {
             let ctx = resolve(cli.repo.as_deref(), db_hint.as_deref())?;
@@ -248,12 +243,12 @@ fn main() -> Result<()> {
         Command::Run { action } => {
             let ctx = resolve(cli.repo.as_deref(), db_hint.as_deref())?;
             let db = Db::open(&ctx.db_path)?;
-            cli_operator::handle_run_command(action, &db, &ctx.repo_root.to_string_lossy())?;
+            run::orchestrator::handle_run_command(action, &db, &ctx.repo_root.to_string_lossy())?;
         }
         Command::Workspace { action } => {
             let ctx = resolve(cli.repo.as_deref(), db_hint.as_deref())?;
             let db = Db::open(&ctx.db_path).ok();
-            cli_operator::handle_workspace_command(
+            run::orchestrator::handle_workspace_command(
                 action,
                 &ctx.repo_root.to_string_lossy(),
                 db.as_ref(),
@@ -297,7 +292,7 @@ fn run_watch(
     }
 }
 
-fn run_serve(ctx: &crate::repo::RepoContext) -> Result<()> {
+fn run_serve(ctx: &crate::observe::repo::RepoContext) -> Result<()> {
     let socket_server = RuntimeSocket::bind(&ctx.runtime_socket_path).ok();
     let tcp_server = if socket_server.is_none() {
         RuntimeTcp::bind(&ctx.runtime_tcp_addr).ok()
@@ -322,7 +317,7 @@ fn run_serve(ctx: &crate::repo::RepoContext) -> Result<()> {
 
     let started_at_ms = chrono::Utc::now().timestamp_millis();
     loop {
-        crate::ipc::write_service_info(
+        crate::observe::ipc::write_service_info(
             &ctx.runtime_info_path,
             &RuntimeServiceInfo {
                 pid: std::process::id(),
@@ -334,13 +329,13 @@ fn run_serve(ctx: &crate::repo::RepoContext) -> Result<()> {
 
         if let Some(server) = &socket_server {
             for message in server.read_pending()? {
-                crate::ipc::send_message(&ctx.runtime_event_path, &message)?;
+                crate::observe::ipc::send_message(&ctx.runtime_event_path, &message)?;
             }
         }
 
         if let Some(server) = &tcp_server {
             for message in server.read_pending()? {
-                crate::ipc::send_message(&ctx.runtime_event_path, &message)?;
+                crate::observe::ipc::send_message(&ctx.runtime_event_path, &message)?;
             }
         }
 
@@ -351,7 +346,7 @@ fn run_serve(ctx: &crate::repo::RepoContext) -> Result<()> {
 fn print_sessions(db: &Db, repo_root: &str) -> Result<()> {
     let sessions = db.list_active_sessions(repo_root)?;
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let active_since_ms = now_ms - models::DEFAULT_INFERENCE_WINDOW_MS;
+    let active_since_ms = now_ms - shared::models::DEFAULT_INFERENCE_WINDOW_MS;
     let mut has_active = false;
 
     println!("session_id | cwd | model | client | status");
@@ -380,8 +375,8 @@ fn print_sessions(db: &Db, repo_root: &str) -> Result<()> {
 }
 
 fn print_agents(repo_root: &str) -> Result<()> {
-    let agents = crate::detect::scan_agents(repo_root)?;
-    let stats = crate::detect::calculate_stats(&agents);
+    let agents = crate::observe::detect::scan_agents(repo_root)?;
+    let stats = crate::observe::detect::calculate_stats(&agents);
     println!(
         "total={} active={} idle={} cpu={:.1}% mem={:.0}MB",
         stats.total, stats.active, stats.idle, stats.total_cpu, stats.total_mem_mb
@@ -398,7 +393,7 @@ fn print_agents(repo_root: &str) -> Result<()> {
             agent.name,
             agent.cpu_percent,
             agent.mem_mb,
-            crate::detect::format_uptime(agent.uptime_seconds),
+            crate::observe::detect::format_uptime(agent.uptime_seconds),
             agent.status,
             agent.project,
             agent.cwd.unwrap_or_else(|| "-".to_string())
@@ -601,15 +596,15 @@ fn handle_eval_command(action: EvalCommand, db: &Db, repo_root: &str) -> Result<
     match action {
         EvalCommand::Run { mode } => {
             let eval_mode = match mode.as_str() {
-                "fast" => crate::domain::EvalMode::Fast,
-                "full" => crate::domain::EvalMode::Full,
+                "fast" => crate::evaluate::eval::EvalMode::Fast,
+                "full" => crate::evaluate::eval::EvalMode::Full,
                 other => bail!("unsupported eval mode '{other}', expected fast|full"),
             };
             let changed_files = db.file_state_by_repo_paths(repo_root)?;
-            let evaluator = crate::domain::EntrixEvaluator::new(repo_root);
-            let snapshot = crate::domain::Evaluator::evaluate(
+            let evaluator = crate::evaluate::evaluator::EntrixEvaluator::new(repo_root);
+            let snapshot = crate::evaluate::Evaluator::evaluate(
                 &evaluator,
-                &crate::domain::EvalInput {
+                &crate::evaluate::eval::EvalInput {
                     task_id: None,
                     run_id: None,
                     workspace_id: None,
@@ -620,7 +615,7 @@ fn handle_eval_command(action: EvalCommand, db: &Db, repo_root: &str) -> Result<
             )?;
             db.insert_eval_snapshot(repo_root, &snapshot)?;
             println!("repo:        {}", repo_root);
-            println!("eval:        {}", cli_operator::summarize_eval(&snapshot));
+            println!("eval:        {}", run::orchestrator::summarize_eval(&snapshot));
             println!("duration_ms: {:.1}", snapshot.duration_ms);
             println!("dimensions:  {}", snapshot.dimensions.len());
         }
@@ -631,7 +626,7 @@ fn handle_eval_command(action: EvalCommand, db: &Db, repo_root: &str) -> Result<
 fn handle_policy_command(action: PolicyCommand) -> Result<()> {
     match action {
         PolicyCommand::Explain { effect } => {
-            use crate::domain::policy::{EffectClass, PolicyDecisionKind};
+            use crate::run::policy::{EffectClass, PolicyDecisionKind};
             let effect_class = match effect.as_str() {
                 "read_only" => EffectClass::ReadOnly,
                 "local_write" => EffectClass::LocalWrite,
