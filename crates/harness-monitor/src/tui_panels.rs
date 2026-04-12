@@ -1,5 +1,5 @@
 use crate::application::run_assessment::{
-    assess_run, summarize_planes, PlaneAssessment, RunAssessmentInput, RunOrigin,
+    assess_run, summarize_planes, PlaneAssessment, RunAssessmentInput, RunOrigin, WorkspaceType,
 };
 use super::fitness;
 use super::*;
@@ -32,6 +32,7 @@ pub(super) struct RunOperatorModel {
     pub(super) integrity_warning: Option<String>,
     pub(super) next_action: String,
     pub(super) handoff_summary: Option<String>,
+    pub(super) recovery_hints: Vec<String>,
     pub(super) changed_files: Vec<String>,
     pub(super) planes: Vec<PlaneAssessment>,
 }
@@ -584,6 +585,19 @@ fn render_run_details(
         ]));
     }
 
+    if !model.recovery_hints.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled("Recovery: ", Style::default().fg(colors.muted)),
+            Span::styled(
+                shorten_path(
+                    &model.recovery_hints.join("; "),
+                    width.saturating_sub(14) as usize,
+                ),
+                Style::default().fg(INFERRED),
+            ),
+        ]));
+    }
+
     if let Some(event) = &run.last_event_name {
         let tool = run
             .last_tool_name
@@ -773,6 +787,8 @@ pub(super) fn build_run_operator_model(
         is_synthetic_run: run.is_synthetic_agent_run,
         is_service_run: is_auggie_mcp_service_run(state, run),
         workspace_path: &workspace_path,
+        workspace_branch: None,
+        workspace_type: WorkspaceType::Main,
         workspace_detached: false,
         workspace_missing: std::path::Path::new(&state.repo_root).exists()
             && !std::path::Path::new(&workspace_path).exists(),
@@ -812,6 +828,7 @@ pub(super) fn build_run_operator_model(
         integrity_warning: assessment.integrity_warning,
         next_action: assessment.next_action,
         handoff_summary: assessment.handoff_summary,
+        recovery_hints: assessment.recovery_hints,
         changed_files,
         planes: assessment.planes,
     }

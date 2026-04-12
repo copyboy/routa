@@ -6,6 +6,23 @@ use crate::operator_guardrails::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkspaceType {
+    Main,
+    Linked,
+    External,
+}
+
+impl WorkspaceType {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            WorkspaceType::Main => "main",
+            WorkspaceType::Linked => "linked",
+            WorkspaceType::External => "external",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RunOrigin {
     HookBacked,
     ProcessScan,
@@ -103,6 +120,8 @@ pub(crate) struct RunAssessmentInput<'a> {
     pub(crate) is_synthetic_run: bool,
     pub(crate) is_service_run: bool,
     pub(crate) workspace_path: &'a str,
+    pub(crate) workspace_branch: Option<&'a str>,
+    pub(crate) workspace_type: WorkspaceType,
     pub(crate) workspace_detached: bool,
     pub(crate) workspace_missing: bool,
     pub(crate) has_eval: bool,
@@ -126,6 +145,7 @@ pub(crate) struct RunAssessment {
     pub(crate) integrity_warning: Option<String>,
     pub(crate) next_action: String,
     pub(crate) handoff_summary: Option<String>,
+    pub(crate) recovery_hints: Vec<String>,
     pub(crate) evidence: Vec<EvidenceRequirementStatus>,
     pub(crate) planes: Vec<PlaneAssessment>,
 }
@@ -153,10 +173,12 @@ pub(crate) fn assess_run(input: &RunAssessmentInput<'_>) -> RunAssessment {
         api_contract_passed: input.api_contract_passed,
         integrity_warning: integrity_warning.as_deref(),
     });
+    let recovery_hints = infer_recovery_hints(input, &workspace_state, integrity_warning.as_deref());
     let handoff_summary = infer_handoff_summary(
         &role,
         guardrails.operator_state.as_str(),
         guardrails.block_reason.as_deref(),
+        input,
     );
     let planes = build_planes(
         input,
@@ -179,6 +201,7 @@ pub(crate) fn assess_run(input: &RunAssessmentInput<'_>) -> RunAssessment {
         integrity_warning,
         next_action: guardrails.next_action,
         handoff_summary,
+        recovery_hints,
         evidence: guardrails.evidence,
         planes,
     }
@@ -280,6 +303,7 @@ fn infer_handoff_summary(
     role: &Role,
     operator_state: &str,
     block_reason: Option<&str>,
+    input: &RunAssessmentInput<'_>,
 ) -> Option<String> {
     let next_role = if block_reason.is_some_and(|reason| {
         reason.contains("hard gate")
@@ -296,7 +320,52 @@ fn infer_handoff_summary(
         None
     }?;
 
-    (next_role != *role).then(|| format!("handoff {} -> {}", role.as_str(), next_role.as_str()))
+    if next_role == *role {
+        return None;
+    }
+
+    let mut parts = vec![format!("handoff {} -> {}", role.as_str(), next_role.as_str())];
+    if input.workspace_detached {
+        parts.push("(detached HEAD)".to_string());
+    } else if let Some(branch) = input.workspace_branch {
+        parts.push(format!("on {branch}"));
+    }
+    if input.workspace_type != WorkspaceType::Main {
+        parts.push(format!("[{}]", input.workspace_type.as_str()));
+    }
+    Some(parts.join(" "))
+}
+
+fn infer_recovery_hints(
+    input: &RunAssessmentInput<'_>,
+    workspace_state: &WorkspaceState,
+    integrity_warning: Option<&str>,
+) -> Vec<String> {
+    let mut hints = Vec::new();
+    if input.workspace_missing {
+        hints.push("repair or recreate the worktree path".to_string());
+    }
+    if input.workspace_detached {
+        hints.push("reattach to a branch or validate before continuing".to_string());
+    }
+    if input.hard_gate_blocked {
+        hints.push("fix hard-gate failures then re-run entrix fast".to_string());
+    }
+    if input.score_blocked {
+        hints.push("improve fitness score above threshold".to_string());
+    }
+    if input.is_unknown_bucket {
+        hints.push("assign ownership for unattributed files".to_string());
+    } else if input.unknown_files_count > 0 {
+        hints.push(format!(
+            "review attribution for {} file(s)",
+            input.unknown_files_count
+        ));
+    }
+    if matches!(workspace_state, WorkspaceState::Dirty) && integrity_warning.is_none() && !input.has_eval {
+        hints.push("run evaluation before handoff".to_string());
+    }
+    hints
 }
 
 fn build_planes(
@@ -389,7 +458,14 @@ fn build_planes(
             summary: if input.workspace_missing {
                 format!("workspace path missing: {}", input.workspace_path)
             } else {
-                format!("workspace {} in {}", workspace_state.as_str(), input.workspace_path)
+                let branch_label = input.workspace_branch.unwrap_or("-");
+                format!(
+                    "{} {} on {} [{}]",
+                    input.workspace_type.as_str(),
+                    workspace_state.as_str(),
+                    branch_label,
+                    input.workspace_path,
+                )
             },
         },
         PlaneAssessment {
@@ -497,6 +573,8 @@ mod tests {
             is_synthetic_run: true,
             is_service_run: false,
             workspace_path: "/repo",
+            workspace_branch: None,
+            workspace_type: WorkspaceType::Main,
             workspace_detached: false,
             workspace_missing: false,
             has_eval: false,
@@ -512,6 +590,7 @@ mod tests {
         assert_eq!(assessment.mode.as_str(), "unmanaged");
         assert_eq!(assessment.planes[0].plane.as_str(), "observe");
         assert_eq!(assessment.planes[0].status.as_str(), "active");
+        assert!(assessment.recovery_hints.is_empty());
         assert!(assessment
             .planes
             .iter()
@@ -538,6 +617,8 @@ mod tests {
             is_synthetic_run: false,
             is_service_run: false,
             workspace_path: "/repo",
+            workspace_branch: None,
+            workspace_type: WorkspaceType::Main,
             workspace_detached: false,
             workspace_missing: false,
             has_eval: false,
@@ -550,6 +631,7 @@ mod tests {
         assert_eq!(assessment.origin.as_str(), "attribution-review");
         assert_eq!(assessment.block_reason.as_deref(), Some("ownership ambiguity"));
         assert_eq!(assessment.operator_state, "attention");
+        assert_eq!(assessment.recovery_hints, vec!["assign ownership for unattributed files"]);
         assert!(assessment
             .planes
             .iter()

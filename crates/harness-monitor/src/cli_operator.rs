@@ -1,5 +1,5 @@
 use crate::application::run_assessment::{
-    assess_run, summarize_planes, PlaneAssessment, RunAssessmentInput, RunOrigin,
+    assess_run, summarize_planes, PlaneAssessment, RunAssessmentInput, RunOrigin, WorkspaceType,
 };
 use crate::db::{Db, SessionListRow};
 use crate::detect::scan_agents;
@@ -38,6 +38,7 @@ struct CliRunSummary {
     integrity_warning: Option<String>,
     next_action: String,
     handoff_summary: Option<String>,
+    recovery_hints: Vec<String>,
     evidence: Vec<EvidenceRequirementStatus>,
     exact_files: usize,
     inferred_files: usize,
@@ -159,6 +160,9 @@ pub(crate) fn handle_run_command(action: RunCommand, db: &Db, repo_root: &str) -
                     println!("next:        {}", run.next_action);
                     if let Some(handoff) = &run.handoff_summary {
                         println!("handoff:     {}", handoff);
+                    }
+                    if !run.recovery_hints.is_empty() {
+                        println!("recovery:    {}", run.recovery_hints.join("; "));
                     }
                     if run.changed_files.is_empty() {
                         println!("changed:     -");
@@ -373,7 +377,7 @@ fn build_cli_run_summaries(
             .map(|row| row.rel_path.clone())
             .collect::<Vec<_>>();
         let latest_eval = latest_eval_by_run.get(session_id).cloned();
-        let (workspace_id, workspace_path, workspace_detached) =
+        let (workspace_id, workspace_path, workspace_detached, workspace_branch, workspace_type) =
             workspace_identity_for(Some(cwd), repo_root, worktrees);
         let missing_path = Path::new(repo_root).exists() && !Path::new(&workspace_path).exists();
         let assessment = assess_run(&RunAssessmentInput {
@@ -392,6 +396,8 @@ fn build_cli_run_summaries(
             is_synthetic_run: false,
             is_service_run: false,
             workspace_path: &workspace_path,
+            workspace_branch: workspace_branch.as_deref(),
+            workspace_type,
             workspace_detached,
             workspace_missing: missing_path,
             has_eval: latest_eval.is_some(),
@@ -426,6 +432,7 @@ fn build_cli_run_summaries(
             integrity_warning: assessment.integrity_warning,
             next_action: assessment.next_action,
             handoff_summary: assessment.handoff_summary,
+            recovery_hints: assessment.recovery_hints,
             evidence: assessment.evidence,
             exact_files,
             inferred_files,
@@ -441,7 +448,7 @@ fn build_cli_run_summaries(
         .filter(|agent| is_repo_local_agent_cli(agent, repo_root))
         .filter(|agent| !matched_agent_keys.contains(&agent.key))
     {
-        let (workspace_id, workspace_path, workspace_detached) =
+        let (workspace_id, workspace_path, workspace_detached, workspace_branch, workspace_type) =
             workspace_identity_for(agent.cwd.as_deref(), repo_root, worktrees);
         let synthetic_status = agent.status.to_ascii_lowercase();
         let assessment = assess_run(&RunAssessmentInput {
@@ -460,6 +467,8 @@ fn build_cli_run_summaries(
             is_synthetic_run: true,
             is_service_run: is_mcp_service_agent(agent),
             workspace_path: &workspace_path,
+            workspace_branch: workspace_branch.as_deref(),
+            workspace_type,
             workspace_detached,
             workspace_missing: Path::new(repo_root).exists() && !Path::new(&workspace_path).exists(),
             has_eval: false,
@@ -492,6 +501,7 @@ fn build_cli_run_summaries(
             integrity_warning: assessment.integrity_warning,
             next_action: assessment.next_action,
             handoff_summary: assessment.handoff_summary,
+            recovery_hints: assessment.recovery_hints,
             evidence: assessment.evidence,
             exact_files: 0,
             inferred_files: 0,
@@ -503,7 +513,7 @@ fn build_cli_run_summaries(
     }
 
     if !unknown_rows.is_empty() {
-        let (workspace_id, workspace_path, workspace_detached) =
+        let (workspace_id, workspace_path, workspace_detached, workspace_branch, workspace_type) =
             workspace_identity_for(Some(repo_root), repo_root, worktrees);
         let changed_files = unknown_rows
             .iter()
@@ -525,6 +535,8 @@ fn build_cli_run_summaries(
             is_synthetic_run: false,
             is_service_run: false,
             workspace_path: repo_root,
+            workspace_branch: workspace_branch.as_deref(),
+            workspace_type,
             workspace_detached,
             workspace_missing: false,
             has_eval: false,
@@ -561,6 +573,7 @@ fn build_cli_run_summaries(
             integrity_warning: assessment.integrity_warning,
             next_action: assessment.next_action,
             handoff_summary: assessment.handoff_summary,
+            recovery_hints: assessment.recovery_hints,
             evidence: assessment.evidence,
             exact_files: 0,
             inferred_files: 0,
@@ -806,10 +819,10 @@ fn workspace_identity_for(
     cwd: Option<&str>,
     repo_root: &str,
     worktrees: &[GitWorktreeRecord],
-) -> (String, String, bool) {
+) -> (String, String, bool, Option<String>, WorkspaceType) {
     let normalized_repo_root = normalize_match_path(repo_root);
     let Some(cwd) = cwd else {
-        return ("main".to_string(), repo_root.to_string(), false);
+        return ("main".to_string(), repo_root.to_string(), false, None, WorkspaceType::Main);
     };
     let normalized_cwd = normalize_match_path(cwd);
     let matching = worktrees.iter().find(|record| {
@@ -817,16 +830,25 @@ fn workspace_identity_for(
         normalized_path == normalized_cwd || path_contains(&normalized_path, &normalized_cwd)
     });
     if let Some(record) = matching {
+        let ws_type = if record.path == repo_root
+            || normalize_match_path(&record.path) == normalized_repo_root
+        {
+            WorkspaceType::Main
+        } else {
+            WorkspaceType::Linked
+        };
         return (
             workspace_id_for(&record.path, repo_root),
             record.path.clone(),
             record.detached,
+            record.branch.clone(),
+            ws_type,
         );
     }
     if normalized_cwd == normalized_repo_root
         || path_contains(&normalized_repo_root, &normalized_cwd)
     {
-        ("main".to_string(), repo_root.to_string(), false)
+        ("main".to_string(), repo_root.to_string(), false, None, WorkspaceType::Main)
     } else {
         (
             Path::new(cwd)
@@ -835,6 +857,8 @@ fn workspace_identity_for(
                 .unwrap_or_else(|| "external".to_string()),
             cwd.to_string(),
             false,
+            None,
+            WorkspaceType::External,
         )
     }
 }
@@ -949,6 +973,8 @@ mod tests {
             is_synthetic_run: false,
             is_service_run: false,
             workspace_path: "/repo",
+            workspace_branch: Some("main"),
+            workspace_type: WorkspaceType::Main,
             workspace_detached: false,
             workspace_missing: false,
             has_eval: true,
