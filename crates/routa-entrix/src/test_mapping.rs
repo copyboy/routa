@@ -6,7 +6,7 @@
 
 use crate::model::Confidence;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -64,6 +64,18 @@ pub enum ResolverKind {
     Unsupported,
 }
 
+impl ResolverKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PathHeuristic => "path_heuristic",
+            Self::InlineTest => "inline_test",
+            Self::HybridHeuristic => "hybrid_heuristic",
+            Self::SemanticGraph => "semantic_graph",
+            Self::Unsupported => "unsupported",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TestMappingStatus {
@@ -102,6 +114,8 @@ pub struct TestMappingReport {
     pub changed_files: Vec<String>,
     pub skipped_test_files: Vec<String>,
     pub mappings: Vec<TestMappingRecord>,
+    pub status_counts: BTreeMap<String, usize>,
+    pub resolver_counts: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -177,10 +191,23 @@ impl ResolverRegistry {
             mappings.push(self.analyze_file(repo_root, rel_path, &normalized_changed));
         }
 
+        let mut status_counts = BTreeMap::new();
+        let mut resolver_counts = BTreeMap::new();
+        for mapping in &mappings {
+            *status_counts
+                .entry(mapping.status.as_str().to_string())
+                .or_insert(0) += 1;
+            *resolver_counts
+                .entry(mapping.resolver_kind.as_str().to_string())
+                .or_insert(0) += 1;
+        }
+
         TestMappingReport {
             changed_files: changed,
             skipped_test_files,
             mappings,
+            status_counts,
+            resolver_counts,
         }
     }
 
@@ -584,6 +611,8 @@ mod tests {
             mapping.related_test_files,
             vec!["src/core/skills/__tests__/skill-loader.test.ts"]
         );
+        assert_eq!(report.status_counts.get("changed"), Some(&1));
+        assert_eq!(report.resolver_counts.get("path_heuristic"), Some(&1));
     }
 
     #[test]
@@ -608,6 +637,8 @@ mod tests {
         assert_eq!(mapping.language, "rust");
         assert_eq!(mapping.status, TestMappingStatus::Inline);
         assert!(mapping.has_inline_tests);
+        assert_eq!(report.status_counts.get("inline"), Some(&1));
+        assert_eq!(report.resolver_counts.get("inline_test"), Some(&1));
     }
 
     #[test]
@@ -665,5 +696,7 @@ mod tests {
         assert_eq!(mapping.language, "java");
         assert_eq!(mapping.status, TestMappingStatus::Missing);
         assert!(mapping.related_test_files.is_empty());
+        assert_eq!(report.status_counts.get("missing"), Some(&1));
+        assert_eq!(report.resolver_counts.get("path_heuristic"), Some(&1));
     }
 }
