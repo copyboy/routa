@@ -54,6 +54,7 @@ pub(super) fn render_details_panel(
 
     let mut lines = Vec::new();
     if let Some(file) = state.selected_file() {
+        let visible_files = state.file_items();
         let (file_name, parent_dir) = split_display_path(file);
         lines.push(Line::from(Span::styled(
             shorten_path(&file_name, area.width.saturating_sub(4) as usize),
@@ -126,6 +127,23 @@ pub(super) fn render_details_panel(
                     Span::raw("  "),
                     Span::styled(review_hint.rule_name, Style::default().fg(colors.text)),
                 ]));
+            }
+            let repo_context = cache.repo_review_context_for_file(file, &visible_files);
+            if !repo_context.is_empty() {
+                let mut row = vec![Span::styled("Review context: ", Style::default().fg(colors.muted))];
+                for (index, hint) in repo_context.into_iter().take(2).enumerate() {
+                    if index > 0 {
+                        row.push(Span::raw("  "));
+                    }
+                    let color = match hint.level {
+                        crate::tui::cache::ReviewRiskLevel::High => STOPPED,
+                        crate::tui::cache::ReviewRiskLevel::Medium => INFERRED,
+                    };
+                    row.push(Span::styled(hint.label, Style::default().fg(color)));
+                    row.push(Span::raw(" "));
+                    row.push(Span::styled(hint.rule_name, Style::default().fg(colors.text)));
+                }
+                lines.push(Line::from(row));
             }
         } else {
             lines.push(Line::from(Span::styled(
@@ -227,7 +245,6 @@ pub(super) fn render_file_header_line(
 ) -> Line<'static> {
     let colors = palette(state.theme_mode);
     let files = state.file_items();
-    let _ = cache;
     let untracked = files
         .iter()
         .filter(|file| file.state_code == "untracked")
@@ -251,13 +268,25 @@ pub(super) fn render_file_header_line(
         state.branch,
         pluralize_count_text(&worktree_total, "worktree"),
     );
-    Line::from(vec![Span::styled(
+    let mut spans = vec![Span::styled(
         format!(" {summary} "),
         Style::default()
             .fg(colors.text)
             .bg(colors.border)
             .add_modifier(Modifier::BOLD),
-    )])
+    )];
+    for hint in cache.repo_review_hints(&files).into_iter().take(2) {
+        let color = match hint.level {
+            crate::tui::cache::ReviewRiskLevel::High => STOPPED,
+            crate::tui::cache::ReviewRiskLevel::Medium => INFERRED,
+        };
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            format!("[{}:{}]", hint.label, hint.rule_name),
+            Style::default().fg(color).bg(colors.surface),
+        ));
+    }
+    Line::from(spans)
 }
 
 fn pluralize(count: usize, noun: &str) -> String {

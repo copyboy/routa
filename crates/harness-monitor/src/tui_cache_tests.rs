@@ -81,6 +81,111 @@ review_triggers:
 }
 
 #[test]
+fn repo_review_hints_include_diff_size_trigger() {
+    let dir = tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("docs").join("fitness")).expect("fitness dir");
+    std::fs::write(
+        dir.path().join("docs").join("fitness").join("review-triggers.yaml"),
+        r#"
+review_triggers:
+  - name: oversized_change
+    type: diff_size
+    max_files: 1
+    severity: medium
+    action: require_human_review
+"#,
+    )
+    .expect("write review triggers");
+
+    let cache = AppCache::new(&dir.path().to_string_lossy());
+    let files = vec![
+        FileView {
+            rel_path: "src/a.rs".to_string(),
+            dirty: true,
+            state_code: "modify".to_string(),
+            entry_kind: EntryKind::File,
+            last_modified_at_ms: 0,
+            last_session_id: None,
+            confidence: AttributionConfidence::Unknown,
+            conflicted: false,
+            touched_by: BTreeSet::new(),
+            recent_events: Vec::new(),
+        },
+        FileView {
+            rel_path: "src/b.rs".to_string(),
+            dirty: true,
+            state_code: "modify".to_string(),
+            entry_kind: EntryKind::File,
+            last_modified_at_ms: 0,
+            last_session_id: None,
+            confidence: AttributionConfidence::Unknown,
+            conflicted: false,
+            touched_by: BTreeSet::new(),
+            recent_events: Vec::new(),
+        },
+    ];
+    let refs = files.iter().collect::<Vec<_>>();
+
+    let hints = cache.repo_review_hints(&refs);
+    assert!(hints.iter().any(|hint| hint.rule_name == "oversized_change"));
+}
+
+#[test]
+fn repo_review_context_for_file_matches_cross_boundary_trigger() {
+    let dir = tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("docs").join("fitness")).expect("fitness dir");
+    std::fs::write(
+        dir.path().join("docs").join("fitness").join("review-triggers.yaml"),
+        r#"
+review_triggers:
+  - name: cross_boundary_change_web_rust
+    type: cross_boundary_change
+    boundaries:
+      web:
+        - src/**
+      rust:
+        - crates/**
+    min_boundaries: 2
+    severity: medium
+    action: require_human_review
+"#,
+    )
+    .expect("write review triggers");
+
+    let cache = AppCache::new(&dir.path().to_string_lossy());
+    let web_file = FileView {
+        rel_path: "src/app/page.tsx".to_string(),
+        dirty: true,
+        state_code: "modify".to_string(),
+        entry_kind: EntryKind::File,
+        last_modified_at_ms: 0,
+        last_session_id: None,
+        confidence: AttributionConfidence::Unknown,
+        conflicted: false,
+        touched_by: BTreeSet::new(),
+        recent_events: Vec::new(),
+    };
+    let rust_file = FileView {
+        rel_path: "crates/routa-server/src/api/harness.rs".to_string(),
+        dirty: true,
+        state_code: "modify".to_string(),
+        entry_kind: EntryKind::File,
+        last_modified_at_ms: 0,
+        last_session_id: None,
+        confidence: AttributionConfidence::Unknown,
+        conflicted: false,
+        touched_by: BTreeSet::new(),
+        recent_events: Vec::new(),
+    };
+    let files = vec![&web_file, &rust_file];
+
+    let hints = cache.repo_review_context_for_file(&web_file, &files);
+    assert!(hints
+        .iter()
+        .any(|hint| hint.rule_name == "cross_boundary_change_web_rust"));
+}
+
+#[test]
 fn submodule_diff_preview_lists_nested_dirty_entries() {
     let dir = tempdir().expect("tempdir");
     let repo_root = dir.path();

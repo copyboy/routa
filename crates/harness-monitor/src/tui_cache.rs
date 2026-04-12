@@ -65,9 +65,15 @@ pub(super) struct ReviewHint {
 #[derive(Clone, Debug)]
 struct ReviewTriggerRule {
     name: String,
+    trigger_type: String,
     severity: String,
     paths: Vec<String>,
     directories: Vec<String>,
+    boundaries: Vec<Vec<String>>,
+    min_boundaries: Option<usize>,
+    max_files: Option<usize>,
+    max_added_lines: Option<usize>,
+    max_deleted_lines: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -154,6 +160,13 @@ pub(super) struct AppCache {
     review_trigger_rules: Vec<ReviewTriggerRule>,
     worker_tx: Sender<BackgroundCommand>,
     worker_rx: Receiver<BackgroundResult>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct RepoReviewHint {
+    pub(super) label: &'static str,
+    pub(super) level: ReviewRiskLevel,
+    pub(super) rule_name: String,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -649,6 +662,136 @@ impl AppCache {
         }
         best
     }
+
+    pub(super) fn repo_review_hints(&self, files: &[&crate::models::FileView]) -> Vec<RepoReviewHint> {
+        let file_paths = files.iter().map(|file| file.rel_path.clone()).collect::<Vec<_>>();
+        let added_lines = self.repo_added_lines(files);
+        let deleted_lines = self.repo_deleted_lines(files);
+        let mut hints = Vec::new();
+
+        for rule in &self.review_trigger_rules {
+            let matched = match rule.trigger_type.as_str() {
+                "diff_size" => rule.max_files.is_some_and(|max| file_paths.len() > max)
+                    || rule
+                        .max_added_lines
+                        .is_some_and(|max| added_lines.is_some_and(|value| value > max))
+                    || rule
+                        .max_deleted_lines
+                        .is_some_and(|max| deleted_lines.is_some_and(|value| value > max)),
+                "cross_boundary_change" => {
+                    let matched_boundaries = rule
+                        .boundaries
+                        .iter()
+                        .filter(|boundary| {
+                            file_paths.iter().any(|path| {
+                                boundary.iter().any(|pattern| match_file(path, pattern))
+                            })
+                        })
+                        .count();
+                    matched_boundaries >= rule.min_boundaries.unwrap_or(2)
+                }
+                _ => false,
+            };
+            if matched {
+                hints.push(RepoReviewHint {
+                    label: if rule.severity == "high" { "HIGH" } else { "REV" },
+                    level: if rule.severity == "high" {
+                        ReviewRiskLevel::High
+                    } else {
+                        ReviewRiskLevel::Medium
+                    },
+                    rule_name: rule.name.clone(),
+                });
+            }
+        }
+
+        hints.sort_by_key(|hint| std::cmp::Reverse(review_level_rank(&hint.level)));
+        hints
+    }
+
+    pub(super) fn repo_review_context_for_file(
+        &self,
+        file: &crate::models::FileView,
+        files: &[&crate::models::FileView],
+    ) -> Vec<RepoReviewHint> {
+        let file_paths = files.iter().map(|entry| entry.rel_path.clone()).collect::<Vec<_>>();
+        let added_lines = self.repo_added_lines(files);
+        let deleted_lines = self.repo_deleted_lines(files);
+        let mut hints = Vec::new();
+
+        for rule in &self.review_trigger_rules {
+            let includes_file = match rule.trigger_type.as_str() {
+                "diff_size" => {
+                    let triggered = rule.max_files.is_some_and(|max| file_paths.len() > max)
+                        || rule
+                            .max_added_lines
+                            .is_some_and(|max| added_lines.is_some_and(|value| value > max))
+                        || rule
+                            .max_deleted_lines
+                            .is_some_and(|max| deleted_lines.is_some_and(|value| value > max));
+                    triggered
+                }
+                "cross_boundary_change" => {
+                    let file_matches_boundary = rule.boundaries.iter().any(|boundary| {
+                        boundary.iter().any(|pattern| match_file(&file.rel_path, pattern))
+                    });
+                    let matched_boundaries = rule
+                        .boundaries
+                        .iter()
+                        .filter(|boundary| {
+                            file_paths.iter().any(|path| {
+                                boundary.iter().any(|pattern| match_file(path, pattern))
+                            })
+                        })
+                        .count();
+                    file_matches_boundary && matched_boundaries >= rule.min_boundaries.unwrap_or(2)
+                }
+                _ => false,
+            };
+            if includes_file {
+                hints.push(RepoReviewHint {
+                    label: if rule.severity == "high" { "HIGH" } else { "REV" },
+                    level: if rule.severity == "high" {
+                        ReviewRiskLevel::High
+                    } else {
+                        ReviewRiskLevel::Medium
+                    },
+                    rule_name: rule.name.clone(),
+                });
+            }
+        }
+
+        hints.sort_by_key(|hint| std::cmp::Reverse(review_level_rank(&hint.level)));
+        hints
+    }
+
+    fn repo_added_lines(&self, files: &[&crate::models::FileView]) -> Option<usize> {
+        let mut total = 0usize;
+        let mut seen = false;
+        for file in files {
+            if let Some(stats) = self.diff_stat(file) {
+                if let Some(additions) = stats.additions {
+                    total += additions;
+                    seen = true;
+                }
+            }
+        }
+        seen.then_some(total)
+    }
+
+    fn repo_deleted_lines(&self, files: &[&crate::models::FileView]) -> Option<usize> {
+        let mut total = 0usize;
+        let mut seen = false;
+        for file in files {
+            if let Some(stats) = self.diff_stat(file) {
+                if let Some(deletions) = stats.deletions {
+                    total += deletions;
+                    seen = true;
+                }
+            }
+        }
+        seen.then_some(total)
+    }
 }
 
 fn review_level_rank(level: &ReviewRiskLevel) -> u8 {
@@ -679,6 +822,11 @@ fn load_review_trigger_rules(repo_root: &str) -> Vec<ReviewTriggerRule> {
                         .and_then(Value::as_str)
                         .unwrap_or("review_trigger")
                         .to_string(),
+                    trigger_type: rule
+                        .get(Value::String("type".to_string()))
+                        .and_then(Value::as_str)
+                        .unwrap_or("changed_paths")
+                        .to_string(),
                     severity: rule
                         .get(Value::String("severity".to_string()))
                         .and_then(Value::as_str)
@@ -690,11 +838,53 @@ fn load_review_trigger_rules(repo_root: &str) -> Vec<ReviewTriggerRule> {
                     directories: normalize_yaml_string_list(
                         rule.get(Value::String("directories".to_string())),
                     ),
+                    boundaries: rule
+                        .get(Value::String("boundaries".to_string()))
+                        .and_then(Value::as_mapping)
+                        .map(|mapping| {
+                            mapping
+                                .iter()
+                                .filter_map(|(_, value)| {
+                                    let paths = normalize_yaml_string_list(Some(value));
+                                    (!paths.is_empty()).then_some(paths)
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default(),
+                    min_boundaries: normalize_yaml_int(
+                        rule.get(Value::String("min_boundaries".to_string())),
+                    )
+                    .map(|value| value as usize),
+                    max_files: normalize_yaml_int(rule.get(Value::String("max_files".to_string())))
+                        .map(|value| value as usize),
+                    max_added_lines: normalize_yaml_int(
+                        rule.get(Value::String("max_added_lines".to_string())),
+                    )
+                    .map(|value| value as usize),
+                    max_deleted_lines: normalize_yaml_int(
+                        rule.get(Value::String("max_deleted_lines".to_string())),
+                    )
+                    .map(|value| value as usize),
                 })
-                .filter(|rule| !rule.paths.is_empty() || !rule.directories.is_empty())
+                .filter(|rule| {
+                    !rule.paths.is_empty()
+                        || !rule.directories.is_empty()
+                        || !rule.boundaries.is_empty()
+                        || rule.max_files.is_some()
+                        || rule.max_added_lines.is_some()
+                        || rule.max_deleted_lines.is_some()
+                })
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn normalize_yaml_int(value: Option<&Value>) -> Option<i64> {
+    match value {
+        Some(Value::Number(number)) => number.as_i64(),
+        Some(Value::String(value)) => value.trim().parse::<i64>().ok(),
+        _ => None,
+    }
 }
 
 fn normalize_yaml_string_list(value: Option<&Value>) -> Vec<String> {
