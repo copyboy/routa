@@ -20,11 +20,11 @@ routa.js  2 dirty  1 unattributed  lines: --  loc: --  fitness: fast  transport:
 │                                                                                    ││                                │
 │                                                                                    ││                                │
 └────────────────────────────────────────────────────────────────────────────────────┘└────────────────────────────────┘
-┌Fitness (Entrix Fast)───────────────────────────────────────────────────────────────┐┌File Detail─────────────────────┐
-│Score: PASS 91.0% (0/12) 4200ms                                                     ││tui.rs                          │
-│Dimension scores:                                                                   ││crates/harness-monitor/src      │
-│92% code_quality           w18  4/4  ██████████████████████████░░                   ││Lines: ...  Size: ...  Git      │
-│95% api_contract           w10  2/2  ███████████████████████████░                   ││changes: ...                    │
+┌Fitness (Entrix Fast) - PASS 91.0% (0/12) 4200ms────────────────────────────────────┐┌File Detail─────────────────────┐
+│Dimension scores:                                                                   ││tui.rs                          │
+│92% code_quality           w18  4/4  ██████████████████████████░░                   ││crates/harness-monitor/src      │
+│95% api_contract           w10  2/2  ███████████████████████████░                   ││Lines: ...  Size: ...  Git      │
+│                                                                                    ││changes: ...                    │
 │                                                                                    ││Test mapping: changed  rust     │
 │                                                                                    ││Resolver: hybrid_heuristic      │
 │                                                                                    ││Confidence: medium              │

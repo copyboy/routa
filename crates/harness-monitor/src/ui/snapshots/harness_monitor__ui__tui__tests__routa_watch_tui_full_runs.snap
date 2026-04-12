@@ -17,11 +17,11 @@ routa.js  2 dirty  1 unattributed  lines: --  loc: --  fitness: fast  transport:
 │  reviewer  attribution-review  unknown  fi││                                                                          ││                                                         │
 │                                           ││                                                                          ││                                                         │
 └───────────────────────────────────────────┘│                                                                          │└─────────────────────────────────────────────────────────┘
-┌Agents─────────────────────────────────────┐│                                                                          │┌Fitness (Entrix Fast)────────────────────────────────────┐
-│4211 ◈ Codex  ACTIVE                       │└──────────────────────────────────────────────────────────────────────────┘│Score: PASS 91.0% (0/12) 4200ms                          │
-│cpu  2.5%  mem 128MB  up 01:35             │┌Run Details───────────────────────────────────────────────────────────────┐│Dimension scores:                                        │
-│proj project  conf 80%                     ││impl-buddy                                                                ││92% code_quality          w18  4/4  ██████████████████░░ │
-│                                           ││live-hook-check  builder  hook-backed                                     ││95% api_contract          w10  2/2  ███████████████████░ │
+┌Agents─────────────────────────────────────┐│                                                                          │┌Fitness (Entrix Fast) - PASS 91.0% (0/12) 4200ms─────────┐
+│4211 ◈ Codex  ACTIVE                       │└──────────────────────────────────────────────────────────────────────────┘│Dimension scores:                                        │
+│cpu  2.5%  mem 128MB  up 01:35             │┌Run Details───────────────────────────────────────────────────────────────┐│92% code_quality          w18  4/4  ██████████████████░░ │
+│proj project  conf 80%                     ││impl-buddy                                                                ││95% api_contract          w10  2/2  ███████████████████░ │
+│                                           ││live-hook-check  builder  hook-backed                                     ││                                                         │
 │9001 ◆ Claude  IDLE                        ││State: executing  Block: missing coverage_report  Mode: unmanaged         ││                                                         │
 │cpu  0.1%  mem 96MB  up <ts>           ││Workspace: dirty  Path: <repo>                                      ││                                                         │
 └───────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────┘└─────────────────────────────────────────────────────────┘

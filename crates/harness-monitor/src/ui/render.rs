@@ -180,11 +180,31 @@ fn render_main_area(
 
 fn render_fitness_panel(frame: &mut Frame, area: Rect, state: &RuntimeState, cache: &AppCache) {
     let colors = palette(state.theme_mode);
-    let block = panel_block(
-        format!("Fitness ({})", state.fitness_view_mode.label()),
-        state.focus == FocusPane::Fitness,
-        colors,
-    );
+
+    // Build title with score if available
+    let title = if let Some(snapshot) = cache.fitness_snapshot() {
+        let score = snapshot.final_score;
+        let status = if snapshot.hard_gate_blocked {
+            "BLOCKED(hard gate)"
+        } else if snapshot.score_blocked {
+            "BLOCKED(score)"
+        } else {
+            "PASS"
+        };
+        format!(
+            "Fitness ({}) - {} {:.1}% ({}/{}) {}ms",
+            state.fitness_view_mode.label(),
+            status,
+            score,
+            fitness::passed_metric_count(snapshot),
+            snapshot.metric_count,
+            snapshot.duration_ms.round() as u64
+        )
+    } else {
+        format!("Fitness ({})", state.fitness_view_mode.label())
+    };
+
+    let block = panel_block(title, state.focus == FocusPane::Fitness, colors);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -202,48 +222,12 @@ fn render_fitness_panel(frame: &mut Frame, area: Rect, state: &RuntimeState, cac
     }
 
     if let Some(snapshot) = cache.fitness_snapshot() {
-        let score = snapshot.final_score;
-        let score_color = if snapshot.hard_gate_blocked || snapshot.score_blocked {
-            STOPPED
-        } else if score >= 90.0 {
-            ACTIVE
-        } else if score >= 70.0 {
-            INFERRED
-        } else {
-            STOPPED
-        };
-        let status = if snapshot.hard_gate_blocked {
-            "BLOCKED(hard gate)"
-        } else if snapshot.score_blocked {
-            "BLOCKED(score)"
-        } else {
-            "PASS"
-        };
         let compact_height = inner.height <= 8;
         let medium_height = inner.height <= 13;
 
-        lines.push(Line::from(vec![
-            Span::styled("Score: ", Style::default().fg(colors.muted)),
-            Span::styled(
-                format!("{status} "),
-                Style::default()
-                    .fg(score_color)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(format!("{score:.1}% "), Style::default().fg(score_color)),
-            Span::raw(format!(
-                "({}/{})",
-                fitness::passed_metric_count(snapshot),
-                snapshot.metric_count
-            )),
-            Span::styled(" ", Style::default()),
-            Span::styled(
-                format!("{}ms", snapshot.duration_ms.round() as u64),
-                Style::default().fg(colors.muted),
-            ),
-        ]));
+        // Combine last run and coverage info on one line
         if let Some(last_run_ms) = cache.fitness_last_run_ms() {
-            lines.push(Line::from(vec![
+            let mut line_spans = vec![
                 Span::styled(
                     format!("last run: {}", format_ts(last_run_ms)),
                     Style::default().fg(colors.muted),
@@ -261,16 +245,22 @@ fn render_fitness_panel(frame: &mut Frame, area: Rect, state: &RuntimeState, cac
                         colors.muted
                     }),
                 ),
-            ]));
+            ];
+
+            // Add coverage updated timestamp if available
             if let Some(coverage_generated_at_ms) = snapshot.coverage_summary.generated_at_ms {
-                lines.push(Line::from(vec![
-                    Span::styled("coverage updated: ", Style::default().fg(colors.muted)),
-                    Span::styled(
-                        format_ts(coverage_generated_at_ms),
-                        Style::default().fg(colors.text),
-                    ),
-                ]));
+                line_spans.push(Span::raw("  "));
+                line_spans.push(Span::styled(
+                    "coverage updated: ",
+                    Style::default().fg(colors.muted),
+                ));
+                line_spans.push(Span::styled(
+                    format_ts(coverage_generated_at_ms),
+                    Style::default().fg(colors.text),
+                ));
             }
+
+            lines.push(Line::from(line_spans));
         }
         let trend = cache.fitness_trend();
         if trend.len() >= 2 && !compact_height {
