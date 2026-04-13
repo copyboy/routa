@@ -28,6 +28,7 @@ fn review_context_matches_python_skip_typescript_fixture() {
             max_files: 12,
             max_lines_per_file: 120,
             build_mode: ReviewBuildMode::Skip,
+            max_depth: 2,
             max_targets: 25,
         },
     );
@@ -73,6 +74,7 @@ fn review_context_matches_python_auto_typescript_fixture() {
             max_files: 12,
             max_lines_per_file: 120,
             build_mode: ReviewBuildMode::Auto,
+            max_depth: 2,
             max_targets: 25,
         },
     );
@@ -121,6 +123,7 @@ fn review_context_matches_python_auto_rust_inline_test_fixture() {
             max_files: 12,
             max_lines_per_file: 120,
             build_mode: ReviewBuildMode::Auto,
+            max_depth: 2,
             max_targets: 25,
         },
     );
@@ -165,6 +168,7 @@ fn review_context_respects_no_source() {
             max_files: 12,
             max_lines_per_file: 120,
             build_mode: ReviewBuildMode::Skip,
+            max_depth: 2,
             max_targets: 25,
         },
     );
@@ -198,6 +202,7 @@ fn review_context_links_java_companion_test_file() {
             max_files: 12,
             max_lines_per_file: 120,
             build_mode: ReviewBuildMode::Auto,
+            max_depth: 2,
             max_targets: 25,
         },
     );
@@ -259,6 +264,7 @@ fn review_context_links_go_companion_test_file() {
             max_files: 12,
             max_lines_per_file: 120,
             build_mode: ReviewBuildMode::Auto,
+            max_depth: 2,
             max_targets: 25,
         },
     );
@@ -317,6 +323,7 @@ fn review_context_links_typescript_companion_spec_file() {
             max_files: 12,
             max_lines_per_file: 120,
             build_mode: ReviewBuildMode::Auto,
+            max_depth: 2,
             max_targets: 25,
         },
     );
@@ -372,6 +379,7 @@ fn review_context_emits_impacted_graph_edges_for_companion_tests() {
             max_files: 12,
             max_lines_per_file: 120,
             build_mode: ReviewBuildMode::Auto,
+            max_depth: 2,
             max_targets: 25,
         },
     );
@@ -809,6 +817,7 @@ fn parity_with_python_entrix_for_review_context_core_fields() {
             max_files: 12,
             max_lines_per_file: 120,
             build_mode: ReviewBuildMode::Auto,
+            max_depth: 2,
             max_targets: 25,
         },
     ))
@@ -835,6 +844,50 @@ fn parity_with_python_entrix_for_review_context_core_fields() {
     assert_eq!(
         rust["context"]["tests"]["untested_targets"],
         python["context"]["tests"]["untested_targets"]
+    );
+}
+
+#[test]
+fn parity_with_python_entrix_for_test_radius_core_fields() {
+    let temp = tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/service.ts"),
+        "export function run() { return helper(); }\nfunction helper() { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/service.test.ts"),
+        "import { run } from './service';\n\ntest('run', () => { expect(run()).toBe(1); });\n",
+    )
+    .unwrap();
+
+    let Some(python) = python_entrix_runner_json(root, "test_radius", &["src/service.ts"]) else {
+        return;
+    };
+    let rust = serde_json::to_value(analyze_test_radius(
+        root,
+        &["src/service.ts".to_string()],
+        TestRadiusOptions {
+            base: "HEAD",
+            build_mode: ReviewBuildMode::Auto,
+            max_depth: 2,
+            max_targets: 25,
+            max_impacted_files: 200,
+        },
+    ))
+    .unwrap();
+
+    assert_eq!(rust["status"], python["status"]);
+    assert_eq!(rust["analysis_mode"], python["analysis_mode"]);
+    assert_eq!(rust["changed_files"], python["changed_files"]);
+    assert_eq!(rust["impacted_files"], python["impacted_files"]);
+    assert_eq!(rust["test_files"], python["test_files"]);
+    assert_eq!(rust["untested_targets"], python["untested_targets"]);
+    assert_eq!(
+        qualified_names(rust["target_nodes"].as_array().map_or(&[], |v| v)),
+        qualified_names(python["target_nodes"].as_array().map_or(&[], |v| v))
     );
 }
 
@@ -877,6 +930,8 @@ try:
         action = sys.argv[3]
         if action == 'review_context':
             payload = runner.review_context([sys.argv[4]], include_source=False, build_mode='auto')
+        elif action == 'test_radius':
+            payload = runner.analyze_test_radius([sys.argv[4]], build_mode='auto')
         else:
             raise SystemExit(2)
 except Exception:

@@ -23,7 +23,7 @@ pub fn build_review_context(
         TestRadiusOptions {
             base: options.base,
             build_mode: options.build_mode,
-            max_depth: 2,
+            max_depth: options.max_depth,
             max_targets: options.max_targets,
             max_impacted_files: 200,
         },
@@ -33,6 +33,7 @@ pub fn build_review_context(
         radius.wide_blast_radius,
         radius.impacted_test_files.len(),
         radius.impacted_files.len(),
+        radius.query_failures.len(),
         !radius.target_nodes.is_empty(),
     );
     let source_snippets = options.include_source.then(|| {
@@ -152,6 +153,7 @@ fn generate_review_guidance(
     wide_blast_radius: bool,
     impacted_test_files: usize,
     impacted_files: usize,
+    query_failures: usize,
     changed_targets_present: bool,
 ) -> String {
     let mut guidance_parts = Vec::new();
@@ -181,6 +183,13 @@ fn generate_review_guidance(
         guidance_parts.push(format!(
             "- {} impacted test file(s) were identified. Prioritize those before broader regression sweeps.",
             impacted_test_files
+        ));
+    }
+
+    if query_failures > 0 {
+        guidance_parts.push(format!(
+            "- {} graph query failure(s) occurred. Treat the result as partial and verify critical paths manually.",
+            query_failures
         ));
     }
 

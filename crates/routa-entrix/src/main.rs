@@ -484,6 +484,7 @@ fn cmd_graph_review_context(args: GraphReviewContextArgs) -> i32 {
             max_files: args.max_files,
             max_lines_per_file: args.max_lines_per_file,
             build_mode: parse_build_mode(&args.build_mode),
+            max_depth: args.depth,
             max_targets: args.max_targets,
         },
     );

@@ -255,6 +255,7 @@ pub struct ReviewContextOptions<'a> {
     pub max_files: usize,
     pub max_lines_per_file: usize,
     pub build_mode: ReviewBuildMode,
+    pub max_depth: usize,
     pub max_targets: usize,
 }
 
