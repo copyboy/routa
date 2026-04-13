@@ -1,12 +1,12 @@
 use super::model::{
-    CommitHistoryEntry, GraphBuildReport, GraphEdge, GraphHistoryReport, GraphQueryReport,
-    GraphStatsReport, ImpactAnalysisReport, ImpactOptions, ParsedReviewGraph, QueryFailure,
-    ReviewBuildInfo, ReviewBuildMode, ReviewTarget, SymbolGraphNode, TestRadiusOptions,
-    TestRadiusReport, UntestedTarget,
+    AnalyzeFileReport, CommitHistoryEntry, GraphBuildReport, GraphEdge, GraphHistoryReport,
+    GraphQueryReport, GraphStatsReport, ImpactAnalysisReport, ImpactOptions, ParsedReviewGraph,
+    QueryFailure, ReviewBuildInfo, ReviewBuildMode, ReviewTarget, SymbolGraphNode,
+    TestRadiusOptions, TestRadiusReport, UntestedTarget,
 };
 use super::tree_sitter::{
-    node_to_payload, parse_changed_files, parse_repo_graph, query_file_imports, query_graph,
-    QueryResult,
+    analyze_single_file, node_to_payload, parse_changed_files, parse_repo_graph,
+    query_file_imports, query_graph, QueryResult,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -103,6 +103,34 @@ pub fn graph_stats(repo_root: &Path) -> GraphStatsReport {
         files,
         languages: graph.languages,
         backend: "builtin-tree-sitter".to_string(),
+    }
+}
+
+pub fn analyze_file(repo_root: &Path, target: &str) -> AnalyzeFileReport {
+    let Some(result) = analyze_single_file(repo_root, target) else {
+        return AnalyzeFileReport {
+            status: "not_found".to_string(),
+            summary: Some(format!("No file found matching '{target}'.")),
+            file_path: None,
+            language: None,
+            is_test_file: None,
+            imports: None,
+            comments: None,
+            symbols: None,
+            source_basename: None,
+        };
+    };
+
+    AnalyzeFileReport {
+        status: "ok".to_string(),
+        summary: None,
+        file_path: Some(result.file_path),
+        language: Some(result.language),
+        is_test_file: Some(result.is_test_file),
+        imports: Some(result.imports),
+        comments: Some(result.comments),
+        symbols: Some(result.symbols),
+        source_basename: Some(result.source_basename),
     }
 }
 
@@ -263,12 +291,12 @@ pub fn query_current_graph(
     let query = if matches!(pattern, "imports_of" | "importers_of") {
         query_file_imports(repo_root, target, pattern == "importers_of")
     } else {
-        let file_path = if target.contains(':') {
-            target.split(':').next().unwrap_or(target).to_string()
+        let graph = if target.contains(':') {
+            let file_path = target.split(':').next().unwrap_or(target).to_string();
+            parse_changed_files(repo_root, &[file_path])
         } else {
-            target.to_string()
+            parse_repo_graph(repo_root)
         };
-        let graph = parse_changed_files(repo_root, &[file_path]);
         query_graph(&graph, pattern, target)
     };
 

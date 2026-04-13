@@ -103,6 +103,27 @@ pub struct GraphQueryReport {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct AnalyzeFileReport {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_test_file: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imports: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comments: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbols: Option<Vec<SymbolGraphNode>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_basename: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct GraphBuildReport {
     pub status: String,
     pub backend: Option<String>,

@@ -146,13 +146,20 @@ pub enum QueryResult {
 }
 
 pub fn query_graph(graph: &ParsedReviewGraph, query_type: &str, target: &str) -> QueryResult {
+    let Some(resolved_target) = resolve_graph_target(graph, target) else {
+        return QueryResult::Err {
+            status: "not_found".to_string(),
+            summary: format!("No node found matching '{target}'."),
+        };
+    };
+
     match query_type {
-        "tests_for" => query_tests_for(graph, target),
-        "callers_of" => query_neighbors(graph, target, true),
-        "callees_of" => query_neighbors(graph, target, false),
-        "children_of" => query_children_of(graph, target),
-        "inheritors_of" => query_inheritors_of(graph, target),
-        "file_summary" => query_file_summary(graph, target),
+        "tests_for" => query_tests_for(graph, &resolved_target),
+        "callers_of" => query_neighbors(graph, &resolved_target, true),
+        "callees_of" => query_neighbors(graph, &resolved_target, false),
+        "children_of" => query_children_of(graph, &resolved_target),
+        "inheritors_of" => query_inheritors_of(graph, &resolved_target),
+        "file_summary" => query_file_summary(graph, &resolved_target),
         _ => QueryResult::Err {
             status: "error".to_string(),
             summary: format!("Unknown query type '{query_type}'."),
@@ -419,21 +426,24 @@ fn query_neighbors(graph: &ParsedReviewGraph, target: &str, reverse: bool) -> Qu
 }
 
 fn query_file_summary(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
-    let results = graph
+    let mut results = graph
         .changed_nodes
         .iter()
         .chain(graph.related_test_nodes.iter())
         .filter(|node| node.file_path == target && node.kind != "File")
         .map(|node| GraphNodePayload::Symbol(symbol_to_payload(node)))
         .collect::<Vec<_>>();
+    if let Some(file_node) = graph
+        .changed_nodes
+        .iter()
+        .chain(graph.related_test_nodes.iter())
+        .find(|node| node.kind == "File" && node.file_path == target)
+    {
+        results.insert(0, node_to_payload(file_node));
+    }
     QueryResult::Ok {
         results,
-        edges: graph
-            .graph_edges
-            .iter()
-            .filter(|edge| edge.kind == "CONTAINS" && edge.source_qualified == target)
-            .cloned()
-            .collect(),
+        edges: Vec::new(),
     }
 }
 
@@ -454,6 +464,32 @@ fn query_children_of(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
             .cloned()
             .collect(),
     }
+}
+
+fn resolve_graph_target(graph: &ParsedReviewGraph, target: &str) -> Option<String> {
+    let nodes = graph
+        .changed_nodes
+        .iter()
+        .chain(graph.related_test_nodes.iter())
+        .collect::<Vec<_>>();
+    if nodes.iter().any(|node| node.qualified_name == target) {
+        return Some(target.to_string());
+    }
+    if nodes
+        .iter()
+        .any(|node| node.kind == "File" && node.file_path == target)
+    {
+        return Some(target.to_string());
+    }
+    let matches = nodes
+        .iter()
+        .filter(|node| node.name == target)
+        .map(|node| node.qualified_name.clone())
+        .collect::<BTreeSet<_>>();
+    if matches.len() == 1 {
+        return matches.into_iter().next();
+    }
+    None
 }
 
 fn query_inheritors_of(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
@@ -725,6 +761,63 @@ pub(super) fn resolve_relative_import(
         }
     }
     None
+}
+
+pub fn analyze_single_file(repo_root: &Path, target: &str) -> Option<SingleFileAnalysis> {
+    let relative_path = resolve_repo_relative_path(repo_root, target)?;
+    let language = language_config_for_path(&relative_path)?;
+    let source = fs::read_to_string(repo_root.join(&relative_path)).ok()?;
+    let mut parser = Parser::new();
+    parser.set_language(&language.ts_language()).ok()?;
+    let tree = parser.parse(&source, None)?;
+    let symbols = (language.parse_nodes)(&relative_path, &source, tree.root_node())
+        .into_iter()
+        .filter(|node| node.kind != "File")
+        .map(|node| symbol_to_payload(&node))
+        .collect::<Vec<_>>();
+    let imports = (language.parse_imports)(repo_root, &relative_path, &source, tree.root_node());
+    Some(SingleFileAnalysis {
+        file_path: relative_path.clone(),
+        language: language.name.to_string(),
+        is_test_file: (language.is_test_file)(&relative_path),
+        imports,
+        comments: Vec::new(),
+        symbols,
+        source_basename: normalized_source_basename(&relative_path),
+    })
+}
+
+pub struct SingleFileAnalysis {
+    pub file_path: String,
+    pub language: String,
+    pub is_test_file: bool,
+    pub imports: Vec<String>,
+    pub comments: Vec<serde_json::Value>,
+    pub symbols: Vec<SymbolGraphNode>,
+    pub source_basename: String,
+}
+
+fn normalized_source_basename(relative_path: &str) -> String {
+    let mut name = Path::new(relative_path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(relative_path)
+        .to_string();
+    for marker in [".test", ".spec", "_test", "_spec"] {
+        name = name.replace(marker, "");
+    }
+    while let Some(extension) = Path::new(&name)
+        .extension()
+        .and_then(|value| value.to_str())
+    {
+        let suffix = format!(".{extension}");
+        if let Some(stripped) = name.strip_suffix(&suffix) {
+            name = stripped.to_string();
+        } else {
+            break;
+        }
+    }
+    name
 }
 
 pub(super) fn resolve_rust_import(

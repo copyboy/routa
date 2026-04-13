@@ -3,9 +3,9 @@ use routa_entrix::file_budgets::{
     evaluate_paths, is_tracked_source_file, load_config, resolve_paths,
 };
 use routa_entrix::review_context::{
-    analyze_history, analyze_impact, analyze_test_radius, build_graph, build_review_context,
-    graph_stats, query_current_graph, ImpactOptions, ReviewBuildMode, ReviewContextOptions,
-    TestRadiusOptions,
+    analyze_file, analyze_history, analyze_impact, analyze_test_radius, build_graph,
+    build_review_context, graph_stats, query_current_graph, ImpactOptions, ReviewBuildMode,
+    ReviewContextOptions, TestRadiusOptions,
 };
 use routa_entrix::review_trigger::{
     collect_changed_files, collect_diff_stats, evaluate_review_triggers, load_review_triggers,
@@ -84,6 +84,8 @@ struct HookFileLengthArgs {
 enum GraphCommand {
     #[command(name = "build")]
     Build(GraphBuildArgs),
+    #[command(name = "analyze-file")]
+    AnalyzeFile(GraphAnalyzeFileArgs),
     #[command(name = "stats")]
     Stats,
     #[command(name = "impact")]
@@ -106,6 +108,14 @@ struct GraphBuildArgs {
     base: String,
     #[arg(long, default_value = "auto")]
     build_mode: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args, Debug)]
+struct GraphAnalyzeFileArgs {
+    #[arg()]
+    file: String,
     #[arg(long)]
     json: bool,
 }
@@ -223,6 +233,7 @@ fn main() {
         },
         Command::Graph(args) => match args.command {
             GraphCommand::Build(args) => cmd_graph_build(args),
+            GraphCommand::AnalyzeFile(args) => cmd_graph_analyze_file(args),
             GraphCommand::Stats => cmd_graph_stats(),
             GraphCommand::Impact(args) => cmd_graph_impact(args),
             GraphCommand::TestRadius(args) => cmd_graph_test_radius(args),
@@ -367,6 +378,23 @@ fn cmd_graph_build(args: GraphBuildArgs) -> i32 {
         print_json(&result);
     } else {
         println!("{}", result.summary);
+    }
+    0
+}
+
+fn cmd_graph_analyze_file(args: GraphAnalyzeFileArgs) -> i32 {
+    let repo_root = find_project_root();
+    let result = analyze_file(&repo_root, &args.file);
+    if args.json {
+        print_json(&result);
+    } else if let Some(summary) = result.summary.as_deref() {
+        println!("{summary}");
+    } else {
+        println!(
+            "{} ({})",
+            result.file_path.as_deref().unwrap_or(&args.file),
+            result.language.as_deref().unwrap_or("unknown")
+        );
     }
     0
 }

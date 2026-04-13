@@ -1,5 +1,5 @@
 use super::{
-    analyze_impact, analyze_test_radius, build_review_context, query_current_graph,
+    analyze_file, analyze_impact, analyze_test_radius, build_review_context, query_current_graph,
     GraphNodePayload, ImpactOptions, ReviewBuildMode, ReviewContextOptions, TestRadiusOptions,
 };
 use std::fs;
@@ -611,4 +611,81 @@ fn query_current_graph_returns_importers_for_file() {
         .edges
         .iter()
         .all(|edge| edge.kind == "IMPORTS_FROM" && edge.target_qualified == "src/lib.ts"));
+}
+
+#[test]
+fn query_current_graph_resolves_unique_symbol_name() {
+    let temp = tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/service.ts"),
+        "class BaseService {}\nclass ChildService extends BaseService {}\n",
+    )
+    .unwrap();
+
+    let result = query_current_graph(root, "BaseService", "inheritors_of", ReviewBuildMode::Auto);
+
+    assert_eq!(result.status, "ok");
+    assert_eq!(result.results.len(), 1);
+    assert!(matches!(
+        &result.results[0],
+        GraphNodePayload::Symbol(node) if node.qualified_name == "src/service.ts:ChildService"
+    ));
+}
+
+#[test]
+fn query_current_graph_file_summary_includes_file_node() {
+    let temp = tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/service.ts"),
+        "export class Service {}\nexport function run() { return 1; }\n",
+    )
+    .unwrap();
+
+    let result = query_current_graph(
+        root,
+        "src/service.ts",
+        "file_summary",
+        ReviewBuildMode::Auto,
+    );
+
+    assert_eq!(result.status, "ok");
+    assert_eq!(result.results.len(), 3);
+    assert!(matches!(
+        &result.results[0],
+        GraphNodePayload::File(node) if node.qualified_name == "src/service.ts"
+    ));
+    assert!(result.edges.is_empty());
+}
+
+#[test]
+fn analyze_file_reports_symbols_imports_and_basename() {
+    let temp = tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/lib.ts"), "export const value = 1;\n").unwrap();
+    fs::write(
+        root.join("src/service.test.ts"),
+        "import { value } from './lib';\nexport function run() { return value; }\n",
+    )
+    .unwrap();
+
+    let result = analyze_file(root, "src/service.test.ts");
+
+    assert_eq!(result.status, "ok");
+    assert_eq!(result.file_path.as_deref(), Some("src/service.test.ts"));
+    assert_eq!(result.language.as_deref(), Some("typescript"));
+    assert_eq!(result.is_test_file, Some(true));
+    assert_eq!(
+        result.imports.unwrap_or_default(),
+        vec!["src/lib.ts".to_string()]
+    );
+    assert_eq!(result.source_basename.as_deref(), Some("service"));
+    let symbols = result.symbols.as_ref().unwrap();
+    assert!(symbols
+        .iter()
+        .any(|symbol| symbol.qualified_name == "src/service.test.ts:run"));
 }
