@@ -13,5 +13,6 @@ pub mod reporting;
 pub mod review_context;
 pub mod review_trigger;
 pub mod runner;
+pub mod sarif;
 pub mod scoring;
 pub mod test_mapping;

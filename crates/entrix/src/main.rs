@@ -3,7 +3,7 @@ use entrix::evidence::{load_dimensions, validate_weights};
 use entrix::file_budgets::{evaluate_paths, is_tracked_source_file, load_config, resolve_paths};
 use entrix::governance::{enforce, filter_dimensions, GovernancePolicy};
 use entrix::long_file::{analyze_long_files, default_comment_review_commit_threshold};
-use entrix::model::{ExecutionScope, Tier};
+use entrix::model::{EvidenceType, ExecutionScope, Tier};
 use entrix::release_trigger::{
     evaluate_release_triggers, load_release_manifest, load_release_triggers,
 };
@@ -17,6 +17,7 @@ use entrix::review_trigger::{
     collect_changed_files, collect_diff_stats, evaluate_review_triggers, load_review_triggers,
 };
 use entrix::runner::ShellRunner;
+use entrix::sarif::SarifRunner;
 use entrix::scoring::{score_dimension, score_report};
 use entrix::test_mapping;
 use serde_json::json;
@@ -34,6 +35,9 @@ struct Cli {
 enum Command {
     Run(RunArgs),
     Validate(ValidateArgs),
+    Install(InstallArgs),
+    Init(InstallArgs),
+    Serve,
     Analyze(AnalyzeArgs),
     #[command(name = "release-trigger")]
     ReleaseTrigger(ReleaseTriggerArgs),
@@ -55,10 +59,22 @@ struct RunArgs {
     dry_run: bool,
     #[arg(long)]
     verbose: bool,
+    #[arg(long, default_value = "failures")]
+    stream: String,
+    #[arg(long, default_value = "text")]
+    format: String,
+    #[arg(long, default_value_t = 4)]
+    progress_refresh: usize,
     #[arg(long, default_value_t = 80.0)]
     min_score: f64,
     #[arg(long)]
     scope: Option<String>,
+    #[arg(long)]
+    changed_only: bool,
+    #[arg(long)]
+    files: Vec<String>,
+    #[arg(long, default_value = "HEAD")]
+    base: String,
     #[arg(long = "dimension")]
     dimensions: Vec<String>,
     #[arg(long = "metric")]
@@ -73,6 +89,14 @@ struct RunArgs {
 struct ValidateArgs {
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Args, Debug)]
+struct InstallArgs {
+    #[arg(long)]
+    repo: Option<String>,
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(Args, Debug)]
@@ -324,6 +348,8 @@ fn main() {
     let exit_code = match cli.command {
         Command::Run(args) => cmd_run(args),
         Command::Validate(args) => cmd_validate(args),
+        Command::Install(args) | Command::Init(args) => cmd_install(args),
+        Command::Serve => cmd_serve(),
         Command::Analyze(args) => match args.command {
             AnalyzeCommand::LongFile(args) => cmd_analyze_long_file(args),
         },
@@ -349,6 +375,14 @@ fn main() {
 
 fn cmd_run(args: RunArgs) -> i32 {
     let repo_root = find_project_root();
+    let _ = (
+        args.stream.as_str(),
+        args.format.as_str(),
+        args.progress_refresh,
+        args.changed_only,
+        args.files.as_slice(),
+        args.base.as_str(),
+    );
     let fitness_dir = repo_root.join("docs/fitness");
     let all_dimensions = load_dimensions(&fitness_dir);
 
@@ -374,11 +408,19 @@ fn cmd_run(args: RunArgs) -> i32 {
         return 1;
     }
 
-    let runner = ShellRunner::new(&repo_root);
+    let shell_runner = ShellRunner::new(&repo_root);
+    let sarif_runner = SarifRunner::new(&repo_root);
     let mut dimension_scores = Vec::new();
 
     for dimension in &dimensions {
-        let results = runner.run_batch(&dimension.metrics, policy.parallel, policy.dry_run, None);
+        let results = dimension
+            .metrics
+            .iter()
+            .map(|metric| match metric.evidence_type {
+                EvidenceType::Sarif => sarif_runner.run(metric, policy.dry_run),
+                _ => shell_runner.run(metric, policy.dry_run),
+            })
+            .collect::<Vec<_>>();
         let scored = score_dimension(&results, &dimension.name, dimension.weight);
         dimension_scores.push(scored);
     }
@@ -442,6 +484,46 @@ fn cmd_validate(args: ValidateArgs) -> i32 {
     } else {
         1
     }
+}
+
+fn cmd_install(args: InstallArgs) -> i32 {
+    let target = args
+        .repo
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().expect("cwd"));
+    let mcp_path = target.join(".mcp.json");
+    let config = json!({
+        "mcpServers": {
+            "entrix": {
+                "command": "uvx",
+                "args": ["entrix", "serve"]
+            }
+        }
+    });
+    let config_text = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&config).expect("serialize mcp config")
+    );
+
+    if args.dry_run {
+        print!("{config_text}");
+        return 0;
+    }
+
+    if let Err(error) = std::fs::write(&mcp_path, config_text) {
+        eprintln!("failed to write {}: {error}", mcp_path.display());
+        return 1;
+    }
+    println!("Wrote Claude MCP config to {}", mcp_path.display());
+    println!("Run `entrix --help` to verify the command is available.");
+    println!("Restart Claude Code after changing MCP settings.");
+    0
+}
+
+fn cmd_serve() -> i32 {
+    eprintln!("Rust entrix MCP server is not implemented yet. Use the Python entrix `serve` command for now.");
+    1
 }
 
 fn cmd_analyze_long_file(args: AnalyzeLongFileArgs) -> i32 {
