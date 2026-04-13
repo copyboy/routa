@@ -19,8 +19,9 @@ pub use self::ipc::{RuntimeFeed, RuntimeTcp};
 pub use self::observe::{
     entry_kind_for_path, entry_kind_for_repo_path, poll_repo, scan_repo, Snapshot,
 };
+#[cfg(test)]
+pub use self::repo::runtime_fitness_artifact_dir;
 pub use self::repo::{
-    resolve, resolve_runtime, runtime_event_path, runtime_fitness_artifact_dir,
-    runtime_fitness_mailbox_dir, runtime_info_path, runtime_socket_path, runtime_tcp_addr,
-    RepoContext,
+    resolve, resolve_runtime, runtime_event_path, runtime_fitness_mailbox_dir, runtime_info_path,
+    runtime_socket_path, runtime_tcp_addr, RepoContext,
 };

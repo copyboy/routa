@@ -149,6 +149,7 @@ pub fn runtime_event_path(repo_root: &Path) -> PathBuf {
     runtime_runtime_dir(repo_root).join("events.jsonl")
 }
 
+#[cfg(test)]
 pub fn runtime_fitness_artifact_dir(repo_root: &Path) -> PathBuf {
     runtime_runtime_dir(repo_root)
         .join("artifacts")

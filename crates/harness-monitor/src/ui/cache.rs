@@ -106,17 +106,17 @@ enum FactsCommand {
 
 #[derive(Debug)]
 enum EvalCommand {
-    RefreshFitness {
+    Fitness {
         repo_root: String,
         cache_key: String,
         mode: fitness::FitnessRunMode,
     },
-    RefreshTestMapping {
+    TestMapping {
         repo_root: String,
         files: Vec<String>,
         cache_key: String,
     },
-    RefreshScc {
+    Scc {
         repo_root: String,
     },
 }
@@ -613,7 +613,7 @@ impl AppCache {
             return;
         }
 
-        let _ = self.eval_worker_tx.send(EvalCommand::RefreshTestMapping {
+        let _ = self.eval_worker_tx.send(EvalCommand::TestMapping {
             repo_root: state.repo_root.clone(),
             files,
             cache_key: cache_key.clone(),
@@ -683,7 +683,7 @@ impl AppCache {
         }
         self.fitness_cache_key = Some(cache_key.clone());
         self.active_fitness_history_mut().cache_key = Some(cache_key.clone());
-        let _ = self.eval_worker_tx.send(EvalCommand::RefreshFitness {
+        let _ = self.eval_worker_tx.send(EvalCommand::Fitness {
             repo_root,
             cache_key,
             mode,
@@ -761,15 +761,11 @@ impl AppCache {
             return;
         }
         if !force && self.scc_summary.is_none() {
-            let _ = self
-                .eval_worker_tx
-                .send(EvalCommand::RefreshScc { repo_root });
+            let _ = self.eval_worker_tx.send(EvalCommand::Scc { repo_root });
             self.pending_scc = true;
             return;
         }
-        let _ = self
-            .eval_worker_tx
-            .send(EvalCommand::RefreshScc { repo_root });
+        let _ = self.eval_worker_tx.send(EvalCommand::Scc { repo_root });
         self.pending_scc = true;
     }
 
@@ -1456,21 +1452,21 @@ fn queue_facts_command(pending: &mut PendingFactsCommands, command: FactsCommand
 
 fn queue_eval_command(pending: &mut PendingEvalCommands, command: EvalCommand) {
     match command {
-        EvalCommand::RefreshFitness {
+        EvalCommand::Fitness {
             repo_root,
             cache_key,
             mode,
         } => {
             pending.fitness = Some((repo_root, cache_key, mode));
         }
-        EvalCommand::RefreshTestMapping {
+        EvalCommand::TestMapping {
             repo_root,
             files,
             cache_key,
         } => {
             pending.test_mapping = Some((repo_root, files, cache_key));
         }
-        EvalCommand::RefreshScc { repo_root } => {
+        EvalCommand::Scc { repo_root } => {
             pending.scc = Some(repo_root);
         }
     }

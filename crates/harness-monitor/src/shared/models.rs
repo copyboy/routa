@@ -383,6 +383,7 @@ pub struct DetectedAgent {
     pub key: String,
     pub name: String,
     pub vendor: String,
+    #[allow(dead_code)]
     pub icon: String,
     pub pid: u32,
     pub cwd: Option<String>,
@@ -390,6 +391,7 @@ pub struct DetectedAgent {
     pub mem_mb: f32,
     pub uptime_seconds: u64,
     pub status: String,
+    #[allow(dead_code)]
     pub confidence: u8,
     pub project: String,
     pub command: String,
