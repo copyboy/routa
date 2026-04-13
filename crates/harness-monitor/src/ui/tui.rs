@@ -100,10 +100,17 @@ fn run_loop(terminal: &mut DefaultTerminal, ctx: RepoContext, poll_interval_ms: 
     let (transcript_tx, transcript_rx) = mpsc::channel();
     let transcript_ctx = ctx.clone();
     thread::spawn(move || {
-        let result = crate::observe::codex_transcript::bootstrap_codex_transcript_messages(
+        let mut result = crate::observe::codex_transcript::bootstrap_codex_transcript_messages(
             &transcript_ctx.repo_root,
         )
         .unwrap_or_default();
+        result.extend(
+            crate::observe::auggie_session::bootstrap_auggie_session_messages(
+                &transcript_ctx.repo_root,
+            )
+            .unwrap_or_default(),
+        );
+        result.sort_by_key(RuntimeMessage::observed_at_ms);
         let _ = transcript_tx.send(result);
     });
     for message in feed.read_recent_since(bootstrap_cutoff)? {

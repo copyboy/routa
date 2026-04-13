@@ -594,7 +594,7 @@ fn render_run_details(
                 .fg(colors.text)
                 .add_modifier(Modifier::BOLD),
         )),
-        render_run_meta_line(run, &model, origin_label, width, colors),
+        render_run_meta_line(state, run, &model, origin_label, width, colors),
     ];
 
     if let Some(task_title) = run
@@ -710,7 +710,22 @@ fn render_run_details(
     lines
 }
 
+fn recovered_history_label(
+    state: &RuntimeState,
+    run: &crate::ui::state::SessionListItem,
+) -> &'static str {
+    match state
+        .sessions
+        .get(&run.session_id)
+        .and_then(|session| session.source.as_deref())
+    {
+        Some("auggie-session") => "session",
+        _ => "transcript",
+    }
+}
+
 fn render_run_meta_line(
+    state: &RuntimeState,
     run: &crate::ui::state::SessionListItem,
     model: &RunOperatorModel,
     origin_label: &str,
@@ -735,7 +750,10 @@ fn render_run_meta_line(
 
     if run.recovered_from_transcript {
         spans.push(Span::raw("  "));
-        spans.push(Span::styled("transcript", Style::default().fg(INFERRED)));
+        spans.push(Span::styled(
+            recovered_history_label(state, run),
+            Style::default().fg(INFERRED),
+        ));
     }
 
     Line::from(spans)

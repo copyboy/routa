@@ -855,6 +855,50 @@ fn run_details_surface_recent_transcript_prompts_and_compact_meta() {
 }
 
 #[test]
+fn run_details_surface_auggie_session_prompts_and_session_label() {
+    let dir = tempdir().expect("tempdir");
+    let session_path = dir.path().join("session.json");
+    std::fs::write(
+        &session_path,
+        r#"{
+  "sessionId":"sess-1",
+  "chatHistory":[
+    {"sequenceId":1,"exchange":{"request_message":"first session prompt"}},
+    {"sequenceId":2,"exchange":{"request_message":"second session prompt"}},
+    {"sequenceId":3,"exchange":{"request_message":"third session prompt"}}
+  ]
+}"#,
+    )
+    .expect("write session");
+
+    let mut state = sample_state();
+    let session = state
+        .sessions
+        .get_mut("live-hook-check")
+        .expect("live session");
+    session.client = "auggie".to_string();
+    session.model = Some("claude-sonnet-4".to_string());
+    session.source = Some("auggie-session".to_string());
+    session.transcript_path = Some(session_path.to_string_lossy().to_string());
+    session.active_task_title = Some("third session prompt".to_string());
+    session.last_prompt_preview = Some("third session prompt".to_string());
+    session.active_task_recovered_from_transcript = true;
+    state.focus = FocusPane::Runs;
+    state.selected_run = state
+        .runs()
+        .iter()
+        .position(|run| run.session_id == "live-hook-check")
+        .unwrap_or(1);
+    state.refresh_views();
+
+    let mut cache = sample_cache(&state);
+    let snapshot = render_snapshot(&state, &mut cache, 180, 40);
+
+    assert!(snapshot.contains("auggie  builder  hook  claude-sonnet-4  session"));
+    assert!(snapshot.contains("Recent: second session prompt  |  first session prompt"));
+}
+
+#[test]
 fn tui_snapshot_search_mode() {
     let mut state = sample_state();
     state.search_query = "route.ts".to_string();

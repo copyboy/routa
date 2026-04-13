@@ -1,6 +1,7 @@
 use super::fitness;
 use super::review::{RepoReviewHint, ReviewHint, ReviewTriggerCache};
 use super::*;
+use crate::observe::auggie_session::recent_prompt_previews_from_auggie_session;
 use crate::observe::codex_transcript::recent_prompt_previews_from_transcript;
 use crate::ui::state::FitnessViewMode;
 use ratatui::text::Text;
@@ -712,7 +713,10 @@ impl AppCache {
         let cache_key = format!("{transcript_path}:{modified_ms}:{limit}");
 
         if !self.prompt_history_cache.contains_key(&cache_key) {
-            let prompts = recent_prompt_previews_from_transcript(transcript_path, limit);
+            let mut prompts = recent_prompt_previews_from_transcript(transcript_path, limit);
+            if prompts.is_empty() {
+                prompts = recent_prompt_previews_from_auggie_session(transcript_path, limit);
+            }
             self.prompt_history_cache.insert(cache_key.clone(), prompts);
         }
 
