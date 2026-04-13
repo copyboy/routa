@@ -1,12 +1,32 @@
-use super::{collect_identifier_mentions, parse_named_node};
+use super::{collect_identifier_mentions, parse_named_node, resolve_rust_import};
 use crate::review_context::model::ChangedNode;
 use std::collections::BTreeSet;
+use std::path::Path;
 use tree_sitter::Node;
 
 pub(super) fn parse_nodes(relative_path: &str, source: &str, root: Node<'_>) -> Vec<ChangedNode> {
     let mut nodes = Vec::new();
     collect_nodes(relative_path, source.as_bytes(), root, &mut nodes);
     nodes
+}
+
+pub(super) fn parse_imports(
+    repo_root: &Path,
+    relative_path: &str,
+    source: &str,
+    root: Node<'_>,
+) -> Vec<String> {
+    let mut imports = Vec::new();
+    collect_imports(
+        repo_root,
+        relative_path,
+        source.as_bytes(),
+        root,
+        &mut imports,
+    );
+    imports.sort();
+    imports.dedup();
+    imports
 }
 
 fn collect_nodes(relative_path: &str, source: &[u8], node: Node<'_>, out: &mut Vec<ChangedNode>) {
@@ -37,6 +57,26 @@ fn collect_nodes(relative_path: &str, source: &[u8], node: Node<'_>, out: &mut V
 
     for child in node.children(&mut node.walk()) {
         collect_nodes(relative_path, source, child, out);
+    }
+}
+
+fn collect_imports(
+    repo_root: &Path,
+    relative_path: &str,
+    source: &[u8],
+    node: Node<'_>,
+    out: &mut Vec<String>,
+) {
+    if node.kind() == "use_declaration" {
+        if let Ok(text) = node.utf8_text(source) {
+            if let Some(resolved) = resolve_rust_import(repo_root, relative_path, text.trim()) {
+                out.push(resolved);
+            }
+        }
+    }
+
+    for child in node.children(&mut node.walk()) {
+        collect_imports(repo_root, relative_path, source, child, out);
     }
 }
 

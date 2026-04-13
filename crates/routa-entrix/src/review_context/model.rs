@@ -98,7 +98,7 @@ pub struct GraphQueryReport {
     pub pattern: String,
     pub target: String,
     pub summary: String,
-    pub results: Vec<SymbolGraphNode>,
+    pub results: Vec<GraphNodePayload>,
     pub edges: Vec<GraphEdge>,
 }
 

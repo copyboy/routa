@@ -1,6 +1,6 @@
 use super::{
-    analyze_impact, analyze_test_radius, build_review_context, query_current_graph, ImpactOptions,
-    ReviewBuildMode, ReviewContextOptions, TestRadiusOptions,
+    analyze_impact, analyze_test_radius, build_review_context, query_current_graph,
+    GraphNodePayload, ImpactOptions, ReviewBuildMode, ReviewContextOptions, TestRadiusOptions,
 };
 use std::fs;
 use tempfile::tempdir;
@@ -500,7 +500,10 @@ fn query_current_graph_returns_tests_for_target() {
 
     assert_eq!(result.status, "ok");
     assert_eq!(result.results.len(), 1);
-    assert_eq!(result.results[0].qualified_name, "src/service.test.ts:run");
+    assert!(matches!(
+        &result.results[0],
+        GraphNodePayload::Symbol(node) if node.qualified_name == "src/service.test.ts:run"
+    ));
     assert_eq!(result.edges.len(), 1);
     assert_eq!(result.edges[0].kind, "TESTED_BY");
 }
@@ -543,9 +546,69 @@ fn query_current_graph_returns_inheritors_for_class() {
 
     assert_eq!(result.status, "ok");
     assert_eq!(result.results.len(), 1);
-    assert_eq!(
-        result.results[0].qualified_name,
-        "src/service.ts:ChildService"
-    );
+    assert!(matches!(
+        &result.results[0],
+        GraphNodePayload::Symbol(node) if node.qualified_name == "src/service.ts:ChildService"
+    ));
     assert_eq!(result.edges[0].kind, "INHERITS");
+}
+
+#[test]
+fn query_current_graph_returns_imports_for_file() {
+    let temp = tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/lib.ts"), "export const value = 1;\n").unwrap();
+    fs::write(
+        root.join("src/service.ts"),
+        "import { value } from './lib';\nexport function run() { return value; }\n",
+    )
+    .unwrap();
+
+    let result = query_current_graph(root, "src/service.ts", "imports_of", ReviewBuildMode::Auto);
+
+    assert_eq!(result.status, "ok");
+    assert_eq!(result.results.len(), 1);
+    assert!(matches!(
+        &result.results[0],
+        GraphNodePayload::File(node) if node.qualified_name == "src/lib.ts"
+    ));
+    assert_eq!(result.edges.len(), 1);
+    assert_eq!(result.edges[0].kind, "IMPORTS_FROM");
+    assert_eq!(result.edges[0].source_qualified, "src/service.ts");
+    assert_eq!(result.edges[0].target_qualified, "src/lib.ts");
+}
+
+#[test]
+fn query_current_graph_returns_importers_for_file() {
+    let temp = tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/lib.ts"), "export const value = 1;\n").unwrap();
+    fs::write(
+        root.join("src/service.ts"),
+        "import { value } from './lib';\nexport function run() { return value; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/feature.ts"),
+        "import { value } from './lib';\nexport const feature = value + 1;\n",
+    )
+    .unwrap();
+
+    let result = query_current_graph(root, "src/lib.ts", "importers_of", ReviewBuildMode::Auto);
+
+    assert_eq!(result.status, "ok");
+    assert_eq!(result.results.len(), 2);
+    assert!(result.results.iter().any(
+        |node| matches!(node, GraphNodePayload::File(file) if file.qualified_name == "src/service.ts")
+    ));
+    assert!(result.results.iter().any(
+        |node| matches!(node, GraphNodePayload::File(file) if file.qualified_name == "src/feature.ts")
+    ));
+    assert_eq!(result.edges.len(), 2);
+    assert!(result
+        .edges
+        .iter()
+        .all(|edge| edge.kind == "IMPORTS_FROM" && edge.target_qualified == "src/lib.ts"));
 }

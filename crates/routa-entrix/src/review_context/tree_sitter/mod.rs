@@ -136,7 +136,7 @@ pub fn node_to_payload(node: &ChangedNode) -> GraphNodePayload {
 
 pub enum QueryResult {
     Ok {
-        results: Vec<SymbolGraphNode>,
+        results: Vec<GraphNodePayload>,
         edges: Vec<GraphEdge>,
     },
     Err {
@@ -315,7 +315,7 @@ fn push_edge(
 }
 
 fn query_tests_for(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
-    let mut results = BTreeMap::<String, SymbolGraphNode>::new();
+    let mut results = BTreeMap::<String, GraphNodePayload>::new();
     let symbol_nodes = graph
         .changed_nodes
         .iter()
@@ -347,7 +347,10 @@ fn query_tests_for(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
             .any(|candidate| candidate == &edge.target_qualified)
         {
             if let Some(node) = symbol_nodes.get(&edge.source_qualified) {
-                results.insert(edge.source_qualified.clone(), symbol_to_payload(node));
+                results.insert(
+                    edge.source_qualified.clone(),
+                    GraphNodePayload::Symbol(symbol_to_payload(node)),
+                );
             }
         }
     }
@@ -375,7 +378,7 @@ fn query_neighbors(graph: &ParsedReviewGraph, target: &str, reverse: bool) -> Qu
         .filter(|node| node.kind != "File")
         .map(|node| (node.qualified_name.clone(), node))
         .collect::<BTreeMap<_, _>>();
-    let mut results = BTreeMap::<String, SymbolGraphNode>::new();
+    let mut results = BTreeMap::<String, GraphNodePayload>::new();
     for edge in graph.graph_edges.iter().filter(|edge| edge.kind == "CALLS") {
         let matches = if reverse {
             edge.target_qualified == target
@@ -391,7 +394,10 @@ fn query_neighbors(graph: &ParsedReviewGraph, target: &str, reverse: bool) -> Qu
             &edge.target_qualified
         };
         if let Some(node) = symbol_nodes.get(qn) {
-            results.insert(qn.clone(), symbol_to_payload(node));
+            results.insert(
+                qn.clone(),
+                GraphNodePayload::Symbol(symbol_to_payload(node)),
+            );
         }
     }
     QueryResult::Ok {
@@ -418,7 +424,7 @@ fn query_file_summary(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
         .iter()
         .chain(graph.related_test_nodes.iter())
         .filter(|node| node.file_path == target && node.kind != "File")
-        .map(symbol_to_payload)
+        .map(|node| GraphNodePayload::Symbol(symbol_to_payload(node)))
         .collect::<Vec<_>>();
     QueryResult::Ok {
         results,
@@ -437,7 +443,7 @@ fn query_children_of(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
         .iter()
         .chain(graph.related_test_nodes.iter())
         .filter(|node| node.file_path == target && node.kind != "File")
-        .map(symbol_to_payload)
+        .map(|node| GraphNodePayload::Symbol(symbol_to_payload(node)))
         .collect::<Vec<_>>();
     QueryResult::Ok {
         results,
@@ -458,7 +464,7 @@ fn query_inheritors_of(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
         .filter(|node| node.kind != "File")
         .map(|node| (node.qualified_name.clone(), node))
         .collect::<BTreeMap<_, _>>();
-    let mut results = BTreeMap::<String, SymbolGraphNode>::new();
+    let mut results = BTreeMap::<String, GraphNodePayload>::new();
     for edge in graph
         .graph_edges
         .iter()
@@ -468,7 +474,10 @@ fn query_inheritors_of(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
             continue;
         }
         if let Some(node) = symbol_nodes.get(&edge.source_qualified) {
-            results.insert(edge.source_qualified.clone(), symbol_to_payload(node));
+            results.insert(
+                edge.source_qualified.clone(),
+                GraphNodePayload::Symbol(symbol_to_payload(node)),
+            );
         }
     }
     QueryResult::Ok {
@@ -495,6 +504,21 @@ fn symbol_to_payload(node: &ChangedNode) -> SymbolGraphNode {
         is_test: node.is_test,
         references: node.references.clone(),
         extends: node.extends.clone(),
+    }
+}
+
+pub fn query_file_imports(repo_root: &Path, target: &str, reverse: bool) -> QueryResult {
+    let Some(target_file) = resolve_query_target_file(repo_root, target) else {
+        return QueryResult::Err {
+            status: "not_found".to_string(),
+            summary: format!("No file found matching '{target}'."),
+        };
+    };
+
+    if reverse {
+        query_importers(repo_root, &target_file)
+    } else {
+        query_imports_for_file(repo_root, &target_file)
     }
 }
 
@@ -544,6 +568,288 @@ fn test_targets_node(test: &ChangedNode, target: &ChangedNode) -> bool {
         }
     }
     false
+}
+
+fn query_imports_for_file(repo_root: &Path, target_file: &str) -> QueryResult {
+    let Some(importer) = parse_file_import_record(repo_root, target_file) else {
+        return QueryResult::Err {
+            status: "not_found".to_string(),
+            summary: format!("No file found matching '{target_file}'."),
+        };
+    };
+    let results = importer
+        .imports
+        .iter()
+        .filter_map(|imported| file_node_payload(repo_root, imported))
+        .collect::<Vec<_>>();
+    let edges = importer
+        .imports
+        .iter()
+        .map(|imported| GraphEdge {
+            kind: "IMPORTS_FROM",
+            source_qualified: importer.file_path.clone(),
+            target_qualified: imported.clone(),
+            file_path: importer.file_path.clone(),
+            source_file: importer.file_path.clone(),
+            target_file: imported.clone(),
+        })
+        .collect::<Vec<_>>();
+    QueryResult::Ok { results, edges }
+}
+
+fn query_importers(repo_root: &Path, target_file: &str) -> QueryResult {
+    let mut results = Vec::new();
+    let mut edges = Vec::new();
+    let mut seen = BTreeSet::new();
+    for relative_path in collect_repo_files(repo_root) {
+        let Some(record) = parse_file_import_record(repo_root, &relative_path) else {
+            continue;
+        };
+        if !record
+            .imports
+            .iter()
+            .any(|imported| imported == target_file)
+        {
+            continue;
+        }
+        if seen.insert(record.file_path.clone()) {
+            results.push(GraphNodePayload::File(FileGraphNode {
+                qualified_name: record.file_path.clone(),
+                name: file_name(&record.file_path),
+                kind: "File".to_string(),
+                file_path: record.file_path.clone(),
+                language: record.language.clone(),
+                is_test: record.is_test,
+            }));
+        }
+        edges.push(GraphEdge {
+            kind: "IMPORTS_FROM",
+            source_qualified: record.file_path.clone(),
+            target_qualified: target_file.to_string(),
+            file_path: record.file_path.clone(),
+            source_file: record.file_path.clone(),
+            target_file: target_file.to_string(),
+        });
+    }
+    QueryResult::Ok { results, edges }
+}
+
+fn resolve_query_target_file(repo_root: &Path, target: &str) -> Option<String> {
+    let candidate = if target.contains(':') {
+        target.split(':').next().unwrap_or(target)
+    } else {
+        target
+    };
+    resolve_repo_relative_path(repo_root, candidate)
+}
+
+fn file_node_payload(_repo_root: &Path, relative_path: &str) -> Option<GraphNodePayload> {
+    let language = language_config_for_path(relative_path)?;
+    Some(GraphNodePayload::File(FileGraphNode {
+        qualified_name: relative_path.to_string(),
+        name: file_name(relative_path),
+        kind: "File".to_string(),
+        file_path: relative_path.to_string(),
+        language: language.name.to_string(),
+        is_test: (language.is_test_file)(relative_path),
+    }))
+}
+
+struct FileImportRecord {
+    file_path: String,
+    language: String,
+    is_test: bool,
+    imports: Vec<String>,
+}
+
+fn parse_file_import_record(repo_root: &Path, relative_path: &str) -> Option<FileImportRecord> {
+    let language = language_config_for_path(relative_path)?;
+    let source = fs::read_to_string(repo_root.join(relative_path)).ok()?;
+    let mut parser = Parser::new();
+    parser.set_language(&language.ts_language()).ok()?;
+    let tree = parser.parse(&source, None)?;
+    let imports = (language.parse_imports)(repo_root, relative_path, &source, tree.root_node());
+    Some(FileImportRecord {
+        file_path: relative_path.to_string(),
+        language: language.name.to_string(),
+        is_test: (language.is_test_file)(relative_path),
+        imports,
+    })
+}
+
+pub(super) fn resolve_repo_relative_path(repo_root: &Path, target: &str) -> Option<String> {
+    let candidate = repo_root.join(target);
+    let resolved = candidate.canonicalize().ok()?;
+    let root = repo_root.canonicalize().ok()?;
+    let relative = resolved.strip_prefix(root).ok()?;
+    Some(relative.to_string_lossy().replace('\\', "/"))
+}
+
+pub(super) fn resolve_relative_import(
+    repo_root: &Path,
+    relative_path: &str,
+    import_path: &str,
+) -> Option<String> {
+    if !import_path.starts_with('.') {
+        return None;
+    }
+    let base_dir = repo_root.join(relative_path).parent()?.to_path_buf();
+    let candidate = base_dir.join(import_path);
+    let suffix = Path::new(relative_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| format!(".{ext}"));
+    let mut extensions = Vec::new();
+    if let Some(suffix) = suffix {
+        extensions.push(suffix);
+    }
+    for fallback in [".ts", ".tsx", ".js", ".jsx", ".py", ".rs"] {
+        if !extensions.iter().any(|ext| ext == fallback) {
+            extensions.push(fallback.to_string());
+        }
+    }
+
+    let mut candidates = vec![candidate.clone()];
+    if candidate.extension().is_none() {
+        for ext in &extensions {
+            candidates.push(candidate.with_extension(ext.trim_start_matches('.')));
+            candidates.push(candidate.join(format!("index{ext}")));
+        }
+    }
+
+    for path in candidates {
+        if path.is_file() {
+            if let Some(relative) = resolve_repo_relative_path(repo_root, &path.to_string_lossy()) {
+                return Some(relative);
+            }
+        }
+    }
+    None
+}
+
+pub(super) fn resolve_rust_import(
+    repo_root: &Path,
+    relative_path: &str,
+    import_text: &str,
+) -> Option<String> {
+    let path_text = import_text
+        .trim()
+        .trim_start_matches("pub ")
+        .trim_start_matches("use")
+        .trim()
+        .trim_end_matches(';')
+        .trim();
+    if !path_text.contains("::") {
+        return None;
+    }
+
+    let crate_root = rust_crate_root(repo_root, relative_path)?;
+    let parts = rust_import_parts(path_text);
+    if parts.is_empty() {
+        return None;
+    }
+
+    let current_dir = repo_root.join(relative_path).parent()?.to_path_buf();
+    let compact_path = path_text.split_whitespace().collect::<String>();
+    let mut anchors = Vec::new();
+    if compact_path.starts_with("crate::") {
+        anchors.push(crate_root.clone());
+    } else if compact_path.starts_with("super::") {
+        if let Some(parent) = current_dir.parent() {
+            anchors.push(parent.to_path_buf());
+        }
+    } else if compact_path.starts_with("self::") {
+        anchors.push(current_dir.clone());
+    } else {
+        anchors.push(crate_root.clone());
+    }
+
+    let module_parts = if parts.len() > 1 {
+        parts[..parts.len() - 1].to_vec()
+    } else {
+        parts.clone()
+    };
+    for anchor in anchors {
+        for candidate in rust_module_candidate_paths(&anchor, &module_parts, &crate_root) {
+            if candidate.is_file() {
+                if let Some(relative) =
+                    resolve_repo_relative_path(repo_root, &candidate.to_string_lossy())
+                {
+                    return Some(relative);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn rust_crate_root(repo_root: &Path, relative_path: &str) -> Option<std::path::PathBuf> {
+    let mut current = repo_root.join(relative_path).parent()?.to_path_buf();
+    loop {
+        let src_dir = current.join("src");
+        if src_dir.join("lib.rs").is_file() || src_dir.join("main.rs").is_file() {
+            return Some(src_dir);
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    None
+}
+
+fn rust_import_parts(path_text: &str) -> Vec<String> {
+    let normalized = if let Some((prefix, _)) = path_text.split_once('{') {
+        prefix.trim().trim_end_matches("::").to_string()
+    } else {
+        path_text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .split(" as ")
+            .next()
+            .unwrap_or(path_text)
+            .trim_end_matches("::*")
+            .trim()
+            .to_string()
+    };
+    normalized
+        .split("::")
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .filter(|part| !matches!(*part, "crate" | "self" | "super"))
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn rust_module_candidate_paths(
+    anchor: &Path,
+    module_parts: &[String],
+    crate_root: &Path,
+) -> Vec<std::path::PathBuf> {
+    if module_parts.is_empty() {
+        return Vec::new();
+    }
+    let joined = module_parts
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("/");
+    let mut candidates = vec![
+        anchor.join(format!("{joined}.rs")),
+        anchor.join(&joined).join("mod.rs"),
+    ];
+    if anchor == crate_root && module_parts.first().is_some_and(|part| part == "src") {
+        let rest = module_parts[1..]
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("/");
+        if !rest.is_empty() {
+            candidates.push(crate_root.join(format!("{rest}.rs")));
+            candidates.push(crate_root.join(rest).join("mod.rs"));
+        }
+    }
+    candidates
 }
 
 pub(crate) fn collect_identifier_mentions(
@@ -768,6 +1074,7 @@ fn collect_repo_files_inner(root: &Path, dir: &Path, out: &mut Vec<String>) {
 struct LanguageConfig {
     name: &'static str,
     parse_nodes: fn(&str, &str, tree_sitter::Node<'_>) -> Vec<ChangedNode>,
+    parse_imports: fn(&Path, &str, &str, tree_sitter::Node<'_>) -> Vec<String>,
     companion_test_candidates: fn(&str) -> Vec<String>,
     is_test_file: fn(&str) -> bool,
     ts_language: fn() -> Language,
@@ -782,6 +1089,7 @@ impl LanguageConfig {
 const RUST_LANGUAGE: LanguageConfig = LanguageConfig {
     name: "rust",
     parse_nodes: rust::parse_nodes,
+    parse_imports: rust::parse_imports,
     companion_test_candidates: |_| Vec::new(),
     is_test_file: is_generic_test_file,
     ts_language: rust_language,
@@ -790,6 +1098,7 @@ const RUST_LANGUAGE: LanguageConfig = LanguageConfig {
 const TYPESCRIPT_LANGUAGE: LanguageConfig = LanguageConfig {
     name: "typescript",
     parse_nodes: typescript::parse_nodes,
+    parse_imports: typescript::parse_imports,
     companion_test_candidates: typescript_companion_test_candidates,
     is_test_file: is_generic_test_file,
     ts_language: typescript_language,
@@ -798,6 +1107,7 @@ const TYPESCRIPT_LANGUAGE: LanguageConfig = LanguageConfig {
 const JAVA_LANGUAGE: LanguageConfig = LanguageConfig {
     name: "java",
     parse_nodes: java::parse_nodes,
+    parse_imports: java::parse_imports,
     companion_test_candidates: java_companion_test_candidates,
     is_test_file: is_generic_test_file,
     ts_language: java_language,
@@ -806,6 +1116,7 @@ const JAVA_LANGUAGE: LanguageConfig = LanguageConfig {
 const GO_LANGUAGE: LanguageConfig = LanguageConfig {
     name: "go",
     parse_nodes: go::parse_nodes,
+    parse_imports: go::parse_imports,
     companion_test_candidates: go_companion_test_candidates,
     is_test_file: is_generic_test_file,
     ts_language: go_language,

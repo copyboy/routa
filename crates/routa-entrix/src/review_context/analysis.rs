@@ -5,7 +5,8 @@ use super::model::{
     TestRadiusReport, UntestedTarget,
 };
 use super::tree_sitter::{
-    node_to_payload, parse_changed_files, parse_repo_graph, query_graph, QueryResult,
+    node_to_payload, parse_changed_files, parse_repo_graph, query_file_imports, query_graph,
+    QueryResult,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -136,7 +137,13 @@ pub fn analyze_test_radius(
         let query = query_graph(&graph, "tests_for", &target.qualified_name);
         match query {
             QueryResult::Ok { results, .. } => {
-                target.tests = results;
+                target.tests = results
+                    .into_iter()
+                    .filter_map(|node| match node {
+                        super::model::GraphNodePayload::Symbol(symbol) => Some(symbol),
+                        super::model::GraphNodePayload::File(_) => None,
+                    })
+                    .collect();
                 target.tests_count = target.tests.len();
                 for test in &target.tests {
                     all_tests.insert(test.qualified_name.clone(), test.clone());
@@ -253,13 +260,19 @@ pub fn query_current_graph(
         };
     }
 
-    let file_path = if target.contains(':') {
-        target.split(':').next().unwrap_or(target).to_string()
+    let query = if matches!(pattern, "imports_of" | "importers_of") {
+        query_file_imports(repo_root, target, pattern == "importers_of")
     } else {
-        target.to_string()
+        let file_path = if target.contains(':') {
+            target.split(':').next().unwrap_or(target).to_string()
+        } else {
+            target.to_string()
+        };
+        let graph = parse_changed_files(repo_root, &[file_path]);
+        query_graph(&graph, pattern, target)
     };
-    let graph = parse_changed_files(repo_root, &[file_path]);
-    match query_graph(&graph, pattern, target) {
+
+    match query {
         QueryResult::Ok { results, edges } => GraphQueryReport {
             status: "ok".to_string(),
             pattern: pattern.to_string(),

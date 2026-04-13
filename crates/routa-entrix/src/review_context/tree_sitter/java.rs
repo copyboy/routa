@@ -1,5 +1,6 @@
 use super::collect_identifier_mentions;
 use crate::review_context::model::ChangedNode;
+use std::path::Path;
 use tree_sitter::Node;
 
 pub(super) fn parse_nodes(relative_path: &str, source: &str, root: Node<'_>) -> Vec<ChangedNode> {
@@ -14,6 +15,15 @@ pub(super) fn parse_nodes(relative_path: &str, source: &str, root: Node<'_>) -> 
         &mut nodes,
     );
     nodes
+}
+
+pub(super) fn parse_imports(
+    _repo_root: &Path,
+    _relative_path: &str,
+    _source: &str,
+    _root: Node<'_>,
+) -> Vec<String> {
+    Vec::new()
 }
 
 fn collect_nodes(

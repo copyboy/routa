@@ -1,11 +1,31 @@
-use super::{collect_identifier_mentions, sanitize_test_name};
+use super::{collect_identifier_mentions, resolve_relative_import, sanitize_test_name};
 use crate::review_context::model::ChangedNode;
+use std::path::Path;
 use tree_sitter::Node;
 
 pub(super) fn parse_nodes(relative_path: &str, source: &str, root: Node<'_>) -> Vec<ChangedNode> {
     let mut nodes = Vec::new();
     collect_nodes(relative_path, source.as_bytes(), root, None, &mut nodes);
     nodes
+}
+
+pub(super) fn parse_imports(
+    repo_root: &Path,
+    relative_path: &str,
+    source: &str,
+    root: Node<'_>,
+) -> Vec<String> {
+    let mut imports = Vec::new();
+    collect_imports(
+        repo_root,
+        relative_path,
+        source.as_bytes(),
+        root,
+        &mut imports,
+    );
+    imports.sort();
+    imports.dedup();
+    imports
 }
 
 fn collect_nodes(
@@ -92,6 +112,45 @@ fn collect_nodes(
     for child in node.children(&mut node.walk()) {
         collect_nodes(relative_path, source, child, parent_name, out);
     }
+}
+
+fn collect_imports(
+    repo_root: &Path,
+    relative_path: &str,
+    source: &[u8],
+    node: Node<'_>,
+    out: &mut Vec<String>,
+) {
+    if matches!(node.kind(), "import_statement" | "export_statement") {
+        if let Some(import_path) = extract_import_literal(node, source) {
+            if let Some(resolved) = resolve_relative_import(repo_root, relative_path, &import_path)
+            {
+                out.push(resolved);
+            }
+        }
+    }
+
+    for child in node.children(&mut node.walk()) {
+        collect_imports(repo_root, relative_path, source, child, out);
+    }
+}
+
+fn extract_import_literal(node: Node<'_>, source: &[u8]) -> Option<String> {
+    for child in node.children(&mut node.walk()) {
+        if child.kind() == "string" {
+            let raw = child.utf8_text(source).ok()?.trim();
+            let normalized = raw
+                .trim_matches('"')
+                .trim_matches('\'')
+                .trim_matches('`')
+                .trim()
+                .to_string();
+            if !normalized.is_empty() {
+                return Some(normalized);
+            }
+        }
+    }
+    None
 }
 
 fn parse_symbol(
