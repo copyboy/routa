@@ -215,7 +215,7 @@ enum GraphCommand {
     #[command(name = "analyze-file")]
     AnalyzeFile(GraphAnalyzeFileArgs),
     #[command(name = "stats")]
-    Stats,
+    Stats(GraphStatsArgs),
     #[command(name = "impact")]
     Impact(GraphImpactArgs),
     #[command(name = "test-radius")]
@@ -244,6 +244,12 @@ struct GraphBuildArgs {
 struct GraphAnalyzeFileArgs {
     #[arg()]
     file: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args, Debug)]
+struct GraphStatsArgs {
     #[arg(long)]
     json: bool,
 }
@@ -370,7 +376,7 @@ fn main() {
         Command::Graph(args) => match args.command {
             GraphCommand::Build(args) => cmd_graph_build(args),
             GraphCommand::AnalyzeFile(args) => cmd_graph_analyze_file(args),
-            GraphCommand::Stats => cmd_graph_stats(),
+            GraphCommand::Stats(args) => cmd_graph_stats(args),
             GraphCommand::Impact(args) => cmd_graph_impact(args),
             GraphCommand::TestRadius(args) => cmd_graph_test_radius(args),
             GraphCommand::Query(args) => cmd_graph_query(args),
@@ -1615,11 +1621,38 @@ fn cmd_graph_analyze_file(args: GraphAnalyzeFileArgs) -> i32 {
     0
 }
 
-fn cmd_graph_stats() -> i32 {
+fn cmd_graph_stats(args: GraphStatsArgs) -> i32 {
     let repo_root = find_project_root();
     let result = graph_stats(&repo_root);
-    print_json(&result);
-    0
+    if args.json {
+        print_json(&result);
+    } else if result.status == "unavailable" {
+        println!("Graph unavailable");
+        return 1;
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&result).expect("serialize graph stats")
+        );
+    }
+    if result.status == "unavailable" { 1 } else { 0 }
+}
+
+#[cfg(test)]
+mod cli_parse_tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn graph_stats_accepts_json_flag() {
+        let cli = Cli::parse_from(["entrix", "graph", "stats", "--json"]);
+        match cli.command {
+            Command::Graph(GraphArgs {
+                command: GraphCommand::Stats(GraphStatsArgs { json }),
+            }) => assert!(json),
+            _ => panic!("expected graph stats command"),
+        }
+    }
 }
 
 fn cmd_graph_test_radius(args: GraphTestRadiusArgs) -> i32 {
