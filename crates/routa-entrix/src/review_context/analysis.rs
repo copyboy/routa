@@ -341,7 +341,8 @@ pub fn analyze_history(
     let commits = git_recent_commits(repo_root, count, git_ref)
         .into_iter()
         .map(|(commit, short_commit, subject)| {
-            let changed_files = git_commit_changed_files(repo_root, &commit);
+            let raw_changed_files = git_commit_changed_files(repo_root, &commit);
+            let changed_files = filter_code_files(repo_root, &raw_changed_files);
             let radius = analyze_test_radius(
                 repo_root,
                 &changed_files,
@@ -357,6 +358,7 @@ pub fn analyze_history(
                 commit,
                 short_commit,
                 subject,
+                raw_changed_files,
                 changed_file_count: changed_files.len(),
                 changed_files,
                 target_count: radius.target_nodes.len(),
@@ -574,7 +576,7 @@ fn git_recent_commits(
     let output = Command::new("git")
         .args([
             "log",
-            "--format=%H%x09%h%x09%s",
+            "--format=%H%x09%s",
             &format!("-n{count}"),
             git_ref,
         ])
@@ -587,10 +589,12 @@ fn git_recent_commits(
         .lines()
         .filter_map(|line| {
             let mut parts = line.splitn(3, '\t');
+            let commit = parts.next()?;
+            let subject = parts.next()?;
             Some((
-                parts.next()?.to_string(),
-                parts.next()?.to_string(),
-                parts.next()?.to_string(),
+                commit.to_string(),
+                commit.chars().take(8).collect::<String>(),
+                subject.to_string(),
             ))
         })
         .collect()
@@ -604,6 +608,10 @@ fn git_commit_changed_files(repo_root: &Path, commit: &str) -> Vec<String> {
             "--name-only",
             "--diff-filter=ACMR",
             commit,
+            "--",
+            "src",
+            "apps",
+            "crates",
         ])
         .current_dir(repo_root)
         .output();
@@ -614,15 +622,25 @@ fn git_commit_changed_files(repo_root: &Path, commit: &str) -> Vec<String> {
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .filter(|line| {
-            matches!(
-                std::path::Path::new(line)
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .unwrap_or_default(),
-                "rs" | "ts" | "tsx" | "js" | "jsx" | "java" | "go"
-            )
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn filter_code_files(repo_root: &Path, files: &[String]) -> Vec<String> {
+    files
+        .iter()
+        .filter(|file| {
+            let extension = std::path::Path::new(file)
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let extension = format!(".{extension}");
+            CODE_EXTENSIONS.contains(&extension.as_str())
+                && repo_root.join(file).exists()
         })
         .map(ToString::to_string)
         .collect()
 }
+
+const CODE_EXTENSIONS: [&str; 8] = [".go", ".java", ".py", ".rs", ".ts", ".tsx", ".js", ".jsx"];

@@ -151,6 +151,7 @@ pub struct CommitHistoryEntry {
     pub commit: String,
     pub short_commit: String,
     pub subject: String,
+    pub raw_changed_files: Vec<String>,
     pub changed_files: Vec<String>,
     pub changed_file_count: usize,
     pub target_count: usize,
