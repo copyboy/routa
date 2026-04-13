@@ -12,16 +12,20 @@ const CODE_EXTENSIONS: &[&str] = &[
     "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "kt", "swift", "php", "c", "cpp",
 ];
 
+pub struct RunMetricBatchOptions<'a> {
+    pub dry_run: bool,
+    pub parallel: bool,
+    pub changed_files: &'a [String],
+    pub base: &'a str,
+    pub progress_callback: Option<&'a ProgressCallback>,
+}
+
 pub fn run_metric_batch(
     repo_root: &Path,
     metrics: &[Metric],
     shell_runner: &ShellRunner,
     sarif_runner: &SarifRunner,
-    dry_run: bool,
-    parallel: bool,
-    changed_files: &[String],
-    base: &str,
-    progress_callback: Option<&ProgressCallback>,
+    options: RunMetricBatchOptions<'_>,
 ) -> Vec<MetricResult> {
     let mut results = metrics
         .iter()
@@ -39,11 +43,17 @@ pub fn run_metric_batch(
     for (index, metric) in metrics.iter().enumerate() {
         match metric.evidence_type {
             EvidenceType::Probe => {
-                if let Some(callback) = progress_callback {
+                if let Some(callback) = options.progress_callback {
                     callback("start", metric, None);
                 }
-                results[index] = run_probe_metric(repo_root, metric, dry_run, changed_files, base);
-                if let Some(callback) = progress_callback {
+                results[index] = run_probe_metric(
+                    repo_root,
+                    metric,
+                    options.dry_run,
+                    options.changed_files,
+                    options.base,
+                );
+                if let Some(callback) = options.progress_callback {
                     callback("end", metric, Some(&results[index]));
                 }
             }
@@ -59,8 +69,12 @@ pub fn run_metric_batch(
     }
 
     if !shell_batch.is_empty() {
-        let shell_results =
-            shell_runner.run_batch(&shell_batch, parallel, dry_run, progress_callback);
+        let shell_results = shell_runner.run_batch(
+            &shell_batch,
+            options.parallel,
+            options.dry_run,
+            options.progress_callback,
+        );
         for (index, result) in shell_indexes.into_iter().zip(shell_results) {
             results[index] = result;
         }
@@ -68,18 +82,18 @@ pub fn run_metric_batch(
 
     if !sarif_batch.is_empty() {
         for metric in &sarif_batch {
-            if let Some(callback) = progress_callback {
+            if let Some(callback) = options.progress_callback {
                 callback("start", metric, None);
             }
         }
-        let sarif_results = sarif_runner.run_batch(&sarif_batch, dry_run);
+        let sarif_results = sarif_runner.run_batch(&sarif_batch, options.dry_run);
         for ((index, metric), result) in sarif_indexes
             .into_iter()
             .zip(sarif_batch.iter())
             .zip(sarif_results)
         {
             results[index] = result;
-            if let Some(callback) = progress_callback {
+            if let Some(callback) = options.progress_callback {
                 callback("end", metric, Some(&results[index]));
             }
         }

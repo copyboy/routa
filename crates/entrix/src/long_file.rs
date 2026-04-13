@@ -297,17 +297,19 @@ fn analyze_single_long_file(
             continue;
         }
         let function = to_function_map(
-            repo_root,
-            relative_path,
             symbol,
-            &comments,
-            &source_lines,
-            child_spans_by_parent
-                .get(&symbol.name)
-                .cloned()
-                .unwrap_or_default(),
-            &mut symbol_commit_cache,
-            comment_review_commit_threshold,
+            FunctionReportContext {
+                repo_root,
+                relative_path,
+                comments: &comments,
+                source_lines: &source_lines,
+                child_symbol_spans: child_spans_by_parent
+                    .get(&symbol.name)
+                    .cloned()
+                    .unwrap_or_default(),
+                symbol_commit_cache: &mut symbol_commit_cache,
+                threshold: comment_review_commit_threshold,
+            },
         );
         warnings.extend(function.warnings.clone());
 
@@ -354,15 +356,17 @@ fn analyze_single_long_file(
             &mut symbol_commit_cache,
         );
         let container_warnings = comment_review_warnings(
-            relative_path,
-            &container.qualified_name,
-            &container.name,
-            "class",
-            container.line_start,
-            container.line_end,
             container_commit_count,
             &container_comments,
-            comment_review_commit_threshold,
+            CommentReviewContext {
+                relative_path,
+                qualified_name: &container.qualified_name,
+                name: &container.name,
+                symbol_kind: "class",
+                start_line: container.line_start,
+                end_line: container.line_end,
+                threshold: comment_review_commit_threshold,
+            },
         );
         warnings.extend(container_warnings.clone());
         classes.push(LongFileClassReport {
@@ -438,15 +442,19 @@ fn normalize_comments(values: Vec<Value>) -> Vec<RawComment> {
         .collect()
 }
 
-fn to_function_map(
-    repo_root: &Path,
-    relative_path: &str,
-    symbol: &SymbolGraphNode,
-    comments: &[RawComment],
-    source_lines: &[String],
+struct FunctionReportContext<'a> {
+    repo_root: &'a Path,
+    relative_path: &'a str,
+    comments: &'a [RawComment],
+    source_lines: &'a [String],
     child_symbol_spans: Vec<(usize, usize)>,
-    symbol_commit_cache: &mut BTreeMap<(usize, usize), usize>,
+    symbol_commit_cache: &'a mut BTreeMap<(usize, usize), usize>,
     threshold: usize,
+}
+
+fn to_function_map(
+    symbol: &SymbolGraphNode,
+    context: FunctionReportContext<'_>,
 ) -> LongFileFunctionReport {
     let kind = if symbol.parent_name.is_some() {
         "method"
@@ -456,28 +464,30 @@ fn to_function_map(
     let symbol_comments = comments_for_symbol(
         symbol.line_start,
         symbol.line_end,
-        comments,
-        source_lines,
-        &child_symbol_spans,
+        context.comments,
+        context.source_lines,
+        &context.child_symbol_spans,
         true,
     );
     let commit_count = symbol_commit_count(
-        repo_root,
-        relative_path,
+        context.repo_root,
+        context.relative_path,
         symbol.line_start,
         symbol.line_end,
-        symbol_commit_cache,
+        context.symbol_commit_cache,
     );
     let warnings = comment_review_warnings(
-        relative_path,
-        &symbol.qualified_name,
-        &symbol.name,
-        kind,
-        symbol.line_start,
-        symbol.line_end,
         commit_count,
         &symbol_comments,
-        threshold,
+        CommentReviewContext {
+            relative_path: context.relative_path,
+            qualified_name: &symbol.qualified_name,
+            name: &symbol.name,
+            symbol_kind: kind,
+            start_line: symbol.line_start,
+            end_line: symbol.line_end,
+            threshold: context.threshold,
+        },
     );
     LongFileFunctionReport {
         name: symbol.name.clone(),
@@ -622,33 +632,39 @@ fn symbol_commit_count(
     value
 }
 
-fn comment_review_warnings(
-    relative_path: &str,
-    qualified_name: &str,
-    name: &str,
-    symbol_kind: &str,
+struct CommentReviewContext<'a> {
+    relative_path: &'a str,
+    qualified_name: &'a str,
+    name: &'a str,
+    symbol_kind: &'a str,
     start_line: usize,
     end_line: usize,
+    threshold: usize,
+}
+
+fn comment_review_warnings(
     commit_count: usize,
     comments: &[LongFileComment],
-    threshold: usize,
+    context: CommentReviewContext<'_>,
 ) -> Vec<LongFileWarning> {
-    if commit_count < threshold || comments.is_empty() {
+    if commit_count < context.threshold || comments.is_empty() {
         return Vec::new();
     }
     vec![LongFileWarning {
         code: "comment_review_required".to_string(),
         summary: format!(
-            "{symbol_kind} '{name}' changed in {commit_count} commit(s) and still has {} comment(s); review comments for stale guidance.",
+            "{} '{}' changed in {commit_count} commit(s) and still has {} comment(s); review comments for stale guidance.",
+            context.symbol_kind,
+            context.name,
             comments.len()
         ),
-        file_path: relative_path.to_string(),
-        qualified_name: qualified_name.to_string(),
-        name: name.to_string(),
-        symbol_kind: symbol_kind.to_string(),
-        start_line,
-        end_line,
-        line_count: end_line.saturating_sub(start_line) + 1,
+        file_path: context.relative_path.to_string(),
+        qualified_name: context.qualified_name.to_string(),
+        name: context.name.to_string(),
+        symbol_kind: context.symbol_kind.to_string(),
+        start_line: context.start_line,
+        end_line: context.end_line,
+        line_count: context.end_line.saturating_sub(context.start_line) + 1,
         commit_count,
         comment_count: comments.len(),
         comment_spans: comments

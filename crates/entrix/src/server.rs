@@ -4,7 +4,7 @@ use crate::model::{ExecutionScope, FitnessReport, Tier};
 use crate::reporting::report_to_dict;
 use crate::review_context::{analyze_impact, ImpactOptions, ReviewBuildMode};
 use crate::review_trigger::collect_changed_files;
-use crate::run_support::run_metric_batch;
+use crate::run_support::{run_metric_batch, RunMetricBatchOptions};
 use crate::runner::ShellRunner;
 use crate::sarif::SarifRunner;
 use crate::scoring::{score_dimension, score_report};
@@ -182,11 +182,13 @@ fn run_fitness_report_json(
             &dimension.metrics,
             &shell_runner,
             &sarif_runner,
-            policy.dry_run,
-            policy.parallel,
-            &[],
-            "HEAD",
-            None,
+            RunMetricBatchOptions {
+                dry_run: policy.dry_run,
+                parallel: policy.parallel,
+                changed_files: &[],
+                base: "HEAD",
+                progress_callback: None,
+            },
         );
         dimension_scores.push(score_dimension(&results, &dimension.name, dimension.weight));
     }

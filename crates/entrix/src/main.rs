@@ -16,7 +16,7 @@ use entrix::review_context::{
 use entrix::review_trigger::{
     collect_changed_files, collect_diff_stats, evaluate_review_triggers, load_review_triggers,
 };
-use entrix::run_support::run_metric_batch;
+use entrix::run_support::{run_metric_batch, RunMetricBatchOptions};
 use entrix::runner::{OutputCallback, ProgressCallback, ShellRunner};
 use entrix::sarif::SarifRunner;
 use entrix::scoring::{score_dimension, score_report};
@@ -510,11 +510,13 @@ fn cmd_run(args: RunArgs) -> i32 {
             &dimension.metrics,
             &shell_runner,
             &sarif_runner,
-            policy.dry_run,
-            policy.parallel,
-            &changed_files,
-            &args.base,
-            progress_callback.as_ref(),
+            RunMetricBatchOptions {
+                dry_run: policy.dry_run,
+                parallel: policy.parallel,
+                changed_files: &changed_files,
+                base: &args.base,
+                progress_callback: progress_callback.as_ref(),
+            },
         );
         let scored = score_dimension(&results, &dimension.name, dimension.weight);
         dimension_scores.push(scored);
@@ -595,18 +597,20 @@ fn cmd_run(args: RunArgs) -> i32 {
     };
     let artifact_path = build_runtime_fitness_snapshot(
         &repo_root,
-        mode_tier,
         &report,
-        duration_ms,
-        artifact_placeholder.as_deref(),
-        observed_at_ms,
-        "entrix",
-        if changed_files.is_empty() {
-            None
-        } else {
-            Some(args.base.as_str())
+        RuntimeFitnessSnapshotOptions {
+            tier: mode_tier,
+            duration_ms,
+            artifact_path: artifact_placeholder.as_deref(),
+            observed_at_ms,
+            producer: "entrix",
+            base_ref: if changed_files.is_empty() {
+                None
+            } else {
+                Some(args.base.as_str())
+            },
+            changed_files: &changed_files,
         },
-        &changed_files,
     )
     .and_then(|snapshot| {
         write_runtime_fitness_artifacts(&repo_root, mode_tier, &snapshot, observed_at_ms)
@@ -929,16 +933,20 @@ fn summarize_metric_output(output: &str) -> Option<String> {
     Some(excerpt)
 }
 
+struct RuntimeFitnessSnapshotOptions<'a> {
+    tier: Option<&'a str>,
+    duration_ms: f64,
+    artifact_path: Option<&'a str>,
+    observed_at_ms: i64,
+    producer: &'a str,
+    base_ref: Option<&'a str>,
+    changed_files: &'a [String],
+}
+
 fn build_runtime_fitness_snapshot(
     project_root: &Path,
-    tier: Option<&str>,
     report: &FitnessReport,
-    duration_ms: f64,
-    artifact_path: Option<&str>,
-    observed_at_ms: i64,
-    producer: &str,
-    base_ref: Option<&str>,
-    changed_files: &[String],
+    options: RuntimeFitnessSnapshotOptions<'_>,
 ) -> Option<serde_json::Value> {
     let mut dimensions = Vec::new();
     let mut slowest_metrics = Vec::new();
@@ -1023,22 +1031,22 @@ fn build_runtime_fitness_snapshot(
     });
 
     Some(json!({
-        "mode": runtime_mode(tier),
+        "mode": runtime_mode(options.tier),
         "final_score": report.final_score,
         "hard_gate_blocked": report.hard_gate_blocked,
         "score_blocked": report.score_blocked,
-        "duration_ms": duration_ms,
+        "duration_ms": options.duration_ms,
         "metric_count": report.dimensions.iter().map(|dimension| dimension.results.len()).sum::<usize>(),
         "coverage_metric_available": coverage_metric_available,
         "coverage_summary": load_runtime_coverage_summary(project_root),
         "dimensions": dimensions,
         "slowest_metrics": slowest_metrics.into_iter().take(5).collect::<Vec<_>>(),
-        "artifact_path": artifact_path,
-        "producer": producer,
-        "generated_at_ms": observed_at_ms,
-        "base_ref": base_ref,
-        "changed_file_count": changed_files.len(),
-        "changed_files_preview": changed_files.iter().take(8).cloned().collect::<Vec<_>>(),
+        "artifact_path": options.artifact_path,
+        "producer": options.producer,
+        "generated_at_ms": options.observed_at_ms,
+        "base_ref": options.base_ref,
+        "changed_file_count": options.changed_files.len(),
+        "changed_files_preview": options.changed_files.iter().take(8).cloned().collect::<Vec<_>>(),
         "failing_metrics": failing_metrics.into_iter().take(5).collect::<Vec<_>>(),
     }))
 }
