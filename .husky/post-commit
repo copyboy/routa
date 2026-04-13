@@ -15,7 +15,7 @@ fi
 echo "📏 Checking file budgets for the latest commit..."
 if ! command -v entrix >/dev/null 2>&1; then
   echo "⚠️  entrix command not found; skipping file budget check."
-  echo "    Install/build the Rust entrix CLI to restore this post-commit guard."
+  echo "    Install it with: cargo install --path crates/routa-entrix --bin entrix --force"
   exit 0
 fi
 

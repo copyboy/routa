@@ -8,7 +8,12 @@ description = "Entrix fitness function engine — Rust implementation of tools/e
 repository = "https://github.com/phodal/routa-js"
 homepage = "https://github.com/phodal/routa-js"
 
+[[bin]]
+name = "entrix"
+path = "src/main.rs"
+
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
