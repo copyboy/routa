@@ -54,6 +54,7 @@ import {
   PermissionRequestOptions,
   PermissionUrgency,
 } from './permission-store';
+import { getTaskLaneSession } from "../kanban/task-lane-history";
 
 function extractSandboxId(options?: PermissionRequestOptions): string | undefined {
   const sandboxId = options?.sandboxId;
@@ -97,6 +98,83 @@ function notifyKanbanArtifactChanged(workspaceId: string, taskId: string): void 
     resourceId: taskId,
     source: "agent",
   });
+}
+
+function resolveSyntheticCompletionLaneSession(
+  task: Task,
+  agentId: string,
+  targetColumnId: string | undefined,
+) {
+  const sessionCandidates = [agentId, task.triggerSessionId].filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0
+  );
+
+  for (const candidate of sessionCandidates) {
+    const session = getTaskLaneSession(task, candidate);
+    if (session && session.columnId === targetColumnId && session.status === "running") {
+      return session;
+    }
+  }
+
+  for (const candidate of sessionCandidates) {
+    const session = getTaskLaneSession(task, candidate);
+    if (session?.status === "running") {
+      return session;
+    }
+  }
+
+  const runningSessions = [...(task.laneSessions ?? [])]
+    .reverse()
+    .filter((session) => session.status === "running");
+
+  return runningSessions.find((session) => session.columnId === targetColumnId)
+    ?? runningSessions[0];
+}
+
+function shouldEmitSyntheticCompletion(params: {
+  task: Task;
+  agentId: string;
+  targetColumnId: string | undefined;
+}) {
+  const { task, agentId, targetColumnId } = params;
+  const laneSession = resolveSyntheticCompletionLaneSession(task, agentId, targetColumnId);
+  if (!laneSession) {
+    return undefined;
+  }
+
+  if (
+    laneSession.completionRequirement === "completion_summary"
+    && task.completionSummary?.trim()
+  ) {
+    return {
+      sessionId: laneSession.sessionId,
+      trigger: "completion_summary" as const,
+    };
+  }
+
+  if (
+    laneSession.columnId === "review"
+    && laneSession.role === "GATE"
+    && task.verificationVerdict
+    && task.verificationReport?.trim()
+  ) {
+    return {
+      sessionId: laneSession.sessionId,
+      trigger: "verification_report" as const,
+    };
+  }
+
+  if (
+    laneSession.completionRequirement === "verification_report"
+    && task.verificationReport?.trim()
+  ) {
+    return {
+      sessionId: laneSession.sessionId,
+      trigger: "verification_report" as const,
+    };
+  }
+
+  return undefined;
 }
 
 export class AgentTools {
@@ -796,6 +874,7 @@ export class AgentTools {
     }
 
     const oldStatus = task.status;
+    const originalColumnId = task.columnId;
     if (updates.title) task.title = updates.title;
     if (updates.objective) task.objective = updates.objective;
     if (updates.scope !== undefined) task.scope = updates.scope;
@@ -835,6 +914,27 @@ export class AgentTools {
       resourceId: taskId,
       source: "agent",
     });
+
+    const syntheticCompletion = shouldEmitSyntheticCompletion({
+      task,
+      agentId,
+      targetColumnId: originalColumnId,
+    });
+    if (syntheticCompletion) {
+      this.eventBus.emit({
+        type: AgentEventType.AGENT_COMPLETED,
+        agentId: syntheticCompletion.sessionId,
+        workspaceId: task.workspaceId,
+        data: {
+          sessionId: syntheticCompletion.sessionId,
+          success: true,
+          synthesizedBy: "updateTask",
+          trigger: syntheticCompletion.trigger,
+          taskId,
+        },
+        timestamp: new Date(),
+      });
+    }
 
     if (oldStatus !== task.status) {
       this.eventBus.emit({
