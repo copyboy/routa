@@ -7,6 +7,8 @@ use crate::ui::state::FitnessViewMode;
 use ratatui::text::Text;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -15,6 +17,8 @@ use std::thread;
 const FITNESS_HISTORY_SCHEMA_VERSION: u32 = 1;
 const FITNESS_HISTORY_FILE: &str = "fitness-history.json";
 const FITNESS_TREND_CAPACITY: usize = 12;
+const INITIAL_FILE_PREVIEW_LINE_LIMIT: usize = 100;
+const DIRECTORY_PREVIEW_ENTRY_LIMIT: usize = 200;
 const TEST_MAPPING_STARTUP_DELAY_MS: i64 = 2_000;
 const TEST_MAPPING_FAILURE_BACKOFF_MS: i64 = 30_000;
 
@@ -43,6 +47,19 @@ pub struct DiffStatSummary {
 pub(super) struct DetailCacheEntry {
     pub(super) key: String,
     pub(super) text: String,
+    pub(super) truncated: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FilePreviewScope {
+    Head,
+    Full,
+}
+
+impl FilePreviewScope {
+    fn satisfies(self, requested: Self) -> bool {
+        matches!(self, Self::Full) || self == requested
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -56,17 +73,22 @@ pub(super) struct FileFactsEntry {
 }
 
 #[derive(Debug)]
-enum BackgroundCommand {
-    RefreshStats {
-        repo_root: String,
-        files: Vec<(String, String, i64, crate::shared::models::EntryKind)>,
-    },
+enum PreviewCommand {
     LoadDetail {
         repo_root: String,
         rel_path: String,
         state_code: String,
         version: i64,
         mode: DetailMode,
+        file_preview_scope: FilePreviewScope,
+    },
+}
+
+#[derive(Debug)]
+enum MetadataCommand {
+    RefreshStats {
+        repo_root: String,
+        files: Vec<(String, String, i64, crate::shared::models::EntryKind)>,
     },
     LoadFacts {
         repo_root: String,
@@ -113,9 +135,13 @@ enum BackgroundResult {
 }
 
 #[derive(Debug, Default)]
-struct PendingCommands {
-    stats: Option<PendingStats>,
+struct PendingPreviewCommands {
     detail: Option<PendingDetail>,
+}
+
+#[derive(Debug, Default)]
+struct PendingMetadataCommands {
+    stats: Option<PendingStats>,
     facts: Option<PendingFacts>,
     fitness: Option<(String, String, fitness::FitnessRunMode)>,
     test_mapping: Option<(String, Vec<String>, String)>,
@@ -126,7 +152,7 @@ type PendingStats = (
     String,
     Vec<(String, String, i64, crate::shared::models::EntryKind)>,
 );
-type PendingDetail = (String, String, String, i64, DetailMode);
+type PendingDetail = (String, String, String, i64, DetailMode, FilePreviewScope);
 type PendingFacts = (String, String, i64, crate::shared::models::EntryKind);
 
 pub(super) struct AppCache {
@@ -137,7 +163,7 @@ pub(super) struct AppCache {
     prompt_history_cache: BTreeMap<String, Vec<String>>,
     highlighted_detail_cache: BTreeMap<String, Text<'static>>,
     pending_stats_signature: Option<String>,
-    pending_preview_key: Option<String>,
+    pending_preview_request: Option<(String, FilePreviewScope)>,
     pending_diff_key: Option<String>,
     pending_facts_key: Option<String>,
     pending_fitness: bool,
@@ -153,7 +179,8 @@ pub(super) struct AppCache {
     test_mapping_snapshot: Option<TestMappingSnapshot>,
     scc_summary: Option<SccSummary>,
     review_triggers: ReviewTriggerCache,
-    worker_tx: Sender<BackgroundCommand>,
+    preview_worker_tx: Sender<PreviewCommand>,
+    metadata_worker_tx: Sender<MetadataCommand>,
     worker_rx: Receiver<BackgroundResult>,
 }
 
@@ -191,9 +218,12 @@ struct FitnessHistoryRecord {
 
 impl AppCache {
     pub(super) fn new(repo_root: &str) -> Self {
-        let (worker_tx, worker_rx_cmd) = mpsc::channel();
+        let (preview_worker_tx, preview_worker_rx_cmd) = mpsc::channel();
+        let (metadata_worker_tx, metadata_worker_rx_cmd) = mpsc::channel();
         let (result_tx, worker_rx) = mpsc::channel();
-        thread::spawn(move || background_worker(worker_rx_cmd, result_tx));
+        let preview_result_tx = result_tx.clone();
+        thread::spawn(move || preview_worker(preview_worker_rx_cmd, preview_result_tx));
+        thread::spawn(move || metadata_worker(metadata_worker_rx_cmd, result_tx));
         let mut cache = Self {
             diff_stats: BTreeMap::new(),
             preview_cache: BTreeMap::new(),
@@ -202,7 +232,7 @@ impl AppCache {
             prompt_history_cache: BTreeMap::new(),
             highlighted_detail_cache: BTreeMap::new(),
             pending_stats_signature: None,
-            pending_preview_key: None,
+            pending_preview_request: None,
             pending_diff_key: None,
             pending_facts_key: None,
             pending_fitness: false,
@@ -220,7 +250,8 @@ impl AppCache {
             test_mapping_snapshot: None,
             scc_summary: None,
             review_triggers: ReviewTriggerCache::load(repo_root),
-            worker_tx,
+            preview_worker_tx,
+            metadata_worker_tx,
             worker_rx,
         };
         cache.load_fitness_history();
@@ -299,15 +330,28 @@ impl AppCache {
                 }
                 BackgroundResult::Detail { entry, mode } => match mode {
                     DetailMode::File => {
+                        let entry_key = entry.key.clone();
+                        let result_scope = if entry.truncated {
+                            FilePreviewScope::Head
+                        } else {
+                            FilePreviewScope::Full
+                        };
                         self.highlighted_detail_cache
-                            .retain(|key, _| !key.starts_with(&entry.key));
-                        self.preview_cache.insert(entry.key.clone(), entry);
-                        self.pending_preview_key = None;
+                            .retain(|key, _| !key.starts_with(&entry_key));
+                        self.preview_cache.insert(entry_key.clone(), entry);
+                        if self.pending_preview_request.as_ref().is_some_and(
+                            |(key, pending_scope)| {
+                                key == &entry_key && result_scope.satisfies(*pending_scope)
+                            },
+                        ) {
+                            self.pending_preview_request = None;
+                        }
                     }
                     DetailMode::Diff => {
+                        let entry_key = entry.key.clone();
                         self.highlighted_detail_cache
-                            .retain(|key, _| !key.starts_with(&entry.key));
-                        self.diff_cache.insert(entry.key.clone(), entry);
+                            .retain(|key, _| !key.starts_with(&entry_key));
+                        self.diff_cache.insert(entry_key, entry);
                         self.pending_diff_key = None;
                     }
                 },
@@ -398,7 +442,7 @@ impl AppCache {
         if self.pending_stats_signature.as_deref() == Some(signature.as_str()) {
             return;
         }
-        let _ = self.worker_tx.send(BackgroundCommand::RefreshStats {
+        let _ = self.metadata_worker_tx.send(MetadataCommand::RefreshStats {
             repo_root: state.repo_root.clone(),
             files,
         });
@@ -407,7 +451,7 @@ impl AppCache {
 
     pub(super) fn warm_selected_detail(&mut self, state: &RuntimeState) {
         let Some(file) = state.selected_file() else {
-            self.pending_preview_key = None;
+            self.pending_preview_request = None;
             self.pending_diff_key = None;
             self.pending_facts_key = None;
             return;
@@ -418,24 +462,36 @@ impl AppCache {
             file.last_modified_at_ms,
             state.detail_mode,
         );
+        let requested_preview_scope = file_preview_scope_for(state);
         let active_loaded = match state.detail_mode {
-            DetailMode::File => self.preview_cache.contains_key(&active_key),
+            DetailMode::File => self.preview_cache.get(&active_key).is_some_and(|entry| {
+                cached_file_preview_scope(entry).satisfies(requested_preview_scope)
+            }),
             DetailMode::Diff => self.diff_cache.contains_key(&active_key),
         };
         let active_pending = match state.detail_mode {
-            DetailMode::File => self.pending_preview_key.as_deref() == Some(active_key.as_str()),
+            DetailMode::File => {
+                self.pending_preview_request
+                    .as_ref()
+                    .is_some_and(|(key, pending_scope)| {
+                        key == &active_key && pending_scope.satisfies(requested_preview_scope)
+                    })
+            }
             DetailMode::Diff => self.pending_diff_key.as_deref() == Some(active_key.as_str()),
         };
         if !active_loaded && !active_pending {
-            let _ = self.worker_tx.send(BackgroundCommand::LoadDetail {
+            let _ = self.preview_worker_tx.send(PreviewCommand::LoadDetail {
                 repo_root: state.repo_root.clone(),
                 rel_path: file.rel_path.clone(),
                 state_code: file.state_code.clone(),
                 version: file.last_modified_at_ms,
                 mode: state.detail_mode,
+                file_preview_scope: requested_preview_scope,
             });
             match state.detail_mode {
-                DetailMode::File => self.pending_preview_key = Some(active_key),
+                DetailMode::File => {
+                    self.pending_preview_request = Some((active_key, requested_preview_scope))
+                }
                 DetailMode::Diff => self.pending_diff_key = Some(active_key),
             }
         }
@@ -444,7 +500,7 @@ impl AppCache {
         if !self.facts_cache.contains_key(&facts_key)
             && self.pending_facts_key.as_deref() != Some(facts_key.as_str())
         {
-            let _ = self.worker_tx.send(BackgroundCommand::LoadFacts {
+            let _ = self.metadata_worker_tx.send(MetadataCommand::LoadFacts {
                 repo_root: state.repo_root.clone(),
                 rel_path: file.rel_path.clone(),
                 version: file.last_modified_at_ms,
@@ -484,11 +540,13 @@ impl AppCache {
             return;
         }
 
-        let _ = self.worker_tx.send(BackgroundCommand::RefreshTestMapping {
-            repo_root: state.repo_root.clone(),
-            files,
-            cache_key: cache_key.clone(),
-        });
+        let _ = self
+            .metadata_worker_tx
+            .send(MetadataCommand::RefreshTestMapping {
+                repo_root: state.repo_root.clone(),
+                files,
+                cache_key: cache_key.clone(),
+            });
         self.pending_test_mapping_key = Some(cache_key);
     }
 
@@ -554,11 +612,13 @@ impl AppCache {
         }
         self.fitness_cache_key = Some(cache_key.clone());
         self.active_fitness_history_mut().cache_key = Some(cache_key.clone());
-        let _ = self.worker_tx.send(BackgroundCommand::RefreshFitness {
-            repo_root,
-            cache_key,
-            mode,
-        });
+        let _ = self
+            .metadata_worker_tx
+            .send(MetadataCommand::RefreshFitness {
+                repo_root,
+                cache_key,
+                mode,
+            });
         self.fitness_is_running = true;
         self.active_fitness_history_mut().last_error = None;
         self.pending_fitness = true;
@@ -633,14 +693,14 @@ impl AppCache {
         }
         if !force && self.scc_summary.is_none() {
             let _ = self
-                .worker_tx
-                .send(BackgroundCommand::RefreshScc { repo_root });
+                .metadata_worker_tx
+                .send(MetadataCommand::RefreshScc { repo_root });
             self.pending_scc = true;
             return;
         }
         let _ = self
-            .worker_tx
-            .send(BackgroundCommand::RefreshScc { repo_root });
+            .metadata_worker_tx
+            .send(MetadataCommand::RefreshScc { repo_root });
         self.pending_scc = true;
     }
 
@@ -741,10 +801,7 @@ impl AppCache {
         mode: DetailMode,
         theme_mode: ThemeMode,
     ) -> Option<&Text<'static>> {
-        let render_key = format!(
-            "{}:{}:{:?}:{:?}",
-            file.rel_path, file.last_modified_at_ms, mode, theme_mode
-        );
+        let render_key = detail_render_cache_key(file, mode, theme_mode);
         if !self.highlighted_detail_cache.contains_key(&render_key) {
             let raw = self.detail_text(file, mode)?;
             let rendered = match mode {
@@ -885,6 +942,38 @@ pub(super) fn detail_cache_key(
     mode: DetailMode,
 ) -> String {
     format!("{rel_path}:{state_code}:{version}:{mode:?}")
+}
+
+fn detail_render_cache_key(
+    file: &crate::shared::models::FileView,
+    mode: DetailMode,
+    theme_mode: ThemeMode,
+) -> String {
+    format!(
+        "{}:{theme_mode:?}",
+        detail_cache_key(
+            &file.rel_path,
+            &file.state_code,
+            file.last_modified_at_ms,
+            mode
+        )
+    )
+}
+
+fn file_preview_scope_for(state: &RuntimeState) -> FilePreviewScope {
+    if matches!(state.detail_mode, DetailMode::File) && state.detail_scroll > 0 {
+        FilePreviewScope::Full
+    } else {
+        FilePreviewScope::Head
+    }
+}
+
+fn cached_file_preview_scope(entry: &DetailCacheEntry) -> FilePreviewScope {
+    if entry.truncated {
+        FilePreviewScope::Head
+    } else {
+        FilePreviewScope::Full
+    }
 }
 
 pub(super) fn facts_cache_key(
@@ -1105,12 +1194,49 @@ fn compute_diff_stats_batch(
     results
 }
 
-fn background_worker(rx: Receiver<BackgroundCommand>, tx: Sender<BackgroundResult>) {
+fn preview_worker(rx: Receiver<PreviewCommand>, tx: Sender<BackgroundResult>) {
     while let Ok(command) = rx.recv() {
-        let mut pending = PendingCommands::default();
-        queue_command(&mut pending, command);
+        let mut pending = PendingPreviewCommands::default();
+        queue_preview_command(&mut pending, command);
         while let Ok(next) = rx.try_recv() {
-            queue_command(&mut pending, next);
+            queue_preview_command(&mut pending, next);
+        }
+        if let Some((repo_root, rel_path, state_code, version, mode, file_preview_scope)) =
+            pending.detail.take()
+        {
+            let (text, truncated) = match mode {
+                DetailMode::File => {
+                    load_file_preview(&repo_root, rel_path.as_str(), file_preview_scope)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| ("<no file content available>".to_string(), false))
+                }
+                DetailMode::Diff => {
+                    let text = load_diff_text(&repo_root, rel_path.as_str(), state_code.as_str())
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| "<no diff available>".to_string());
+                    (text, false)
+                }
+            };
+            let _ = tx.send(BackgroundResult::Detail {
+                entry: DetailCacheEntry {
+                    key: detail_cache_key(&rel_path, &state_code, version, mode),
+                    text,
+                    truncated,
+                },
+                mode,
+            });
+        }
+    }
+}
+
+fn metadata_worker(rx: Receiver<MetadataCommand>, tx: Sender<BackgroundResult>) {
+    while let Ok(command) = rx.recv() {
+        let mut pending = PendingMetadataCommands::default();
+        queue_metadata_command(&mut pending, command);
+        while let Ok(next) = rx.try_recv() {
+            queue_metadata_command(&mut pending, next);
         }
         if let Some((repo_root, files)) = pending.stats.take() {
             let mut seen = BTreeSet::new();
@@ -1126,27 +1252,6 @@ fn background_worker(rx: Receiver<BackgroundCommand>, tx: Sender<BackgroundResul
                 .collect::<Vec<_>>();
             let entries = compute_diff_stats_batch(&repo_root, &deduped_files);
             let _ = tx.send(BackgroundResult::Stats { entries });
-        }
-        if let Some((repo_root, rel_path, state_code, version, mode)) = pending.detail.take() {
-            let text = match mode {
-                DetailMode::File => load_file_preview(&repo_root, rel_path.as_str())
-                    .ok()
-                    .flatten()
-                    .unwrap_or_else(|| "<no file content available>".to_string()),
-                DetailMode::Diff => {
-                    load_diff_text(&repo_root, rel_path.as_str(), state_code.as_str())
-                        .ok()
-                        .flatten()
-                        .unwrap_or_else(|| "<no diff available>".to_string())
-                }
-            };
-            let _ = tx.send(BackgroundResult::Detail {
-                entry: DetailCacheEntry {
-                    key: detail_cache_key(&rel_path, &state_code, version, mode),
-                    text,
-                },
-                mode,
-            });
         }
         if let Some((repo_root, rel_path, version, entry_kind)) = pending.facts.take() {
             let _ = tx.send(BackgroundResult::Facts {
@@ -1172,21 +1277,34 @@ fn background_worker(rx: Receiver<BackgroundCommand>, tx: Sender<BackgroundResul
     }
 }
 
-fn queue_command(pending: &mut PendingCommands, command: BackgroundCommand) {
+fn queue_preview_command(pending: &mut PendingPreviewCommands, command: PreviewCommand) {
     match command {
-        BackgroundCommand::RefreshStats { repo_root, files } => {
-            pending.stats = Some((repo_root, files));
-        }
-        BackgroundCommand::LoadDetail {
+        PreviewCommand::LoadDetail {
             repo_root,
             rel_path,
             state_code,
             version,
             mode,
+            file_preview_scope,
         } => {
-            pending.detail = Some((repo_root, rel_path, state_code, version, mode));
+            pending.detail = Some((
+                repo_root,
+                rel_path,
+                state_code,
+                version,
+                mode,
+                file_preview_scope,
+            ));
         }
-        BackgroundCommand::LoadFacts {
+    }
+}
+
+fn queue_metadata_command(pending: &mut PendingMetadataCommands, command: MetadataCommand) {
+    match command {
+        MetadataCommand::RefreshStats { repo_root, files } => {
+            pending.stats = Some((repo_root, files));
+        }
+        MetadataCommand::LoadFacts {
             repo_root,
             rel_path,
             version,
@@ -1194,21 +1312,21 @@ fn queue_command(pending: &mut PendingCommands, command: BackgroundCommand) {
         } => {
             pending.facts = Some((repo_root, rel_path, version, entry_kind));
         }
-        BackgroundCommand::RefreshFitness {
+        MetadataCommand::RefreshFitness {
             repo_root,
             cache_key,
             mode,
         } => {
             pending.fitness = Some((repo_root, cache_key, mode));
         }
-        BackgroundCommand::RefreshTestMapping {
+        MetadataCommand::RefreshTestMapping {
             repo_root,
             files,
             cache_key,
         } => {
             pending.test_mapping = Some((repo_root, files, cache_key));
         }
-        BackgroundCommand::RefreshScc { repo_root } => {
+        MetadataCommand::RefreshScc { repo_root } => {
             pending.scc = Some(repo_root);
         }
     }
@@ -1566,7 +1684,11 @@ fn load_submodule_nested_diff_text(
     }
 }
 
-fn load_file_preview(repo_root: &str, rel_path: &str) -> Result<Option<String>> {
+fn load_file_preview(
+    repo_root: &str,
+    rel_path: &str,
+    scope: FilePreviewScope,
+) -> Result<Option<(String, bool)>> {
     let path = Path::new(repo_root).join(rel_path);
     if !path.exists() {
         return Ok(None);
@@ -1590,11 +1712,49 @@ fn load_file_preview(repo_root: &str, rel_path: &str) -> Result<Option<String>> 
         let preview = if entries.is_empty() {
             "<directory is empty>".to_string()
         } else {
-            entries.into_iter().take(200).collect::<Vec<_>>().join("\n")
+            entries
+                .into_iter()
+                .take(DIRECTORY_PREVIEW_ENTRY_LIMIT)
+                .collect::<Vec<_>>()
+                .join("\n")
         };
-        return Ok(Some(preview));
+        return Ok(Some((preview, false)));
     }
-    let content = std::fs::read_to_string(path).context("read file preview")?;
-    let truncated = content.lines().take(400).collect::<Vec<_>>().join("\n");
-    Ok(Some(truncated))
+    match scope {
+        FilePreviewScope::Full => {
+            let content = std::fs::read_to_string(path).context("read file preview")?;
+            Ok(Some((content, false)))
+        }
+        FilePreviewScope::Head => {
+            let file = File::open(path).context("open file preview")?;
+            let mut reader = BufReader::new(file);
+            let mut lines = Vec::new();
+            let mut buffer = String::new();
+            let mut truncated = false;
+
+            while lines.len() < INITIAL_FILE_PREVIEW_LINE_LIMIT + 1 {
+                buffer.clear();
+                let bytes = reader
+                    .read_line(&mut buffer)
+                    .context("read file preview line")?;
+                if bytes == 0 {
+                    break;
+                }
+                if buffer.ends_with('\n') {
+                    buffer.pop();
+                    if buffer.ends_with('\r') {
+                        buffer.pop();
+                    }
+                }
+                lines.push(buffer.clone());
+            }
+
+            if lines.len() > INITIAL_FILE_PREVIEW_LINE_LIMIT {
+                lines.truncate(INITIAL_FILE_PREVIEW_LINE_LIMIT);
+                truncated = true;
+            }
+
+            Ok(Some((lines.join("\n"), truncated)))
+        }
+    }
 }

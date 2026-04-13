@@ -289,6 +289,7 @@ fn sample_cache(state: &RuntimeState) -> AppCache {
                 DetailMode::File,
             ),
             text: "fn render(frame: &mut Frame) {\n    // preview\n}".to_string(),
+            truncated: false,
         },
     );
     cache.diff_cache.insert(
@@ -306,6 +307,7 @@ fn sample_cache(state: &RuntimeState) -> AppCache {
                 DetailMode::Diff,
             ),
             text: "@@ -1,2 +1,3 @@\n-use old\n+use new\n+use cache".to_string(),
+            truncated: false,
         },
     );
     cache.set_fitness_snapshot_for_tests(

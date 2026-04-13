@@ -1,12 +1,13 @@
 use super::{
-    display_status_code, fitness, load_diff_text, AppCache, FitnessHistoryEntry,
-    FitnessHistoryRecord, FITNESS_HISTORY_FILE, FITNESS_HISTORY_SCHEMA_VERSION,
+    detail_cache_key, display_status_code, fitness, load_diff_text, load_file_preview, AppCache,
+    FilePreviewScope, FitnessHistoryEntry, FitnessHistoryRecord, FITNESS_HISTORY_FILE,
+    FITNESS_HISTORY_SCHEMA_VERSION,
 };
 use crate::observe as repo;
 use crate::shared::models::{
     AttributionConfidence, EntryKind, FileView, FitnessEvent, RuntimeMessage,
 };
-use crate::ui::state::RuntimeState;
+use crate::ui::state::{DetailMode, RuntimeState};
 use std::collections::BTreeSet;
 use tempfile::tempdir;
 
@@ -354,6 +355,98 @@ fn nested_submodule_file_diff_uses_submodule_repo() {
     assert!(preview.contains("+++ b/entrix/cli.py"));
     assert!(preview.contains("-print('before')"));
     assert!(preview.contains("+print('after')"));
+}
+
+#[test]
+fn head_file_preview_reads_only_first_hundred_lines() {
+    let dir = tempdir().expect("tempdir");
+    let repo_root = dir.path();
+    std::fs::create_dir_all(repo_root.join("src")).expect("create src");
+    let rel_path = "src/lib.rs";
+    let content = (1..=150)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(repo_root.join(rel_path), content).expect("write test file");
+
+    let (preview, truncated) = load_file_preview(
+        &repo_root.to_string_lossy(),
+        rel_path,
+        FilePreviewScope::Head,
+    )
+    .expect("load preview")
+    .expect("preview text");
+
+    assert!(truncated);
+    assert_eq!(preview.lines().count(), 100);
+    assert!(preview.contains("line 100"));
+    assert!(!preview.contains("line 101"));
+}
+
+#[test]
+fn full_file_preview_reads_entire_file_content() {
+    let dir = tempdir().expect("tempdir");
+    let repo_root = dir.path();
+    std::fs::create_dir_all(repo_root.join("src")).expect("create src");
+    let rel_path = "src/lib.rs";
+    let content = (1..=150)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(repo_root.join(rel_path), content).expect("write test file");
+
+    let (preview, truncated) = load_file_preview(
+        &repo_root.to_string_lossy(),
+        rel_path,
+        FilePreviewScope::Full,
+    )
+    .expect("load preview")
+    .expect("preview text");
+
+    assert!(!truncated);
+    assert_eq!(preview.lines().count(), 150);
+    assert!(preview.contains("line 150"));
+}
+
+#[test]
+fn warm_selected_detail_promotes_scrolled_file_preview_to_full() {
+    let dir = tempdir().expect("tempdir");
+    let repo_root = dir.path().to_string_lossy().to_string();
+    let mut state = RuntimeState::new(repo_root, "main".to_string());
+    state.detail_mode = DetailMode::File;
+    state.files.insert(
+        "src/lib.rs".to_string(),
+        FileView {
+            rel_path: "src/lib.rs".to_string(),
+            dirty: true,
+            state_code: "modify".to_string(),
+            entry_kind: EntryKind::File,
+            last_modified_at_ms: 1,
+            last_session_id: None,
+            last_task_id: None,
+            confidence: AttributionConfidence::Unknown,
+            conflicted: false,
+            touched_by: BTreeSet::new(),
+            recent_events: Vec::new(),
+        },
+    );
+    state.refresh_views();
+
+    let mut cache = AppCache::new(&state.repo_root);
+    let detail_key = detail_cache_key("src/lib.rs", "modify", 1, DetailMode::File);
+
+    cache.warm_selected_detail(&state);
+    assert_eq!(
+        cache.pending_preview_request,
+        Some((detail_key.clone(), FilePreviewScope::Head))
+    );
+
+    state.detail_scroll = 1;
+    cache.warm_selected_detail(&state);
+    assert_eq!(
+        cache.pending_preview_request,
+        Some((detail_key, FilePreviewScope::Full))
+    );
 }
 
 #[test]
