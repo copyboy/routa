@@ -4,6 +4,9 @@ use entrix::file_budgets::{evaluate_paths, is_tracked_source_file, load_config, 
 use entrix::governance::{enforce, filter_dimensions, GovernancePolicy};
 use entrix::long_file::{analyze_long_files, default_comment_review_commit_threshold};
 use entrix::model::{ExecutionScope, Tier};
+use entrix::release_trigger::{
+    evaluate_release_triggers, load_release_manifest, load_release_triggers,
+};
 use entrix::reporting::{report_to_dict, write_report_output};
 use entrix::review_context::{
     analyze_file, analyze_history, analyze_impact, analyze_test_radius, build_graph,
@@ -32,6 +35,8 @@ enum Command {
     Run(RunArgs),
     Validate(ValidateArgs),
     Analyze(AnalyzeArgs),
+    #[command(name = "release-trigger")]
+    ReleaseTrigger(ReleaseTriggerArgs),
     #[command(name = "review-trigger")]
     ReviewTrigger(ReviewTriggerArgs),
     Hook(HookArgs),
@@ -106,6 +111,24 @@ struct AnalyzeLongFileArgs {
 struct ReviewTriggerArgs {
     #[arg()]
     files: Vec<String>,
+    #[arg(long, default_value = "HEAD~1")]
+    base: String,
+    #[arg(long)]
+    config: Option<String>,
+    #[arg(long)]
+    fail_on_trigger: bool,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args, Debug)]
+struct ReleaseTriggerArgs {
+    #[arg()]
+    files: Vec<String>,
+    #[arg(long)]
+    manifest: String,
+    #[arg(long)]
+    baseline_manifest: Option<String>,
     #[arg(long, default_value = "HEAD~1")]
     base: String,
     #[arg(long)]
@@ -304,6 +327,7 @@ fn main() {
         Command::Analyze(args) => match args.command {
             AnalyzeCommand::LongFile(args) => cmd_analyze_long_file(args),
         },
+        Command::ReleaseTrigger(args) => cmd_release_trigger(args),
         Command::ReviewTrigger(args) => cmd_review_trigger(args),
         Command::Hook(args) => match args.command {
             HookCommand::FileLength(args) => cmd_hook_file_length(args),
@@ -465,6 +489,72 @@ fn cmd_analyze_long_file(args: AnalyzeLongFileArgs) -> i32 {
     0
 }
 
+fn cmd_release_trigger(args: ReleaseTriggerArgs) -> i32 {
+    let repo_root = find_project_root();
+    let config_path = args
+        .config
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repo_root.join("docs/fitness/release-triggers.yaml"));
+    let rules = match load_release_triggers(&config_path) {
+        Ok(rules) => rules,
+        Err(error) => {
+            eprintln!("{error}");
+            return 1;
+        }
+    };
+
+    let manifest_path = PathBuf::from(&args.manifest);
+    let (manifest_label, artifacts) = match load_release_manifest(&manifest_path) {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("{error}");
+            return 1;
+        }
+    };
+
+    let (baseline_manifest_label, baseline_artifacts) = match args.baseline_manifest.as_deref() {
+        Some(path) => match load_release_manifest(Path::new(path)) {
+            Ok(result) => (Some(result.0), result.1),
+            Err(error) => {
+                eprintln!("{error}");
+                return 1;
+            }
+        },
+        None => (None, Vec::new()),
+    };
+
+    let changed_files = if args.files.is_empty() {
+        collect_git_diff_files(&repo_root, &args.base)
+    } else {
+        args.files.clone()
+    };
+
+    let report = evaluate_release_triggers(
+        &rules,
+        &artifacts,
+        &manifest_label,
+        &changed_files,
+        &baseline_artifacts,
+        baseline_manifest_label.as_deref(),
+    );
+
+    if args.json {
+        print_json(&report);
+    } else {
+        print_release_trigger_report(&report);
+    }
+
+    if args.fail_on_trigger {
+        if report.blocked {
+            return 4;
+        }
+        if report.human_review_required {
+            return 3;
+        }
+    }
+    0
+}
+
 fn print_report_text(report: &entrix::model::FitnessReport, verbose: bool) {
     let status = if report.hard_gate_blocked || report.score_blocked {
         "FAIL"
@@ -533,6 +623,39 @@ fn print_long_file_report(report: &entrix::long_file::LongFileAnalysisReport, mi
         }
         for warning in &file.warnings {
             println!("  warning {}: {}", warning.code, warning.summary);
+        }
+    }
+}
+
+fn print_release_trigger_report(report: &entrix::release_trigger::ReleaseTriggerReport) {
+    println!("Release trigger report");
+    println!("- blocked: {}", if report.blocked { "yes" } else { "no" });
+    println!(
+        "- human review required: {}",
+        if report.human_review_required {
+            "yes"
+        } else {
+            "no"
+        }
+    );
+    println!("- manifest: {}", report.manifest_path);
+    if let Some(path) = &report.baseline_manifest_path {
+        println!("- baseline manifest: {path}");
+    }
+    println!("- artifacts: {}", report.artifacts.len());
+    println!("- changed files: {}", report.changed_files.len());
+    if report.triggers.is_empty() {
+        println!("- triggers: none");
+        return;
+    }
+    println!("- triggers:");
+    for trigger in &report.triggers {
+        println!(
+            "  - {} [{}] -> {}",
+            trigger.name, trigger.severity, trigger.action
+        );
+        for reason in &trigger.reasons {
+            println!("    - {reason}");
         }
     }
 }

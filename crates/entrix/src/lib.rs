@@ -8,6 +8,7 @@ pub mod file_budgets;
 pub mod governance;
 pub mod long_file;
 pub mod model;
+pub mod release_trigger;
 pub mod reporting;
 pub mod review_context;
 pub mod review_trigger;
