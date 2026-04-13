@@ -2,6 +2,7 @@ use clap::{Args, Parser, Subcommand};
 use routa_entrix::file_budgets::{
     evaluate_paths, is_tracked_source_file, load_config, resolve_paths,
 };
+use routa_entrix::review_context::{build_review_context, ReviewContextOptions};
 use routa_entrix::review_trigger::{
     collect_changed_files, collect_diff_stats, evaluate_review_triggers, load_review_triggers,
 };
@@ -221,19 +222,16 @@ fn cmd_graph_review_context(args: GraphReviewContextArgs) -> i32 {
     if files.is_empty() {
         files = collect_git_diff_files(&repo_root, &args.base);
     }
-
-    let payload = json!({
-        "status": "unavailable",
-        "reason": "graph review context is not implemented in routa-entrix yet",
-        "base": args.base,
-        "head": args.head,
-        "changed_files": files,
-        "max_depth": args.depth,
-        "max_targets": args.max_targets,
-        "max_files": args.max_files,
-        "max_lines_per_file": args.max_lines_per_file,
-        "include_source": !args.no_source
-    });
+    let payload = build_review_context(
+        &repo_root,
+        &files,
+        ReviewContextOptions {
+            base: &args.base,
+            include_source: !args.no_source,
+            max_files: args.max_files,
+            max_lines_per_file: args.max_lines_per_file,
+        },
+    );
 
     if args.json {
         if let Some(output_path) = args.output {
@@ -251,12 +249,7 @@ fn cmd_graph_review_context(args: GraphReviewContextArgs) -> i32 {
         }
         print_json(&payload);
     } else {
-        println!(
-            "{}",
-            payload["reason"]
-                .as_str()
-                .unwrap_or("graph review context unavailable")
-        );
+        println!("{}", payload.summary);
     }
 
     0
