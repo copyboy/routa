@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UseAcpActions, UseAcpState } from "@/client/hooks/use-acp";
 import { KanbanTab } from "../kanban-tab";
 import type { KanbanBoardInfo, TaskInfo } from "../../types";
+import { resetDesktopAwareFetchToGlobalFetch } from "./test-utils";
 
 const { desktopAwareFetch } = vi.hoisted(() => ({
   desktopAwareFetch: vi.fn(),
@@ -56,8 +57,7 @@ function createTask(id: string, title: string, overrides: Partial<TaskInfo> = {}
 }
 
 beforeEach(() => {
-  desktopAwareFetch.mockReset();
-  desktopAwareFetch.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  resetDesktopAwareFetchToGlobalFetch(desktopAwareFetch);
 });
 
 afterEach(() => {

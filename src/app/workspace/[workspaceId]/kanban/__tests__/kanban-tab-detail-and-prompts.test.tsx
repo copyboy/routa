@@ -7,6 +7,7 @@ import { KanbanMoveBlockedModal } from "../kanban-tab-modals";
 import { buildKanbanSessionRestorePrompt } from "../kanban-tab-panels";
 import type { KanbanBoardInfo, TaskInfo } from "../../types";
 import type { UseAcpActions, UseAcpState } from "@/client/hooks/use-acp";
+import { resetDesktopAwareFetchToGlobalFetch } from "./test-utils";
 
 const { desktopAwareFetch } = vi.hoisted(() => ({
   desktopAwareFetch: vi.fn(),
@@ -60,8 +61,7 @@ function createTask(id: string, title: string, overrides: Partial<TaskInfo> = {}
 }
 
 beforeEach(() => {
-  desktopAwareFetch.mockReset();
-  desktopAwareFetch.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  resetDesktopAwareFetchToGlobalFetch(desktopAwareFetch);
 });
 
 afterEach(() => {

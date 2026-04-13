@@ -5,6 +5,7 @@ import { KanbanTab } from "../kanban-tab";
 import { KanbanCardDetail } from "../kanban-card-detail";
 import type { KanbanBoardInfo, TaskInfo } from "../../types";
 import type { UseAcpActions, UseAcpState } from "@/client/hooks/use-acp";
+import { resetDesktopAwareFetchToGlobalFetch } from "./test-utils";
 
 const { desktopAwareFetch, dndKitHarness } = vi.hoisted(() => ({
   desktopAwareFetch: vi.fn(),
@@ -115,8 +116,7 @@ function createTask(id: string, title: string, overrides: Partial<TaskInfo> = {}
 }
 
 beforeEach(() => {
-  desktopAwareFetch.mockReset();
-  desktopAwareFetch.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  resetDesktopAwareFetchToGlobalFetch(desktopAwareFetch);
   dndKitHarness.reset();
 });
 
