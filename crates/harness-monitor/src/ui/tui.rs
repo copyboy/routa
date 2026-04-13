@@ -123,13 +123,63 @@ fn run_loop(terminal: &mut DefaultTerminal, ctx: RepoContext, poll_interval_ms: 
     let mut state = RuntimeState::new(repo_root.clone(), "-".to_string());
     state.sync_focus_for_width(terminal.size()?.width);
     state.set_runtime_transport(read_runtime_transport(&ctx));
-    state.set_worktree_count(current_worktree_count(&ctx).ok());
     let mut cache = AppCache::new(&repo_root);
+    let cache_result_rx = cache.take_result_signal_rx();
     cache.set_fitness_mode(state.fitness_view_mode);
     cache.request_scc_refresh(state.repo_root.clone(), false);
     let bootstrap_cutoff = bootstrap_history_cutoff(chrono::Utc::now().timestamp_millis());
     let (signal_tx, signal_rx) = mpsc::channel();
+    let (repo_refresh_tx, repo_refresh_rx) = mpsc::channel();
+    let (agent_refresh_tx, agent_refresh_rx) = mpsc::channel();
     spawn_terminal_signal_thread(signal_tx.clone());
+    if let Some(result_signal_rx) = cache_result_rx {
+        spawn_cache_result_signal_thread(result_signal_rx, signal_tx.clone());
+    }
+    spawn_repo_snapshot_thread(
+        ctx.clone(),
+        signal_tx.clone(),
+        repo_refresh_rx,
+        Duration::from_millis(poll_interval_ms),
+    );
+    spawn_agent_scan_thread(
+        state.repo_root.clone(),
+        signal_tx.clone(),
+        agent_refresh_rx,
+        Duration::from_millis(AGENT_SCAN_REFRESH_MS),
+    );
+    spawn_interval_signal_thread(
+        signal_tx.clone(),
+        Duration::from_millis(TRANSPORT_REFRESH_MS),
+        Duration::from_millis(TRANSPORT_REFRESH_MS),
+        {
+            let transport_ctx = ctx.clone();
+            move || UiSignal::RuntimeTransport(read_runtime_transport(&transport_ctx))
+        },
+    );
+    spawn_interval_signal_thread(
+        signal_tx.clone(),
+        Duration::from_millis(FITNESS_AUTO_REFRESH_MS),
+        Duration::from_millis(FITNESS_AUTO_REFRESH_MS),
+        || UiSignal::FitnessAutoRefresh,
+    );
+    spawn_interval_signal_thread(
+        signal_tx.clone(),
+        Duration::from_millis(FITNESS_CACHE_CHECK_MS),
+        Duration::from_millis(FITNESS_CACHE_CHECK_MS),
+        || UiSignal::FitnessMailboxSync,
+    );
+    spawn_interval_signal_thread(
+        signal_tx.clone(),
+        Duration::from_millis(SCC_REFRESH_MS),
+        Duration::from_millis(SCC_REFRESH_MS),
+        || UiSignal::SccRefresh,
+    );
+    spawn_interval_signal_thread(
+        signal_tx.clone(),
+        Duration::from_millis(IDLE_REDRAW_MS),
+        Duration::from_millis(IDLE_REDRAW_MS),
+        || UiSignal::Tick,
+    );
     let transcript_ctx = ctx.clone();
     let transcript_signal_tx = signal_tx.clone();
     thread::spawn(move || {
@@ -146,27 +196,12 @@ fn run_loop(terminal: &mut DefaultTerminal, ctx: RepoContext, poll_interval_ms: 
         result.sort_by_key(RuntimeMessage::observed_at_ms);
         let _ = transcript_signal_tx.send(UiSignal::TranscriptBootstrap(result));
     });
-    let initial_repo_ctx = ctx.clone();
-    let initial_repo_signal_tx = signal_tx.clone();
-    thread::spawn(move || {
-        let _ = initial_repo_signal_tx.send(UiSignal::InitialRepo(load_initial_repo_snapshot(
-            &initial_repo_ctx,
-        )));
-    });
     for message in render_feed.read_recent_since(bootstrap_cutoff)? {
         state.apply_message(message);
     }
     let background_feed = RuntimeFeed::open(&ctx.runtime_event_path)?;
-    spawn_runtime_feed_thread(background_feed, signal_tx);
+    spawn_runtime_feed_thread(background_feed, signal_tx.clone());
     state.prune_stale_sessions();
-    let mut last_poll = Instant::now();
-    let mut last_transport_refresh = Instant::now() - Duration::from_millis(TRANSPORT_REFRESH_MS);
-    let mut last_repo_status_refresh = Instant::now();
-    let mut last_agent_refresh = Instant::now() - Duration::from_millis(AGENT_SCAN_REFRESH_MS);
-    let mut last_fitness_refresh = Instant::now();
-    let mut last_fitness_cache_check =
-        Instant::now() - Duration::from_millis(FITNESS_CACHE_CHECK_MS);
-    let mut last_scc_refresh = Instant::now();
     if !cache.has_fitness_data() {
         cache.request_fitness_refresh(
             state.repo_root.clone(),
@@ -181,122 +216,35 @@ fn run_loop(terminal: &mut DefaultTerminal, ctx: RepoContext, poll_interval_ms: 
     cache.warm_test_mappings(&state);
     state.sync_focus_for_width(terminal.size()?.width);
     terminal.draw(|frame| render(frame, &state, &render_feed, &mut cache))?;
-    let mut last_draw = Instant::now();
 
     loop {
         let mut needs_redraw = false;
-        let mut force_scan = false;
-        let wait = next_ui_signal_timeout(
-            poll_interval_ms,
-            last_poll,
-            last_transport_refresh,
-            last_repo_status_refresh,
-            last_agent_refresh,
-            last_fitness_refresh,
-            last_fitness_cache_check,
-            last_scc_refresh,
-            last_draw,
-        );
-        match signal_rx.recv_timeout(wait) {
-            Ok(signal) => {
-                if apply_ui_signal(
-                    signal,
-                    &ctx,
-                    &mut state,
-                    &mut cache,
-                    &mut last_poll,
-                    &mut last_repo_status_refresh,
-                    &mut last_agent_refresh,
-                    &mut last_fitness_refresh,
-                    &mut force_scan,
-                    &mut needs_redraw,
-                )? == UiLoopAction::Quit
-                {
-                    return Ok(());
-                }
-                while let Ok(signal) = signal_rx.try_recv() {
-                    if apply_ui_signal(
-                        signal,
-                        &ctx,
-                        &mut state,
-                        &mut cache,
-                        &mut last_poll,
-                        &mut last_repo_status_refresh,
-                        &mut last_agent_refresh,
-                        &mut last_fitness_refresh,
-                        &mut force_scan,
-                        &mut needs_redraw,
-                    )? == UiLoopAction::Quit
-                    {
-                        return Ok(());
-                    }
-                }
+        let Ok(signal) = signal_rx.recv() else {
+            return Ok(());
+        };
+        if apply_ui_signal(
+            signal,
+            &mut state,
+            &mut cache,
+            &repo_refresh_tx,
+            &agent_refresh_tx,
+            &mut needs_redraw,
+        )? == UiLoopAction::Quit
+        {
+            return Ok(());
+        }
+        while let Ok(signal) = signal_rx.try_recv() {
+            if apply_ui_signal(
+                signal,
+                &mut state,
+                &mut cache,
+                &repo_refresh_tx,
+                &agent_refresh_tx,
+                &mut needs_redraw,
+            )? == UiLoopAction::Quit
+            {
+                return Ok(());
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => {}
-        }
-
-        if last_poll.elapsed() >= Duration::from_millis(poll_interval_ms) {
-            refresh_repo_snapshot(&ctx, &mut state)?;
-            let now = Instant::now();
-            last_poll = now;
-            last_repo_status_refresh = now;
-            needs_redraw = true;
-        }
-        if force_scan {
-            refresh_repo_snapshot(&ctx, &mut state)?;
-            let now = Instant::now();
-            last_poll = now;
-            last_repo_status_refresh = now;
-            needs_redraw = true;
-        }
-        state.prune_stale_sessions();
-
-        if last_transport_refresh.elapsed() >= Duration::from_millis(TRANSPORT_REFRESH_MS) {
-            state.set_runtime_transport(read_runtime_transport(&ctx));
-            last_transport_refresh = Instant::now();
-            needs_redraw = true;
-        }
-        if last_repo_status_refresh.elapsed() >= Duration::from_millis(REPO_STATUS_REFRESH_MS) {
-            apply_repo_status(&mut state, read_repo_status(&ctx).ok());
-            state.set_worktree_count(current_worktree_count(&ctx).ok());
-            last_repo_status_refresh = Instant::now();
-            needs_redraw = true;
-        }
-        if last_agent_refresh.elapsed() >= Duration::from_millis(AGENT_SCAN_REFRESH_MS) {
-            if let Ok(agents) = crate::observe::detect::scan_agents(&state.repo_root) {
-                state.set_detected_agents(agents);
-            }
-            last_agent_refresh = Instant::now();
-            needs_redraw = true;
-        }
-        if last_fitness_refresh.elapsed() >= Duration::from_millis(FITNESS_AUTO_REFRESH_MS) {
-            cache.request_fitness_refresh(
-                state.repo_root.clone(),
-                state.fitness_cache_key(),
-                false,
-                fitness_run_mode_for(&state),
-            );
-            last_fitness_refresh = Instant::now();
-            needs_redraw = true;
-        }
-        if last_fitness_cache_check.elapsed() >= Duration::from_millis(FITNESS_CACHE_CHECK_MS) {
-            cache.request_fitness_refresh(
-                state.repo_root.clone(),
-                state.fitness_cache_key(),
-                false,
-                fitness_run_mode_for(&state),
-            );
-            last_fitness_cache_check = Instant::now();
-            needs_redraw = true;
-        }
-        if last_scc_refresh.elapsed() >= Duration::from_millis(SCC_REFRESH_MS) {
-            cache.request_scc_refresh(state.repo_root.clone(), false);
-            last_scc_refresh = Instant::now();
-            needs_redraw = true;
-        }
-        if cache.sync_results() {
-            needs_redraw = true;
         }
         cache.warm_visible_files(&state);
         cache.warm_selected_detail(&state);
@@ -304,12 +252,8 @@ fn run_loop(terminal: &mut DefaultTerminal, ctx: RepoContext, poll_interval_ms: 
 
         let width = terminal.size()?.width;
         state.sync_focus_for_width(width);
-        if last_draw.elapsed() >= Duration::from_millis(IDLE_REDRAW_MS) {
-            needs_redraw = true;
-        }
         if needs_redraw {
             terminal.draw(|frame| render(frame, &state, &render_feed, &mut cache))?;
-            last_draw = Instant::now();
         }
     }
 }
@@ -393,28 +337,18 @@ fn handle_event(
 
 fn apply_ui_signal(
     signal: UiSignal,
-    ctx: &RepoContext,
     state: &mut RuntimeState,
     cache: &mut AppCache,
-    last_poll: &mut Instant,
-    last_repo_status_refresh: &mut Instant,
-    last_agent_refresh: &mut Instant,
-    last_fitness_refresh: &mut Instant,
-    force_scan: &mut bool,
+    repo_refresh_tx: &mpsc::Sender<RefreshCommand>,
+    agent_refresh_tx: &mpsc::Sender<RefreshCommand>,
     needs_redraw: &mut bool,
 ) -> Result<UiLoopAction> {
     match signal {
         UiSignal::Terminal(event) => match handle_event(state, cache, event)? {
             UiLoopAction::Quit => return Ok(UiLoopAction::Quit),
             UiLoopAction::RefreshAll => {
-                refresh_repo_snapshot(ctx, state)?;
-                if let Ok(agents) = crate::observe::detect::scan_agents(&state.repo_root) {
-                    state.set_detected_agents(agents);
-                }
-                let now = Instant::now();
-                *last_poll = now;
-                *last_repo_status_refresh = now;
-                *last_agent_refresh = now;
+                request_refresh(repo_refresh_tx);
+                request_refresh(agent_refresh_tx);
                 *needs_redraw = true;
             }
             UiLoopAction::Continue => *needs_redraw = true,
@@ -425,18 +359,18 @@ fn apply_ui_signal(
             }
             for message in messages {
                 if matches!(message, RuntimeMessage::Git(_)) {
-                    *force_scan = true;
+                    request_refresh(repo_refresh_tx);
                 }
                 if let RuntimeMessage::Fitness(event) = &message {
                     refresh_fitness_from_event(state, cache, event);
-                    *last_fitness_refresh = Instant::now();
                 }
                 state.apply_message(message);
             }
+            state.prune_stale_sessions();
         }
         UiSignal::TranscriptBootstrap(messages) => {
             if !messages.is_empty() {
-                *force_scan = true;
+                request_refresh(repo_refresh_tx);
             }
             let recovered_session_count = messages
                 .iter()
@@ -450,7 +384,7 @@ fn apply_ui_signal(
                 .len();
             for message in messages {
                 if matches!(message, RuntimeMessage::Git(_)) {
-                    *force_scan = true;
+                    request_refresh(repo_refresh_tx);
                 }
                 state.apply_message(message);
             }
@@ -461,43 +395,41 @@ fn apply_ui_signal(
             state.prune_stale_sessions();
             *needs_redraw = true;
         }
-        UiSignal::InitialRepo(snapshot) => {
-            apply_initial_repo_snapshot(state, snapshot);
-            let now = Instant::now();
-            *last_poll = now;
-            *last_repo_status_refresh = now;
+        UiSignal::RepoSnapshot(snapshot) => {
+            apply_repo_snapshot(state, snapshot);
+            *needs_redraw = true;
+        }
+        UiSignal::DetectedAgents(agents) => {
+            state.set_detected_agents(agents);
+            *needs_redraw = true;
+        }
+        UiSignal::RuntimeTransport(transport) => {
+            state.set_runtime_transport(transport);
+            *needs_redraw = true;
+        }
+        UiSignal::FitnessAutoRefresh | UiSignal::FitnessMailboxSync => {
+            cache.request_fitness_refresh(
+                state.repo_root.clone(),
+                state.fitness_cache_key(),
+                false,
+                fitness_run_mode_for(state),
+            );
+            *needs_redraw = true;
+        }
+        UiSignal::SccRefresh => {
+            cache.request_scc_refresh(state.repo_root.clone(), false);
+        }
+        UiSignal::CacheResultsReady => {
+            if cache.sync_results() {
+                *needs_redraw = true;
+            }
+        }
+        UiSignal::Tick => {
+            state.prune_stale_sessions();
             *needs_redraw = true;
         }
     }
     Ok(UiLoopAction::Continue)
-}
-
-fn next_ui_signal_timeout(
-    poll_interval_ms: u64,
-    last_poll: Instant,
-    last_transport_refresh: Instant,
-    last_repo_status_refresh: Instant,
-    last_agent_refresh: Instant,
-    last_fitness_refresh: Instant,
-    last_fitness_cache_check: Instant,
-    last_scc_refresh: Instant,
-    last_draw: Instant,
-) -> Duration {
-    let now = Instant::now();
-    [
-        last_poll + Duration::from_millis(poll_interval_ms),
-        last_transport_refresh + Duration::from_millis(TRANSPORT_REFRESH_MS),
-        last_repo_status_refresh + Duration::from_millis(REPO_STATUS_REFRESH_MS),
-        last_agent_refresh + Duration::from_millis(AGENT_SCAN_REFRESH_MS),
-        last_fitness_refresh + Duration::from_millis(FITNESS_AUTO_REFRESH_MS),
-        last_fitness_cache_check + Duration::from_millis(FITNESS_CACHE_CHECK_MS),
-        last_scc_refresh + Duration::from_millis(SCC_REFRESH_MS),
-        last_draw + Duration::from_millis(IDLE_REDRAW_MS),
-    ]
-    .into_iter()
-    .map(|deadline| deadline.saturating_duration_since(now))
-    .min()
-    .unwrap_or_else(|| Duration::from_millis(IDLE_REDRAW_MS))
 }
 
 fn spawn_runtime_feed_thread(mut feed: RuntimeFeed, signal_tx: mpsc::Sender<UiSignal>) {
@@ -522,6 +454,97 @@ fn spawn_terminal_signal_thread(signal_tx: mpsc::Sender<UiSignal>) {
             }
         }
     });
+}
+
+fn spawn_cache_result_signal_thread(
+    result_rx: mpsc::Receiver<()>,
+    signal_tx: mpsc::Sender<UiSignal>,
+) {
+    thread::spawn(move || {
+        while result_rx.recv().is_ok() {
+            if signal_tx.send(UiSignal::CacheResultsReady).is_err() {
+                break;
+            }
+        }
+    });
+}
+
+fn spawn_interval_signal_thread<F>(
+    signal_tx: mpsc::Sender<UiSignal>,
+    initial_delay: Duration,
+    interval: Duration,
+    mut make_signal: F,
+) where
+    F: FnMut() -> UiSignal + Send + 'static,
+{
+    thread::spawn(move || {
+        thread::sleep(initial_delay);
+        loop {
+            if signal_tx.send(make_signal()).is_err() {
+                break;
+            }
+            thread::sleep(interval);
+        }
+    });
+}
+
+fn spawn_repo_snapshot_thread(
+    ctx: RepoContext,
+    signal_tx: mpsc::Sender<UiSignal>,
+    refresh_rx: mpsc::Receiver<RefreshCommand>,
+    interval: Duration,
+) {
+    thread::spawn(move || {
+        let mut include_warning = true;
+        loop {
+            if signal_tx
+                .send(UiSignal::RepoSnapshot(load_repo_snapshot(
+                    &ctx,
+                    include_warning,
+                )))
+                .is_err()
+            {
+                break;
+            }
+            include_warning = false;
+            if !wait_for_refresh(&refresh_rx, interval) {
+                break;
+            }
+        }
+    });
+}
+
+fn spawn_agent_scan_thread(
+    repo_root: String,
+    signal_tx: mpsc::Sender<UiSignal>,
+    refresh_rx: mpsc::Receiver<RefreshCommand>,
+    interval: Duration,
+) {
+    thread::spawn(move || loop {
+        if let Ok(agents) = crate::observe::detect::scan_agents(&repo_root) {
+            if signal_tx.send(UiSignal::DetectedAgents(agents)).is_err() {
+                break;
+            }
+        }
+        if !wait_for_refresh(&refresh_rx, interval) {
+            break;
+        }
+    });
+}
+
+fn wait_for_refresh(refresh_rx: &mpsc::Receiver<RefreshCommand>, interval: Duration) -> bool {
+    match refresh_rx.recv_timeout(interval) {
+        Ok(RefreshCommand::RefreshNow) => {
+            while matches!(refresh_rx.try_recv(), Ok(RefreshCommand::RefreshNow)) {}
+            true
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => true,
+        Err(mpsc::RecvTimeoutError::Disconnected) => false,
+    }
+}
+
+fn request_refresh(refresh_tx: &mpsc::Sender<RefreshCommand>) {
+    let _ = refresh_tx.send(RefreshCommand::RefreshNow);
 }
 
 fn fitness_run_mode_for(state: &RuntimeState) -> fitness::FitnessRunMode {
@@ -560,14 +583,6 @@ fn apply_repo_status(state: &mut RuntimeState, repo_status: Option<RepoStatusSum
     state.branch = repo_status.branch.unwrap_or_else(|| "-".to_string());
     state.set_ahead_count(repo_status.ahead_count);
     state.set_committed_change_summary(repo_status.committed_change_summary);
-}
-
-fn refresh_repo_snapshot(ctx: &RepoContext, state: &mut RuntimeState) -> Result<()> {
-    let dirty = observe::scan_repo(ctx)?;
-    state.sync_dirty_files(dirty);
-    apply_repo_status(state, read_repo_status(ctx).ok());
-    state.set_worktree_count(current_worktree_count(ctx).ok());
-    Ok(())
 }
 
 fn read_repo_status(ctx: &RepoContext) -> Result<RepoStatusSummary> {
@@ -766,26 +781,29 @@ fn bootstrap_history_cutoff(now_ms: i64) -> i64 {
     now_ms - SESSION_BOOTSTRAP_WINDOW_MS
 }
 
-fn load_initial_repo_snapshot(ctx: &RepoContext) -> InitialRepoSnapshot {
+fn load_repo_snapshot(ctx: &RepoContext, include_warning: bool) -> RepoSnapshot {
     let repo_status = read_repo_status(ctx).ok();
     let dirty = observe::scan_repo(ctx).ok();
-    let warning = if repo_status.is_none() && dirty.is_none() {
+    let worktree_count = current_worktree_count(ctx).ok();
+    let warning = if include_warning && repo_status.is_none() && dirty.is_none() {
         Some("initial git scan unavailable".to_string())
     } else {
         None
     };
-    InitialRepoSnapshot {
+    RepoSnapshot {
         dirty,
         repo_status,
+        worktree_count,
         warning,
     }
 }
 
-fn apply_initial_repo_snapshot(state: &mut RuntimeState, snapshot: InitialRepoSnapshot) {
+fn apply_repo_snapshot(state: &mut RuntimeState, snapshot: RepoSnapshot) {
     if let Some(dirty) = snapshot.dirty {
         state.sync_dirty_files(dirty);
     }
     apply_repo_status(state, snapshot.repo_status);
+    state.set_worktree_count(snapshot.worktree_count);
     if let Some(warning) = snapshot.warning {
         state.push_hook_status_event(chrono::Utc::now().timestamp_millis(), warning);
     }

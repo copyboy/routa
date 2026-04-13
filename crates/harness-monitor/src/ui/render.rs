@@ -1124,6 +1124,21 @@ fn render_file_panel_title(
         format!("-{deletions}"),
         Style::default().fg(STOPPED).add_modifier(Modifier::BOLD),
     ));
+    if let Some((total_additions, total_deletions)) = state.committed_change_summary {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled("(Total:", Style::default().fg(colors.muted)));
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            format!("+{total_additions}"),
+            Style::default().fg(ACTIVE).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            format!("-{total_deletions}"),
+            Style::default().fg(STOPPED).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(")", Style::default().fg(colors.muted)));
+    }
     Line::from(spans)
 }
 

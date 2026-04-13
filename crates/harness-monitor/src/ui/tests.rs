@@ -1329,7 +1329,7 @@ fn refresh_repo_snapshot_clears_committed_files_from_git_status() {
     let mut state = RuntimeState::new(repo_root.to_string_lossy().to_string(), "-".to_string());
 
     std::fs::write(&file_path, "fn render() {}\nfn repaint() {}\n").expect("dirty file");
-    refresh_repo_snapshot(&ctx, &mut state).expect("refresh dirty repo");
+    apply_repo_snapshot(&mut state, load_repo_snapshot(&ctx, false));
     let selected = state.selected_file().expect("dirty file should be visible");
     assert_eq!(selected.rel_path, rel_path);
     assert!(selected.dirty);
@@ -1349,7 +1349,7 @@ fn refresh_repo_snapshot_clears_committed_files_from_git_status() {
         .expect("git commit clean")
         .success());
 
-    refresh_repo_snapshot(&ctx, &mut state).expect("refresh clean repo");
+    apply_repo_snapshot(&mut state, load_repo_snapshot(&ctx, false));
     assert!(state.selected_file().is_none());
     assert!(
         state.files.get(rel_path).is_some_and(|file| !file.dirty),
