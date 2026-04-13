@@ -382,6 +382,20 @@ fn collect_typescript_nodes(
                 out.push(parsed);
             }
         }
+        "lexical_declaration" | "variable_declaration" => {
+            for child in node.children(&mut node.walk()) {
+                if child.kind() == "variable_declarator" {
+                    if let Some(parsed) = parse_typescript_variable_callable(
+                        relative_path,
+                        source,
+                        child,
+                        parent_name,
+                    ) {
+                        out.push(parsed);
+                    }
+                }
+            }
+        }
         "class_declaration" => {
             let extends = extract_typescript_extends(node, source);
             let class_name = node
@@ -432,12 +446,124 @@ fn collect_typescript_nodes(
                 out.push(parsed);
             }
         }
+        "call_expression" => {
+            collect_typescript_test_calls(relative_path, source, node, out);
+        }
         _ => {}
     }
 
     for child in node.children(&mut node.walk()) {
         collect_typescript_nodes(relative_path, source, child, parent_name, out);
     }
+}
+
+fn parse_typescript_variable_callable(
+    relative_path: &str,
+    source: &[u8],
+    node: Node<'_>,
+    parent_name: Option<&str>,
+) -> Option<ChangedNode> {
+    let name = node
+        .child_by_field_name("name")
+        .and_then(|child| child.utf8_text(source).ok())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())?
+        .to_string();
+    let value = node.child_by_field_name("value")?;
+    if !matches!(value.kind(), "arrow_function" | "function_expression") {
+        return None;
+    }
+    let qualified_name = if let Some(parent) = parent_name {
+        format!("{relative_path}:{parent}.{name}")
+    } else {
+        format!("{relative_path}:{name}")
+    };
+    Some(ChangedNode {
+        qualified_name,
+        name,
+        kind: "Function".to_string(),
+        file_path: relative_path.to_string(),
+        language: "typescript".to_string(),
+        is_test: false,
+        line_start: Some(node.start_position().row + 1),
+        line_end: Some(node.end_position().row + 1),
+        parent_name: parent_name.map(ToString::to_string),
+        references: Vec::new(),
+        extends: String::new(),
+        mentions: collect_identifier_mentions(node, source),
+    })
+}
+
+fn collect_typescript_test_calls(
+    relative_path: &str,
+    source: &[u8],
+    node: Node<'_>,
+    out: &mut Vec<ChangedNode>,
+) {
+    let Some(function) = node.child_by_field_name("function") else {
+        return;
+    };
+    let Ok(callee) = function.utf8_text(source) else {
+        return;
+    };
+    let callee = callee.trim();
+    if !matches!(callee, "it" | "test" | "describe") {
+        return;
+    }
+
+    let Some(arguments) = node.child_by_field_name("arguments") else {
+        return;
+    };
+    let mut label = None;
+    for child in arguments.children(&mut arguments.walk()) {
+        if child.kind() == "string" || child.kind() == "template_string" {
+            let raw = child.utf8_text(source).unwrap_or("").trim().to_string();
+            let normalized = raw
+                .trim_matches('`')
+                .trim_matches('"')
+                .trim_matches('\'')
+                .to_string();
+            if !normalized.is_empty() {
+                label = Some(normalized);
+                break;
+            }
+        }
+    }
+    let Some(label) = label else {
+        return;
+    };
+
+    let test_name = sanitize_test_name(&label);
+    if test_name.is_empty() {
+        return;
+    }
+
+    out.push(ChangedNode {
+        qualified_name: format!("{relative_path}:{test_name}"),
+        name: test_name,
+        kind: "Test".to_string(),
+        file_path: relative_path.to_string(),
+        language: "typescript".to_string(),
+        is_test: true,
+        line_start: Some(node.start_position().row + 1),
+        line_end: Some(node.end_position().row + 1),
+        parent_name: None,
+        references: Vec::new(),
+        extends: String::new(),
+        mentions: vec![label],
+    });
+}
+
+fn sanitize_test_name(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+        } else if matches!(ch, ' ' | '-' | '.' | '/' | ':') {
+            out.push('_');
+        }
+    }
+    out.trim_matches('_').to_string()
 }
 
 fn parse_typescript_symbol(
@@ -748,6 +874,9 @@ fn collect_go_nodes(
                 return;
             }
         }
+        "call_expression" => {
+            collect_go_test_subcases(relative_path, source, node, out);
+        }
         "type_declaration" => {
             for child in node.children(&mut node.walk()) {
                 if child.kind() == "type_spec" {
@@ -763,6 +892,56 @@ fn collect_go_nodes(
     for child in node.children(&mut node.walk()) {
         collect_go_nodes(relative_path, source, child, parent_name, out);
     }
+}
+
+fn collect_go_test_subcases(
+    relative_path: &str,
+    source: &[u8],
+    node: Node<'_>,
+    out: &mut Vec<ChangedNode>,
+) {
+    let Some(function) = node.child_by_field_name("function") else {
+        return;
+    };
+    let Ok(callee) = function.utf8_text(source) else {
+        return;
+    };
+    if !callee.trim().ends_with(".Run") {
+        return;
+    }
+
+    let Some(arguments) = node.child_by_field_name("arguments") else {
+        return;
+    };
+    let mut label = None;
+    for child in arguments.children(&mut arguments.walk()) {
+        if child.kind() == "interpreted_string_literal" || child.kind() == "raw_string_literal" {
+            let raw = child.utf8_text(source).unwrap_or("").trim().to_string();
+            let normalized = raw.trim_matches('"').trim_matches('`').to_string();
+            if !normalized.is_empty() {
+                label = Some(normalized);
+                break;
+            }
+        }
+    }
+    let Some(label) = label else {
+        return;
+    };
+    let test_name = format!("subtest_{}", sanitize_test_name(&label));
+    out.push(ChangedNode {
+        qualified_name: format!("{relative_path}:{test_name}"),
+        name: test_name,
+        kind: "Test".to_string(),
+        file_path: relative_path.to_string(),
+        language: "go".to_string(),
+        is_test: true,
+        line_start: Some(node.start_position().row + 1),
+        line_end: Some(node.end_position().row + 1),
+        parent_name: None,
+        references: Vec::new(),
+        extends: String::new(),
+        mentions: vec![label],
+    });
 }
 
 fn parse_go_function(
@@ -901,6 +1080,9 @@ fn companion_test_candidates(relative_path: &str) -> Vec<String> {
     {
         "java" => java_companion_test_candidates(relative_path),
         "go" => go_companion_test_candidates(relative_path),
+        "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" => {
+            typescript_companion_test_candidates(relative_path)
+        }
         _ => Vec::new(),
     }
 }
@@ -940,6 +1122,47 @@ fn go_companion_test_candidates(relative_path: &str) -> Vec<String> {
         .join(format!("{stem}_test.go"))
         .to_string_lossy()
         .replace('\\', "/")]
+}
+
+fn typescript_companion_test_candidates(relative_path: &str) -> Vec<String> {
+    let path = Path::new(relative_path);
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let stem = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    let ext = path
+        .extension()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if stem.is_empty() || matches!(ext, "") {
+        return Vec::new();
+    }
+
+    let mut candidates = Vec::new();
+    for suffix in ["test", "spec"] {
+        candidates.push(
+            parent
+                .join(format!("{stem}.{suffix}.{ext}"))
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
+        candidates.push(
+            parent
+                .join("__tests__")
+                .join(format!("{stem}.{suffix}.{ext}"))
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
+        candidates.push(
+            parent
+                .join("tests")
+                .join(format!("{stem}.{suffix}.{ext}"))
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
+    }
+    candidates
 }
 
 fn is_test_file(relative_path: &str) -> bool {

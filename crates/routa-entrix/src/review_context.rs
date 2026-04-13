@@ -801,7 +801,7 @@ mod tests {
         .unwrap();
         fs::write(
             root.join("pkg/demo/service_test.go"),
-            "package demo\n\nfunc TestRun(t *testing.T) {\n  var service Service\n  _ = service.Run()\n}\n",
+            "package demo\n\nfunc TestRun(t *testing.T) {\n  var service Service\n  t.Run(\"run method\", func(t *testing.T) {\n    _ = service.Run()\n  })\n}\n",
         )
         .unwrap();
 
@@ -824,14 +824,67 @@ mod tests {
             .iter()
             .find(|target| target.qualified_name == "pkg/demo/service.go:Service.Run")
             .unwrap();
-        assert_eq!(run_target.tests_count, 1);
-        assert_eq!(
-            run_target.tests[0].qualified_name,
-            "pkg/demo/service_test.go:TestRun"
-        );
+        assert_eq!(run_target.tests_count, 2);
+        let test_ids = run_target
+            .tests
+            .iter()
+            .map(|test| test.qualified_name.as_str())
+            .collect::<Vec<_>>();
+        assert!(test_ids.contains(&"pkg/demo/service_test.go:TestRun"));
+        assert!(test_ids.contains(&"pkg/demo/service_test.go:subtest_run_method"));
         assert_eq!(
             result.context.tests.test_files,
             vec!["pkg/demo/service_test.go".to_string()]
+        );
+        assert!(result
+            .context
+            .review_guidance
+            .contains("Changes appear locally test-covered"));
+    }
+
+    #[test]
+    fn review_context_links_typescript_companion_spec_file() {
+        let temp = tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("src/service.ts"),
+            "export function run() {\n  return 1;\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/service.test.ts"),
+            "import { run } from './service';\n\ntest('run', () => {\n  expect(run()).toBe(1);\n});\n",
+        )
+        .unwrap();
+
+        let result = build_review_context(
+            root,
+            &["src/service.ts".to_string()],
+            ReviewContextOptions {
+                base: "HEAD",
+                include_source: true,
+                max_files: 12,
+                max_lines_per_file: 120,
+                build_mode: ReviewBuildMode::Auto,
+                max_targets: 25,
+            },
+        );
+
+        let run_target = result
+            .context
+            .targets
+            .iter()
+            .find(|target| target.qualified_name == "src/service.ts:run")
+            .unwrap();
+        assert_eq!(run_target.tests_count, 1);
+        assert_eq!(
+            run_target.tests[0].qualified_name,
+            "src/service.test.ts:run"
+        );
+        assert_eq!(
+            result.context.tests.test_files,
+            vec!["src/service.test.ts".to_string()]
         );
         assert!(result
             .context
