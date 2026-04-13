@@ -1,6 +1,6 @@
 use super::*;
 use crate::shared::models::FileView;
-use crate::ui::state::{FitnessViewMode, FocusPane};
+use crate::ui::state::{FitnessViewMode, FocusPane, PromptSessionListItem};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
@@ -16,6 +16,18 @@ pub(super) fn render_details_panel(
     if state.focus == FocusPane::Runs {
         let block = panel_block("Run Details", false, colors);
         let lines = render_run_details(state, cache, area.width, colors);
+        frame.render_widget(
+            Paragraph::new(lines)
+                .block(block)
+                .style(Style::default().bg(colors.surface).fg(colors.text))
+                .wrap(Wrap { trim: true }),
+            area,
+        );
+        return;
+    }
+    if state.focus == FocusPane::Sessions {
+        let block = panel_block("Session Detail", false, colors);
+        let lines = render_prompt_session_details(state, cache, area.width, colors);
         frame.render_widget(
             Paragraph::new(lines)
                 .block(block)
@@ -268,6 +280,12 @@ pub(super) fn render_file_header_line(
     width: u16,
 ) -> Line<'static> {
     let colors = palette(state.theme_mode);
+    if let Some(item) = state
+        .selected_prompt_session_item()
+        .filter(|item| !item.is_all_prompt_bucket && item.task_id.is_some())
+    {
+        return render_change_header_line(state, cache, width, item, colors);
+    }
     let available_width = width.saturating_sub(2) as usize;
     let files = state.file_items();
     let untracked = files
@@ -390,10 +408,140 @@ fn pluralize_count_text(count: &str, noun: &str) -> String {
     }
 }
 
+fn render_change_header_line(
+    state: &RuntimeState,
+    cache: &AppCache,
+    width: u16,
+    item: &PromptSessionListItem,
+    colors: UiPalette,
+) -> Line<'static> {
+    let available_width = width.saturating_sub(2) as usize;
+    let files = state.file_items();
+    let dirty = files
+        .iter()
+        .filter(|file| file.dirty || file.conflicted)
+        .count();
+    let committed = files.len().saturating_sub(dirty);
+    let mut summary = format!(
+        "{}, {}, {}, status: {}",
+        pluralize(files.len(), "file"),
+        count_label(dirty, "dirty"),
+        count_label(committed, "committed"),
+        item.status,
+    );
+    if item.recovered_from_transcript {
+        summary.push_str(", recovered");
+    }
+    let summary_text = if available_width <= 20 {
+        truncate_header_text(&summary, available_width.max(8))
+    } else {
+        summary
+    };
+    let mut spans = vec![Span::styled(
+        format!(" {summary_text} "),
+        Style::default()
+            .fg(colors.text)
+            .bg(colors.border)
+            .add_modifier(Modifier::BOLD),
+    )];
+    let mut used_width = spans
+        .iter()
+        .map(|span| span.content.as_ref().chars().count())
+        .sum::<usize>();
+
+    let prompt_label = truncate_header_text(
+        item.primary_label(),
+        available_width.saturating_div(3).max(12),
+    );
+    let prompt_width = 1 + prompt_label.chars().count();
+    if used_width + prompt_width <= available_width {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            prompt_label,
+            Style::default().fg(colors.accent).bg(colors.surface),
+        ));
+        used_width += prompt_width;
+    }
+
+    let (missing, changed, inline) = scoped_test_counts(cache, &files);
+    let mut parts = Vec::new();
+    if missing > 0 {
+        parts.push(format!("{missing} miss"));
+    }
+    if changed > 0 {
+        parts.push(format!("{changed} changed"));
+    }
+    if inline > 0 {
+        parts.push(format!("{inline} inline"));
+    }
+    if !parts.is_empty() {
+        let color = if missing > 0 {
+            STOPPED
+        } else if changed > 0 || inline > 0 {
+            ACTIVE
+        } else {
+            colors.muted
+        };
+        let test_text = format!("[tests:{}]", parts.join(" "));
+        let extra_width = 1 + test_text.chars().count();
+        if used_width + extra_width <= available_width {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                test_text,
+                Style::default().fg(color).bg(colors.surface),
+            ));
+            used_width += extra_width;
+        }
+    }
+
+    if let Some(git_summary) = item.recent_git_summary.as_deref() {
+        let git_text = format!("[{}]", truncate_header_text(git_summary, 28));
+        let extra_width = 1 + git_text.chars().count();
+        if used_width + extra_width <= available_width {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                git_text,
+                Style::default().fg(colors.muted).bg(colors.surface),
+            ));
+        }
+    }
+
+    Line::from(spans)
+}
+
+fn scoped_test_counts(cache: &AppCache, files: &[&FileView]) -> (usize, usize, usize) {
+    let mut missing = 0;
+    let mut changed = 0;
+    let mut inline = 0;
+
+    for file in files {
+        if cache.is_changed_test_file(file) {
+            changed += 1;
+            continue;
+        }
+
+        if let Some(mapping) = cache.test_mapping(file) {
+            match mapping.status.as_str() {
+                "missing" => missing += 1,
+                "changed" => changed += 1,
+                "inline" => inline += 1,
+                _ => {}
+            }
+            if mapping.has_inline_tests && mapping.status != "inline" {
+                inline += 1;
+            }
+        }
+    }
+
+    (missing, changed, inline)
+}
+
 pub(super) fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, state: &RuntimeState) {
     let colors = palette(state.theme_mode);
     let line = if area.width < 110 {
         Line::from(vec![
+            Span::styled("Tab", Style::default().fg(colors.accent)),
+            Span::styled(" panes  ", Style::default().fg(colors.muted)),
             Span::styled("↑↓", Style::default().fg(colors.accent)),
             Span::styled(" select  ", Style::default().fg(colors.muted)),
             Span::styled("S", Style::default().fg(colors.accent)),
@@ -417,7 +565,7 @@ pub(super) fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, stat
         Line::from(vec![
             Span::styled("Tab", Style::default().fg(colors.accent)),
             Span::styled(
-                " Runs/Files/Detail/Fitness  ",
+                " Runs/Sessions/Files/Detail/Fitness  ",
                 Style::default().fg(colors.muted),
             ),
             Span::styled("↑↓", Style::default().fg(colors.accent)),
@@ -459,44 +607,194 @@ pub(super) fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, stat
     );
 }
 
-pub(super) fn render_agent_stats_line(state: &RuntimeState, colors: UiPalette) -> Line<'static> {
-    let stats = &state.agent_stats;
-    let vendors = if stats.by_vendor.is_empty() {
-        "-".to_string()
-    } else {
-        let mut pairs = stats
-            .by_vendor
-            .iter()
-            .map(|(vendor, count)| format!("{vendor}:{count}"))
-            .collect::<Vec<_>>();
-        pairs.sort();
-        pairs.join(" ")
+fn render_prompt_session_details(
+    state: &RuntimeState,
+    cache: &mut AppCache,
+    width: u16,
+    colors: UiPalette,
+) -> Vec<Line<'static>> {
+    let Some(item) = state.selected_prompt_session_item() else {
+        return vec![Line::from(Span::styled(
+            "No session selected",
+            Style::default().fg(colors.muted),
+        ))];
     };
-    Line::from(vec![
-        Span::styled(
-            format!("{} total", stats.total),
-            Style::default().fg(colors.text),
-        ),
-        Span::raw("  "),
-        Span::styled(
-            format!("{} active", stats.active),
-            Style::default().fg(ACTIVE),
-        ),
-        Span::raw("  "),
-        Span::styled(format!("{} idle", stats.idle), Style::default().fg(IDLE)),
-        Span::raw("  "),
-        Span::styled(
-            format!("{:.1}% cpu", stats.total_cpu),
-            Style::default().fg(colors.accent),
-        ),
-        Span::raw("  "),
-        Span::styled(
-            format!("{:.0}MB", stats.total_mem_mb),
-            Style::default().fg(colors.text),
-        ),
-        Span::raw("  "),
-        Span::styled(vendors, Style::default().fg(colors.muted)),
-    ])
+
+    if item.is_all_prompt_bucket {
+        let files = state.file_items();
+        let dirty = files
+            .iter()
+            .filter(|file| file.dirty || file.conflicted)
+            .count();
+        return vec![
+            Line::from(Span::styled(
+                "All prompts",
+                Style::default()
+                    .fg(colors.text)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(vec![
+                Span::styled("Scope: ", Style::default().fg(colors.muted)),
+                Span::styled(
+                    "aggregate prompt history",
+                    Style::default().fg(colors.accent),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Files: ", Style::default().fg(colors.muted)),
+                Span::styled(
+                    format!("{} total / {} dirty", files.len(), dirty),
+                    Style::default().fg(colors.text),
+                ),
+            ]),
+        ];
+    }
+
+    let prompt_label = item.primary_label();
+    let files = state.file_items();
+    let dirty = files
+        .iter()
+        .filter(|file| file.dirty || file.conflicted)
+        .count();
+    let session = item
+        .session_id
+        .as_deref()
+        .and_then(|session_id| state.sessions.get(session_id));
+    let task = item
+        .task_id
+        .as_deref()
+        .and_then(|task_id| state.tasks.get(task_id));
+    let prompt_history = task
+        .and_then(|task| task.transcript_path.as_deref())
+        .or_else(|| session.and_then(|session| session.transcript_path.as_deref()))
+        .map(|path| cache.transcript_prompt_history(path, 4))
+        .unwrap_or_default();
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            shorten_path(prompt_label, width.saturating_sub(4) as usize),
+            Style::default()
+                .fg(colors.text)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled(item.client.clone(), Style::default().fg(colors.accent)),
+            Span::raw("  "),
+            Span::styled(item.status.clone(), Style::default().fg(colors.text)),
+            Span::raw("  "),
+            Span::styled(
+                format!(
+                    "{} file{}",
+                    item.changed_files_count,
+                    if item.changed_files_count == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                ),
+                Style::default().fg(colors.text),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                format!("{} dirty", dirty),
+                Style::default().fg(if dirty > 0 { INFERRED } else { ACTIVE }),
+            ),
+        ]),
+    ];
+
+    if let Some(source) = item.source.as_deref() {
+        let mut meta = vec![
+            Span::styled("Source: ", Style::default().fg(colors.muted)),
+            Span::styled(source.to_string(), Style::default().fg(colors.text)),
+        ];
+        if let Some(model) = item.model.as_deref() {
+            meta.push(Span::raw("  "));
+            meta.push(Span::styled("Model: ", Style::default().fg(colors.muted)));
+            meta.push(Span::styled(
+                model.to_string(),
+                Style::default().fg(colors.text),
+            ));
+        }
+        lines.push(Line::from(meta));
+    }
+
+    if item.recovered_from_transcript {
+        lines.push(Line::from(vec![
+            Span::styled("Prompt: ", Style::default().fg(colors.muted)),
+            Span::styled("recovered-from-transcript", Style::default().fg(INFERRED)),
+        ]));
+    }
+
+    if let Some(summary) = item.recent_git_summary.as_deref() {
+        lines.push(Line::from(vec![
+            Span::styled("Git: ", Style::default().fg(colors.muted)),
+            Span::styled(
+                shorten_path(summary, width.saturating_sub(11) as usize),
+                Style::default().fg(colors.accent),
+            ),
+        ]));
+    }
+
+    if let Some(task) = task
+        .filter(|task| !task.title.trim().is_empty() && task.title.trim() != prompt_label.trim())
+    {
+        lines.push(Line::from(vec![
+            Span::styled("Task: ", Style::default().fg(colors.muted)),
+            Span::styled(
+                shorten_path(&task.title, width.saturating_sub(12) as usize),
+                Style::default().fg(colors.text),
+            ),
+        ]));
+    }
+
+    if let Some(session) = session {
+        lines.push(Line::from(vec![
+            Span::styled("Workspace: ", Style::default().fg(colors.muted)),
+            Span::styled(
+                shorten_path(&session.cwd, width.saturating_sub(16) as usize),
+                Style::default().fg(colors.text),
+            ),
+        ]));
+    }
+
+    if !prompt_history.is_empty() {
+        let journey = prompt_history
+            .iter()
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("  ->  ");
+        lines.push(Line::from(vec![
+            Span::styled("Journey: ", Style::default().fg(colors.muted)),
+            Span::styled(
+                shorten_path(&journey, width.saturating_sub(14) as usize),
+                Style::default().fg(colors.text),
+            ),
+        ]));
+
+        let mut previous_prompts = prompt_history;
+        if !previous_prompts.is_empty() {
+            previous_prompts.pop();
+        }
+        if !previous_prompts.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("Recent: ", Style::default().fg(colors.muted)),
+                Span::styled(
+                    shorten_path(
+                        &previous_prompts
+                            .into_iter()
+                            .rev()
+                            .collect::<Vec<_>>()
+                            .join("  |  "),
+                        width.saturating_sub(12) as usize,
+                    ),
+                    Style::default().fg(colors.text),
+                ),
+            ]));
+        }
+    }
+
+    lines
 }
 
 pub(super) fn render_title_bar(

@@ -167,14 +167,13 @@ fn render_main_area(
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(columns[2]);
-    // Left column: Runs pane (Phase 0: list sessions as unmanaged runs).
-    // Agents widget is embedded as the bottom sub-panel inside Runs for space efficiency.
+    // Left column: Runs pane plus prompt-bounded Sessions for the selected run.
     let left_split = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(columns[0]);
     render_runs_panel(frame, left_split[0], state, cache);
-    render_agents_panel(frame, left_split[1], state);
+    render_sessions_panel(frame, left_split[1], state);
     render_files(frame, center[0], state, cache, FileRowDensity::SingleLine);
     render_details_panel(frame, center[1], state, cache);
     render_preview_panel(frame, right[0], state, cache);
@@ -623,25 +622,129 @@ fn truncate_short(value: &str, max_len: usize) -> String {
     }
 }
 
-fn render_agents_panel(frame: &mut Frame, area: ratatui::layout::Rect, state: &RuntimeState) {
+fn render_sessions_panel(frame: &mut Frame, area: ratatui::layout::Rect, state: &RuntimeState) {
     let colors = palette(state.theme_mode);
-    let outer_block = panel_block("Agents", false, colors);
+    let focused = state.focus == FocusPane::Sessions;
+    let title = if focused {
+        "Sessions [Tab]"
+    } else {
+        "Sessions"
+    };
+    let outer_block = panel_block(title, focused, colors);
     let inner = outer_block.inner(area);
     frame.render_widget(outer_block, area);
     let split = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(2), Constraint::Min(6)])
         .split(inner);
+    let items = state.prompt_sessions();
+    let prompt_count = items
+        .iter()
+        .filter(|item| !item.is_all_prompt_bucket)
+        .count();
+    let source_label = state
+        .selected_run_item()
+        .map(|run| run.client.as_str())
+        .unwrap_or("unknown");
     frame.render_widget(
-        Paragraph::new(render_agent_stats_line(state, colors))
-            .style(Style::default().bg(colors.surface).fg(colors.text)),
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!(
+                    " {} prompt{}",
+                    prompt_count,
+                    if prompt_count == 1 { "" } else { "s" }
+                ),
+                Style::default().fg(if prompt_count > 0 {
+                    ACTIVE
+                } else {
+                    colors.muted
+                }),
+            ),
+            Span::styled("  source:", Style::default().fg(colors.muted)),
+            Span::styled(source_label, Style::default().fg(colors.accent)),
+        ]))
+        .style(Style::default().bg(colors.surface).fg(colors.text)),
         split[0],
     );
-    let agent_lines = render_agent_rows(state, colors);
-    frame.render_widget(
-        Paragraph::new(agent_lines)
+    if items.is_empty() {
+        frame.render_widget(
+            Paragraph::new(vec![Line::from(Span::styled(
+                "no prompt sessions for selected run",
+                Style::default().fg(colors.muted),
+            ))])
             .style(Style::default().bg(colors.surface).fg(colors.text))
             .wrap(Wrap { trim: true }),
+            split[1],
+        );
+        return;
+    }
+
+    let visible_items = (split[1].height as usize / 2).max(1);
+    let start = file_window_start(items.len(), state.selected_prompt_session, visible_items);
+    let end = (start + visible_items).min(items.len());
+    let list_items: Vec<ListItem> = items[start..end]
+        .iter()
+        .enumerate()
+        .map(|(idx, item)| {
+            let absolute_idx = start + idx;
+            let selected = absolute_idx == state.selected_prompt_session;
+            let bg = if selected {
+                if focused {
+                    colors.selection_focus
+                } else {
+                    colors.selection_blur
+                }
+            } else {
+                colors.surface
+            };
+            let primary = Line::from(vec![
+                Span::styled(
+                    if selected { "▶ " } else { "  " },
+                    Style::default().fg(colors.accent).bg(bg),
+                ),
+                Span::styled(
+                    pad_right(
+                        &shorten_path(
+                            item.primary_label(),
+                            split[1].width.saturating_sub(10) as usize,
+                        ),
+                        split[1].width.saturating_sub(10) as usize,
+                    ),
+                    Style::default()
+                        .fg(colors.text)
+                        .bg(bg)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("  {}", pad_left(&time_ago(item.updated_at_ms), 4)),
+                    Style::default().fg(colors.muted).bg(bg),
+                ),
+            ]);
+            let mut secondary_text = format!(
+                "  {}  {}  files:{}",
+                item.client, item.status, item.changed_files_count
+            );
+            if item.recovered_from_transcript {
+                secondary_text.push_str("  recovered");
+            }
+            if let Some(summary) = item.recent_git_summary.as_deref() {
+                secondary_text.push_str("  ");
+                secondary_text.push_str(summary);
+            }
+            let secondary = Line::from(Span::styled(
+                shorten_path(&secondary_text, split[1].width.saturating_sub(2) as usize),
+                Style::default().fg(colors.muted).bg(bg),
+            ));
+            ListItem::new(vec![primary, secondary]).style(row_style(selected, focused, colors))
+        })
+        .collect();
+    frame.render_widget(
+        List::new(list_items).block(
+            Block::default()
+                .borders(Borders::TOP)
+                .border_style(Style::default().fg(colors.border))
+                .style(Style::default().bg(colors.surface)),
+        ),
         split[1],
     );
 }
@@ -903,7 +1006,16 @@ fn render_files(
     density: FileRowDensity,
 ) {
     let colors = palette(state.theme_mode);
-    let outer_block = panel_block("Git Status", state.focus == FocusPane::Files, colors);
+    let panel_title = if state.has_selected_prompt_scope() {
+        "Change Status"
+    } else {
+        "Git Status"
+    };
+    let outer_block = panel_block(
+        render_file_panel_title(state, cache, panel_title, area.width, colors),
+        state.focus == FocusPane::Files,
+        colors,
+    );
     let inner = outer_block.inner(area);
     frame.render_widget(outer_block, area);
     let split = Layout::default()
@@ -1011,76 +1123,60 @@ fn render_files(
     frame.render_widget(list, split[1]);
 }
 
-fn render_agent_rows(state: &RuntimeState, colors: UiPalette) -> Vec<Line<'static>> {
-    if state.detected_agents.is_empty() {
-        return vec![Line::from(Span::styled(
-            "no repo-local agents detected",
-            Style::default().fg(colors.muted),
-        ))];
+fn render_file_panel_title(
+    state: &RuntimeState,
+    cache: &AppCache,
+    label: &str,
+    area_width: u16,
+    colors: UiPalette,
+) -> Line<'static> {
+    let mut spans = vec![Span::styled(
+        label.to_string(),
+        Style::default().fg(colors.muted),
+    )];
+    if area_width < 28 {
+        return Line::from(spans);
     }
 
-    state
-        .detected_agents
-        .iter()
-        .flat_map(|agent| {
-            let status_color = if agent.status == "ACTIVE" {
-                ACTIVE
-            } else {
-                IDLE
-            };
-            [
-                Line::from(vec![
-                    Span::styled(
-                        pad_left(&agent.pid.to_string(), 5),
-                        Style::default().fg(colors.muted),
-                    ),
-                    Span::raw(" "),
-                    Span::styled(
-                        format!("{} {}", agent.icon, agent.name),
-                        Style::default()
-                            .fg(colors.accent)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw("  "),
-                    Span::styled(agent.status.clone(), Style::default().fg(status_color)),
-                ]),
-                Line::from(vec![
-                    Span::styled("cpu ", Style::default().fg(colors.muted)),
-                    Span::styled(
-                        format!("{:>4.1}%", agent.cpu_percent),
-                        Style::default().fg(status_color),
-                    ),
-                    Span::raw("  "),
-                    Span::styled("mem ", Style::default().fg(colors.muted)),
-                    Span::styled(
-                        format!("{:.0}MB", agent.mem_mb),
-                        Style::default().fg(colors.text),
-                    ),
-                    Span::raw("  "),
-                    Span::styled("up ", Style::default().fg(colors.muted)),
-                    Span::styled(
-                        crate::observe::detect::format_uptime(agent.uptime_seconds),
-                        Style::default().fg(colors.text),
-                    ),
-                ]),
-                Line::from(vec![
-                    Span::styled("proj ", Style::default().fg(colors.muted)),
-                    Span::styled(
-                        shorten_path(&agent.project, 10),
-                        Style::default().fg(colors.text),
-                    ),
-                    Span::raw("  "),
-                    Span::styled("conf ", Style::default().fg(colors.muted)),
-                    Span::styled(
-                        format!("{}%", agent.confidence),
-                        Style::default().fg(INFERRED),
-                    ),
-                ]),
-                Line::from(""),
-            ]
-        })
-        .collect()
+    let (additions, deletions, has_diff_data) = aggregate_visible_diff_stats(state, cache);
+    if !has_diff_data {
+        return Line::from(spans);
+    }
+
+    spans.push(Span::raw("  "));
+    spans.push(Span::styled(
+        format!("+{additions}"),
+        Style::default().fg(ACTIVE).add_modifier(Modifier::BOLD),
+    ));
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(
+        format!("-{deletions}"),
+        Style::default().fg(STOPPED).add_modifier(Modifier::BOLD),
+    ));
+    Line::from(spans)
 }
+
+fn aggregate_visible_diff_stats(state: &RuntimeState, cache: &AppCache) -> (usize, usize, bool) {
+    let mut additions = 0usize;
+    let mut deletions = 0usize;
+    let mut has_diff_data = false;
+
+    for file in state.file_items() {
+        if let Some(diff_stat) = cache.diff_stat(file) {
+            if let Some(add) = diff_stat.additions {
+                additions += add;
+                has_diff_data = true;
+            }
+            if let Some(del) = diff_stat.deletions {
+                deletions += del;
+                has_diff_data = true;
+            }
+        }
+    }
+
+    (additions, deletions, has_diff_data)
+}
+
 pub(super) fn panel_block<T: Into<ratatui::text::Line<'static>>>(
     title: T,
     focused: bool,

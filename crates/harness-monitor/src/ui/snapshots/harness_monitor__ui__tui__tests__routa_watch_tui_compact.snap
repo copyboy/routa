@@ -3,7 +3,7 @@ source: crates/harness-monitor/src/ui/tests.rs
 expression: "render_snapshot(&state, &mut cache, 96, 24)"
 ---
 routa.js  2 dirty  1 unassigned  lines: --  loc: --  transport: socket
-┌Git Status───────────────────────────────────────────────────────┐┌Diff Preview───────────────┐
+┌Git Status  +38 -17──────────────────────────────────────────────┐┌Diff Preview───────────────┐
 │ 2 files, 0 untracked, 5 commits, 1 agent, branch: main, 2 worktr││@@ -1,2 +1,3 @@            │
 │─────────────────────────────────────────────────────────────────││-use old                   │
 │> crates/harness-monitor/src/tui.rs                              ││+use new                   │
@@ -17,12 +17,12 @@ routa.js  2 dirty  1 unassigned  lines: --  loc: --  transport: socket
 │                                                                 ││                           │
 └─────────────────────────────────────────────────────────────────┘└───────────────────────────┘
 ┌Fitness (Entrix Fast) - PASS 91.0% (0/12) 4200ms─────────────────┐┌File Detail────────────────┐
-│Dimension scores:                                                ││tui.rs                     │
-│92% code_quality           w18  4/4  █████████████████████████░░ ││...es/harness-monitor/src  │
-│95% api_contract           w10  2/2  ██████████████████████████░ ││Lines: ...  Size: ...  Git │
-│                                                                 ││changes: ...               │
+│Source: manual local run  producer: harness-monitor              ││tui.rs                     │
+│Scope: 2 file(s) vs origin/main                                  ││...es/harness-monitor/src  │
+│Dimension scores:                                                ││Task: ...r task journey    │
+│92% code_quality           w18  4/4  █████████████████████████░░ ││Lines: ...  Size: ...  Git │
+│95% api_contract           w10  2/2  ██████████████████████████░ ││changes: ...               │
 │                                                                 ││Test mapping: changed  rust│
 │                                                                 ││Resolver: hybrid_heuristic │
-│                                                                 ││Confidence: medium         │
 └─────────────────────────────────────────────────────────────────┘└───────────────────────────┘
-↑↓ select  S run sort  v run filter  u unassigned  d preview  Pg scroll  g refresh all  m fast/f
+Tab panes  ↑↓ select  S run sort  v run filter  u unassigned  d preview  Pg scroll  g refresh al

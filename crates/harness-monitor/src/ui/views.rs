@@ -206,6 +206,91 @@ impl RuntimeState {
         items
     }
 
+    pub(super) fn compute_prompt_session_items(&self) -> Vec<PromptSessionListItem> {
+        let Some(run) = self.selected_run_item() else {
+            return Vec::new();
+        };
+        if run.is_unknown_bucket || run.is_synthetic_agent_run {
+            return Vec::new();
+        }
+
+        let mut items: Vec<_> = self
+            .tasks
+            .values()
+            .filter(|task| self.matches_task_search(task))
+            .filter(|task| run.is_all_runs_bucket || task.session_id == run.session_id)
+            .map(|task| {
+                let session = self.sessions.get(&task.session_id);
+                PromptSessionListItem {
+                    task_id: Some(task.task_id.clone()),
+                    session_id: Some(task.session_id.clone()),
+                    display_name: task.title.clone(),
+                    prompt_preview: task.prompt_preview.clone(),
+                    recovered_from_transcript: task.recovered_from_transcript,
+                    client: session
+                        .map(|session| session.client.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    source: session.and_then(|session| session.source.clone()),
+                    model: session.and_then(|session| session.model.clone()),
+                    status: task.status.clone(),
+                    updated_at_ms: task.updated_at_ms,
+                    changed_files_count: self
+                        .task_change_paths
+                        .get(&task.task_id)
+                        .map(|paths| paths.len())
+                        .unwrap_or(0),
+                    recent_git_summary: self
+                        .task_git_activity
+                        .get(&task.task_id)
+                        .and_then(|items| items.first().cloned()),
+                    is_all_prompt_bucket: false,
+                }
+            })
+            .collect();
+
+        items.sort_by(|a, b| {
+            b.updated_at_ms
+                .cmp(&a.updated_at_ms)
+                .then_with(|| a.task_id.cmp(&b.task_id))
+        });
+
+        if !items.is_empty() {
+            let mut all_paths = BTreeSet::new();
+            for item in &items {
+                if let Some(task_id) = item.task_id.as_deref() {
+                    if let Some(paths) = self.task_change_paths.get(task_id) {
+                        all_paths.extend(paths.iter().cloned());
+                    }
+                }
+            }
+            let updated_at_ms = items
+                .iter()
+                .map(|item| item.updated_at_ms)
+                .max()
+                .unwrap_or(self.last_refresh_at_ms);
+            items.insert(
+                0,
+                PromptSessionListItem {
+                    task_id: Some(ALL_PROMPT_SESSIONS_ID.to_string()),
+                    session_id: None,
+                    display_name: "All prompts".to_string(),
+                    prompt_preview: None,
+                    recovered_from_transcript: false,
+                    client: run.client.clone(),
+                    source: run.source.clone(),
+                    model: run.model.clone(),
+                    status: "active".to_string(),
+                    updated_at_ms,
+                    changed_files_count: all_paths.len(),
+                    recent_git_summary: None,
+                    is_all_prompt_bucket: true,
+                },
+            );
+        }
+
+        items
+    }
+
     #[cfg(test)]
     pub fn unmatched_agents(&self) -> Vec<&DetectedAgent> {
         self.cached_unmatched_agent_keys
@@ -215,6 +300,27 @@ impl RuntimeState {
     }
 
     pub(super) fn compute_file_item_keys(&self) -> Vec<String> {
+        if let Some(task_id) = self.selected_prompt_task_id() {
+            let mut items: Vec<_> = self
+                .task_change_paths
+                .get(task_id)
+                .into_iter()
+                .flat_map(|paths| paths.iter())
+                .filter_map(|path| self.files.get(path))
+                .filter(|file| self.matches_file_search(file))
+                .collect();
+            items.sort_by(|a, b| {
+                b.dirty
+                    .cmp(&a.dirty)
+                    .then_with(|| b.last_modified_at_ms.cmp(&a.last_modified_at_ms))
+                    .then_with(|| a.rel_path.cmp(&b.rel_path))
+            });
+            return items
+                .into_iter()
+                .map(|file| file.rel_path.clone())
+                .collect();
+        }
+
         let mut items: Vec<_> = self
             .files
             .values()
@@ -253,6 +359,13 @@ impl RuntimeState {
         } else {
             self.selected_run = self.selected_run.min(session_len - 1);
             self.selected_session = self.selected_session.min(session_len - 1);
+        }
+        self.cached_prompt_session_items = self.compute_prompt_session_items();
+        let prompt_len = self.cached_prompt_session_items.len();
+        if prompt_len == 0 {
+            self.selected_prompt_session = 0;
+        } else {
+            self.selected_prompt_session = self.selected_prompt_session.min(prompt_len - 1);
         }
         self.cached_unmatched_agent_keys = self.compute_unmatched_agent_keys();
         self.cached_file_item_keys = self.compute_file_item_keys();
@@ -342,6 +455,22 @@ impl RuntimeState {
                 .unwrap_or_default()
                 .to_ascii_lowercase()
                 .contains(&needle)
+    }
+
+    fn matches_task_search(&self, task: &TaskView) -> bool {
+        if self.search_query.is_empty() {
+            return true;
+        }
+        let needle = self.search_query.to_ascii_lowercase();
+        task.task_id.to_ascii_lowercase().contains(&needle)
+            || task
+                .prompt_preview
+                .as_deref()
+                .unwrap_or_default()
+                .to_ascii_lowercase()
+                .contains(&needle)
+            || task.title.to_ascii_lowercase().contains(&needle)
+            || task.objective.to_ascii_lowercase().contains(&needle)
     }
 
     fn matches_detected_agent_search(&self, agent: &DetectedAgent) -> bool {

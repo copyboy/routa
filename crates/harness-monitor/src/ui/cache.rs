@@ -372,7 +372,6 @@ impl AppCache {
         let files: Vec<(String, String, i64, crate::shared::models::EntryKind)> = state
             .file_items()
             .iter()
-            .take(24)
             .map(|file| {
                 (
                     file.rel_path.clone(),
