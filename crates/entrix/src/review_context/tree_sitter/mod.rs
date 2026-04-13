@@ -1,6 +1,8 @@
 mod go;
 mod java;
 mod python;
+mod query;
+mod resolver;
 mod rust;
 #[cfg(test)]
 mod tests;
@@ -8,6 +10,13 @@ mod typescript;
 
 use super::model::{
     ChangedNode, FileGraphNode, GraphEdge, GraphNodePayload, ParsedReviewGraph, SymbolGraphNode,
+};
+pub(crate) use query::QueryResult;
+use resolver::{
+    resolve_go_import as resolve_go_import_impl, resolve_java_import as resolve_java_import_impl,
+    resolve_python_import as resolve_python_import_impl,
+    resolve_relative_import as resolve_relative_import_impl,
+    resolve_rust_import as resolve_rust_import_impl,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -181,37 +190,8 @@ pub fn node_to_payload(node: &ChangedNode) -> GraphNodePayload {
     })
 }
 
-pub enum QueryResult {
-    Ok {
-        results: Vec<GraphNodePayload>,
-        edges: Vec<GraphEdge>,
-    },
-    Err {
-        status: String,
-        summary: String,
-    },
-}
-
 pub fn query_graph(graph: &ParsedReviewGraph, query_type: &str, target: &str) -> QueryResult {
-    let Some(resolved_target) = resolve_graph_target(graph, target) else {
-        return QueryResult::Err {
-            status: "not_found".to_string(),
-            summary: format!("No node found matching '{target}'."),
-        };
-    };
-
-    match query_type {
-        "tests_for" => query_tests_for(graph, &resolved_target),
-        "callers_of" => query_neighbors(graph, &resolved_target, true),
-        "callees_of" => query_neighbors(graph, &resolved_target, false),
-        "children_of" => query_children_of(graph, &resolved_target),
-        "inheritors_of" => query_inheritors_of(graph, &resolved_target),
-        "file_summary" => query_file_summary(graph, &resolved_target),
-        _ => QueryResult::Err {
-            status: "error".to_string(),
-            summary: format!("Unknown query type '{query_type}'."),
-        },
-    }
+    query::query_graph(graph, query_type, target)
 }
 
 fn derive_target_tests(
@@ -436,151 +416,6 @@ fn push_edge(
     }
 }
 
-fn query_tests_for(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
-    let mut results = BTreeMap::<String, GraphNodePayload>::new();
-    let symbol_nodes = graph
-        .changed_nodes
-        .iter()
-        .chain(graph.related_test_nodes.iter())
-        .filter(|node| node.kind != "File")
-        .map(|node| (node.qualified_name.clone(), node))
-        .collect::<BTreeMap<_, _>>();
-    let targets = if graph
-        .changed_nodes
-        .iter()
-        .any(|node| node.qualified_name == target && node.kind == "File")
-    {
-        graph
-            .changed_nodes
-            .iter()
-            .filter(|node| node.file_path == target && node.kind != "File")
-            .map(|node| node.qualified_name.clone())
-            .collect::<Vec<_>>()
-    } else {
-        vec![target.to_string()]
-    };
-    for edge in graph
-        .graph_edges
-        .iter()
-        .filter(|edge| edge.kind == "TESTED_BY")
-    {
-        if targets
-            .iter()
-            .any(|candidate| candidate == &edge.target_qualified)
-        {
-            if let Some(node) = symbol_nodes.get(&edge.source_qualified) {
-                results.insert(
-                    edge.source_qualified.clone(),
-                    GraphNodePayload::Symbol(symbol_to_payload(node)),
-                );
-            }
-        }
-    }
-    QueryResult::Ok {
-        results: results.into_values().collect(),
-        edges: graph
-            .graph_edges
-            .iter()
-            .filter(|edge| {
-                edge.kind == "TESTED_BY"
-                    && targets
-                        .iter()
-                        .any(|candidate| candidate == &edge.target_qualified)
-            })
-            .cloned()
-            .collect(),
-    }
-}
-
-fn query_neighbors(graph: &ParsedReviewGraph, target: &str, reverse: bool) -> QueryResult {
-    let symbol_nodes = graph
-        .changed_nodes
-        .iter()
-        .chain(graph.related_test_nodes.iter())
-        .filter(|node| node.kind != "File")
-        .map(|node| (node.qualified_name.clone(), node))
-        .collect::<BTreeMap<_, _>>();
-    let mut results = BTreeMap::<String, GraphNodePayload>::new();
-    for edge in graph.graph_edges.iter().filter(|edge| edge.kind == "CALLS") {
-        let matches = if reverse {
-            edge.target_qualified == target
-        } else {
-            edge.source_qualified == target
-        };
-        if !matches {
-            continue;
-        }
-        let qn = if reverse {
-            &edge.source_qualified
-        } else {
-            &edge.target_qualified
-        };
-        if let Some(node) = symbol_nodes.get(qn) {
-            results.insert(
-                qn.clone(),
-                GraphNodePayload::Symbol(symbol_to_payload(node)),
-            );
-        }
-    }
-    QueryResult::Ok {
-        results: results.into_values().collect(),
-        edges: graph
-            .graph_edges
-            .iter()
-            .filter(|edge| {
-                edge.kind == "CALLS"
-                    && if reverse {
-                        edge.target_qualified == target
-                    } else {
-                        edge.source_qualified == target
-                    }
-            })
-            .cloned()
-            .collect(),
-    }
-}
-
-fn query_file_summary(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
-    let mut results = graph
-        .changed_nodes
-        .iter()
-        .chain(graph.related_test_nodes.iter())
-        .filter(|node| node.file_path == target && node.kind != "File")
-        .map(|node| GraphNodePayload::Symbol(symbol_to_payload(node)))
-        .collect::<Vec<_>>();
-    if let Some(file_node) = graph
-        .changed_nodes
-        .iter()
-        .chain(graph.related_test_nodes.iter())
-        .find(|node| node.kind == "File" && node.file_path == target)
-    {
-        results.insert(0, node_to_payload(file_node));
-    }
-    QueryResult::Ok {
-        results,
-        edges: Vec::new(),
-    }
-}
-
-fn query_children_of(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
-    let results = graph
-        .changed_nodes
-        .iter()
-        .chain(graph.related_test_nodes.iter())
-        .filter(|node| node.file_path == target && node.kind != "File")
-        .map(|node| GraphNodePayload::Symbol(symbol_to_payload(node)))
-        .collect::<Vec<_>>();
-    QueryResult::Ok {
-        results,
-        edges: graph
-            .graph_edges
-            .iter()
-            .filter(|edge| edge.kind == "CONTAINS" && edge.source_qualified == target)
-            .cloned()
-            .collect(),
-    }
-}
-
 fn resolve_graph_target(graph: &ParsedReviewGraph, target: &str) -> Option<String> {
     let nodes = graph
         .changed_nodes
@@ -607,41 +442,6 @@ fn resolve_graph_target(graph: &ParsedReviewGraph, target: &str) -> Option<Strin
     None
 }
 
-fn query_inheritors_of(graph: &ParsedReviewGraph, target: &str) -> QueryResult {
-    let symbol_nodes = graph
-        .changed_nodes
-        .iter()
-        .chain(graph.related_test_nodes.iter())
-        .filter(|node| node.kind != "File")
-        .map(|node| (node.qualified_name.clone(), node))
-        .collect::<BTreeMap<_, _>>();
-    let mut results = BTreeMap::<String, GraphNodePayload>::new();
-    for edge in graph
-        .graph_edges
-        .iter()
-        .filter(|edge| edge.kind == "INHERITS")
-    {
-        if edge.target_qualified != target {
-            continue;
-        }
-        if let Some(node) = symbol_nodes.get(&edge.source_qualified) {
-            results.insert(
-                edge.source_qualified.clone(),
-                GraphNodePayload::Symbol(symbol_to_payload(node)),
-            );
-        }
-    }
-    QueryResult::Ok {
-        results: results.into_values().collect(),
-        edges: graph
-            .graph_edges
-            .iter()
-            .filter(|edge| edge.kind == "INHERITS" && edge.target_qualified == target)
-            .cloned()
-            .collect(),
-    }
-}
-
 fn symbol_to_payload(node: &ChangedNode) -> SymbolGraphNode {
     SymbolGraphNode {
         qualified_name: node.qualified_name.clone(),
@@ -659,20 +459,7 @@ fn symbol_to_payload(node: &ChangedNode) -> SymbolGraphNode {
 }
 
 pub fn query_file_imports(repo_root: &Path, target: &str, reverse: bool) -> QueryResult {
-    let Some(target_file) = resolve_query_target_file(repo_root, target).or_else(|| {
-        resolve_query_target_file_by_symbol(repo_root, target)
-    }) else {
-        return QueryResult::Err {
-            status: "not_found".to_string(),
-            summary: format!("No file found matching '{target}'."),
-        };
-    };
-
-    if reverse {
-        query_importers(repo_root, &target_file)
-    } else {
-        query_imports_for_file(repo_root, &target_file)
-    }
+    query::query_file_imports(repo_root, target, reverse)
 }
 
 fn extends_target(source: &ChangedNode, target: &ChangedNode) -> bool {
@@ -723,109 +510,7 @@ fn test_targets_node(test: &ChangedNode, target: &ChangedNode) -> bool {
     false
 }
 
-fn query_imports_for_file(repo_root: &Path, target_file: &str) -> QueryResult {
-    let Some(importer) = parse_file_import_record(repo_root, target_file) else {
-        return QueryResult::Err {
-            status: "not_found".to_string(),
-            summary: format!("No file found matching '{target_file}'."),
-        };
-    };
-    let results = importer
-        .imports
-        .iter()
-        .filter_map(|imported| file_node_payload(repo_root, imported))
-        .collect::<Vec<_>>();
-    let edges = importer
-        .imports
-        .iter()
-        .map(|imported| GraphEdge {
-            kind: "IMPORTS_FROM",
-            source_qualified: importer.file_path.clone(),
-            target_qualified: imported.clone(),
-            file_path: importer.file_path.clone(),
-            source_file: importer.file_path.clone(),
-            target_file: imported.clone(),
-        })
-        .collect::<Vec<_>>();
-    QueryResult::Ok { results, edges }
-}
-
-fn query_importers(repo_root: &Path, target_file: &str) -> QueryResult {
-    let mut results = Vec::new();
-    let mut edges = Vec::new();
-    let mut seen = BTreeSet::new();
-    for relative_path in collect_repo_files(repo_root) {
-        let Some(record) = parse_file_import_record(repo_root, &relative_path) else {
-            continue;
-        };
-        if !record
-            .imports
-            .iter()
-            .any(|imported| imported == target_file)
-        {
-            continue;
-        }
-        if seen.insert(record.file_path.clone()) {
-            results.push(GraphNodePayload::File(FileGraphNode {
-                qualified_name: record.file_path.clone(),
-                name: file_name(&record.file_path),
-                kind: "File".to_string(),
-                file_path: record.file_path.clone(),
-                language: record.language.clone(),
-                is_test: record.is_test,
-            }));
-        }
-        edges.push(GraphEdge {
-            kind: "IMPORTS_FROM",
-            source_qualified: record.file_path.clone(),
-            target_qualified: target_file.to_string(),
-            file_path: record.file_path.clone(),
-            source_file: record.file_path.clone(),
-            target_file: target_file.to_string(),
-        });
-    }
-    QueryResult::Ok { results, edges }
-}
-
-fn resolve_query_target_file(repo_root: &Path, target: &str) -> Option<String> {
-    let candidate = if target.contains(':') {
-        target.split(':').next().unwrap_or(target)
-    } else {
-        target
-    };
-    resolve_repo_relative_path(repo_root, candidate)
-}
-
-fn resolve_query_target_file_by_symbol(repo_root: &Path, target: &str) -> Option<String> {
-    let graph = parse_repo_graph(repo_root);
-    if let Some(target_file) = graph
-        .changed_nodes
-        .iter()
-        .chain(graph.related_test_nodes.iter())
-        .find(|node| node.qualified_name == target)
-        .map(|node| node.file_path.clone())
-    {
-        return Some(target_file);
-    }
-
-    let mut matches = BTreeSet::new();
-    for node in graph.changed_nodes.iter().chain(graph.related_test_nodes.iter()) {
-        if node.kind == "File" {
-            continue;
-        }
-        if node.name == target || node.qualified_name == target {
-            matches.insert(node.file_path.clone());
-        }
-    }
-
-    if matches.len() == 1 {
-        matches.into_iter().next()
-    } else {
-        None
-    }
-}
-
-fn file_node_payload(_repo_root: &Path, relative_path: &str) -> Option<GraphNodePayload> {
+fn file_node_payload(relative_path: &str) -> Option<GraphNodePayload> {
     let language = language_config_for_path(relative_path)?;
     Some(GraphNodePayload::File(FileGraphNode {
         qualified_name: relative_path.to_string(),
@@ -839,8 +524,6 @@ fn file_node_payload(_repo_root: &Path, relative_path: &str) -> Option<GraphNode
 
 struct FileImportRecord {
     file_path: String,
-    language: String,
-    is_test: bool,
     imports: Vec<String>,
 }
 
@@ -853,8 +536,6 @@ fn parse_file_import_record(repo_root: &Path, relative_path: &str) -> Option<Fil
     let imports = (language.parse_imports)(repo_root, relative_path, &source, tree.root_node());
     Some(FileImportRecord {
         file_path: relative_path.to_string(),
-        language: language.name.to_string(),
-        is_test: (language.is_test_file)(relative_path),
         imports,
     })
 }
@@ -865,229 +546,6 @@ pub(super) fn resolve_repo_relative_path(repo_root: &Path, target: &str) -> Opti
     let root = repo_root.canonicalize().ok()?;
     let relative = resolved.strip_prefix(root).ok()?;
     Some(relative.to_string_lossy().replace('\\', "/"))
-}
-
-pub(super) fn resolve_relative_import(
-    repo_root: &Path,
-    relative_path: &str,
-    import_path: &str,
-) -> Option<String> {
-    if !import_path.starts_with('.') {
-        return None;
-    }
-    let base_dir = repo_root.join(relative_path).parent()?.to_path_buf();
-    let candidate = base_dir.join(import_path);
-    let suffix = Path::new(relative_path)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| format!(".{ext}"));
-    let mut extensions = Vec::new();
-    if let Some(suffix) = suffix {
-        extensions.push(suffix);
-    }
-    for fallback in [".ts", ".tsx", ".js", ".jsx", ".py", ".rs"] {
-        if !extensions.iter().any(|ext| ext == fallback) {
-            extensions.push(fallback.to_string());
-        }
-    }
-
-    let mut candidates = vec![candidate.clone()];
-    if candidate.extension().is_none() {
-        for ext in &extensions {
-            candidates.push(candidate.with_extension(ext.trim_start_matches('.')));
-            candidates.push(candidate.join(format!("index{ext}")));
-        }
-    }
-
-    for path in candidates {
-        if path.is_file() {
-            if let Some(relative) = resolve_repo_relative_path(repo_root, &path.to_string_lossy()) {
-                return Some(relative);
-            }
-        }
-    }
-    None
-}
-
-pub(super) fn resolve_python_import(
-    repo_root: &Path,
-    relative_path: &str,
-    import_path: &str,
-) -> Option<String> {
-    let leading_dots = import_path.len() - import_path.trim_start_matches('.').len();
-    let relative_part = import_path.trim_start_matches('.').replace('.', "/");
-    let mut anchor = repo_root.join(relative_path).parent()?.to_path_buf();
-    for _ in 0..leading_dots.saturating_sub(1) {
-        anchor = anchor.parent()?.to_path_buf();
-    }
-    let candidate = if relative_part.is_empty() {
-        anchor
-    } else {
-        anchor.join(relative_part)
-    };
-    for path in [
-        candidate.with_extension("py"),
-        candidate.join("__init__.py"),
-    ] {
-        if path.is_file() {
-            if let Some(relative) = resolve_repo_relative_path(repo_root, &path.to_string_lossy()) {
-                return Some(relative);
-            }
-        }
-    }
-    None
-}
-
-pub(super) fn resolve_go_import(
-    repo_root: &Path,
-    relative_path: &str,
-    import_path: &str,
-) -> Option<String> {
-    let import_path = import_path.trim().trim_matches(&['"', '\'', '`'][..]).to_string();
-    if import_path.is_empty() {
-        return None;
-    }
-
-    let relative_anchor = repo_root.join(relative_path).parent()?.to_path_buf();
-    let candidates = if import_path.starts_with('.')
-        || import_path.starts_with("./")
-        || import_path.starts_with("../")
-        || import_path == "."
-        || import_path == ".."
-    {
-        vec![relative_anchor.join(import_path)]
-    } else if import_path.contains('/') || import_path.contains('.') {
-        vec![repo_root.join(import_path.replace('.', "/"))]
-    } else {
-        Vec::new()
-    };
-
-    for candidate in candidates {
-        if let Some(resolved) = resolve_import_file_reference(repo_root, &candidate, "go", Some("_test.go"))
-        {
-            return Some(resolved);
-        }
-    }
-    None
-}
-
-pub(super) fn resolve_java_import(
-    repo_root: &Path,
-    _relative_path: &str,
-    import_path: &str,
-    is_static_import: bool,
-) -> Option<String> {
-    let mut import_path = import_path.trim().trim_end_matches(';').trim().to_string();
-    if import_path.is_empty() {
-        return None;
-    }
-    if import_path.starts_with("java.")
-        || import_path.starts_with("javax.")
-        || import_path.starts_with("kotlin.")
-        || import_path.starts_with("scala.")
-    {
-        return None;
-    }
-
-    if is_static_import {
-        let mut parts = import_path.split('.').collect::<Vec<_>>();
-        if parts.len() > 1 {
-            parts.pop();
-            import_path = parts.join(".");
-        }
-    }
-
-    if import_path.ends_with(".*") {
-        import_path = import_path.trim_end_matches(".*").to_string();
-    }
-    if import_path.is_empty() {
-        return None;
-    }
-
-    let package_path = import_path.replace('.', "/");
-    let class_file = repo_root.join(format!("{package_path}.java"));
-    let package_dir = repo_root.join(&package_path);
-    let mut candidates = vec![class_file.to_path_buf(), package_dir.to_path_buf()];
-    candidates.push(repo_root.join("src/main/java").join(format!("{package_path}.java")));
-    candidates.push(repo_root.join("src/main/java").join(&package_path));
-    candidates.push(repo_root.join("src/test/java").join(format!("{package_path}.java")));
-    candidates.push(repo_root.join("src/test/java").join(&package_path));
-
-    for candidate in candidates {
-        if let Some(found) = resolve_import_file_reference(repo_root, &candidate, "java", Some("_test.java"))
-        {
-            return Some(found);
-        }
-    }
-
-    let target_suffix = format!("{package_path}.java");
-    collect_repo_files(repo_root)
-        .into_iter()
-        .find(|repo_file| repo_file.ends_with(&target_suffix))
-}
-
-fn resolve_import_file_reference(
-    repo_root: &Path,
-    candidate: &Path,
-    extension: &str,
-    skip_test_suffix: Option<&str>,
-) -> Option<String> {
-    if candidate.extension().is_none() {
-        if candidate.is_dir() {
-            let file = first_source_file_in_directory(candidate, extension, skip_test_suffix)?;
-            return resolve_repo_relative_path(repo_root, &file);
-        }
-        let as_file = candidate.with_extension(extension);
-        if as_file.is_file() {
-            return resolve_repo_relative_path(repo_root, &as_file.to_string_lossy());
-        }
-        return None;
-    }
-    if candidate.extension().and_then(|ext| ext.to_str()) == Some(extension) && candidate.is_file() {
-        return resolve_repo_relative_path(repo_root, &candidate.to_string_lossy());
-    }
-    None
-}
-
-fn first_source_file_in_directory(
-    dir: &Path,
-    extension: &str,
-    skip_test_suffix: Option<&str>,
-) -> Option<String> {
-    let mut preferred = Vec::new();
-    let mut skipped = Vec::new();
-    for entry in fs::read_dir(dir).ok()?.flatten() {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        if path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_none_or(|ext| ext != extension)
-        {
-            continue;
-        }
-
-        let file_name = path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default()
-            .to_string();
-        if skip_test_suffix
-            .is_some_and(|suffix| file_name.ends_with(suffix))
-        {
-            skipped.push(path);
-            continue;
-        }
-        preferred.push(path);
-    }
-    preferred.sort();
-    if let Some(path) = preferred.first() {
-        return Some(path.to_string_lossy().to_string());
-    }
-    skipped.sort();
-    skipped.first().map(|path| path.to_string_lossy().to_string())
 }
 
 pub fn analyze_single_file(repo_root: &Path, target: &str) -> Option<SingleFileAnalysis> {
@@ -1147,129 +605,45 @@ fn normalized_source_basename(relative_path: &str) -> String {
     name
 }
 
+pub(super) fn resolve_relative_import(
+    repo_root: &Path,
+    relative_path: &str,
+    import_path: &str,
+) -> Option<String> {
+    resolve_relative_import_impl(repo_root, relative_path, import_path)
+}
+
+pub(super) fn resolve_python_import(
+    repo_root: &Path,
+    relative_path: &str,
+    import_path: &str,
+) -> Option<String> {
+    resolve_python_import_impl(repo_root, relative_path, import_path)
+}
+
+pub(super) fn resolve_go_import(
+    repo_root: &Path,
+    relative_path: &str,
+    import_path: &str,
+) -> Option<String> {
+    resolve_go_import_impl(repo_root, relative_path, import_path)
+}
+
+pub(super) fn resolve_java_import(
+    repo_root: &Path,
+    relative_path: &str,
+    import_path: &str,
+    is_static_import: bool,
+) -> Option<String> {
+    resolve_java_import_impl(repo_root, relative_path, import_path, is_static_import)
+}
+
 pub(super) fn resolve_rust_import(
     repo_root: &Path,
     relative_path: &str,
     import_text: &str,
 ) -> Option<String> {
-    let path_text = import_text
-        .trim()
-        .trim_start_matches("pub ")
-        .trim_start_matches("use")
-        .trim()
-        .trim_end_matches(';')
-        .trim();
-    if !path_text.contains("::") {
-        return None;
-    }
-
-    let crate_root = rust_crate_root(repo_root, relative_path)?;
-    let parts = rust_import_parts(path_text);
-    if parts.is_empty() {
-        return None;
-    }
-
-    let current_dir = repo_root.join(relative_path).parent()?.to_path_buf();
-    let compact_path = path_text.split_whitespace().collect::<String>();
-    let mut anchors = Vec::new();
-    if compact_path.starts_with("crate::") {
-        anchors.push(crate_root.clone());
-    } else if compact_path.starts_with("super::") {
-        if let Some(parent) = current_dir.parent() {
-            anchors.push(parent.to_path_buf());
-        }
-    } else if compact_path.starts_with("self::") {
-        anchors.push(current_dir.clone());
-    } else {
-        anchors.push(crate_root.clone());
-    }
-
-    let module_parts = if parts.len() > 1 {
-        parts[..parts.len() - 1].to_vec()
-    } else {
-        parts.clone()
-    };
-    for anchor in anchors {
-        for candidate in rust_module_candidate_paths(&anchor, &module_parts, &crate_root) {
-            if candidate.is_file() {
-                if let Some(relative) =
-                    resolve_repo_relative_path(repo_root, &candidate.to_string_lossy())
-                {
-                    return Some(relative);
-                }
-            }
-        }
-    }
-    None
-}
-
-fn rust_crate_root(repo_root: &Path, relative_path: &str) -> Option<std::path::PathBuf> {
-    let mut current = repo_root.join(relative_path).parent()?.to_path_buf();
-    loop {
-        let src_dir = current.join("src");
-        if src_dir.join("lib.rs").is_file() || src_dir.join("main.rs").is_file() {
-            return Some(src_dir);
-        }
-        if !current.pop() {
-            break;
-        }
-    }
-    None
-}
-
-fn rust_import_parts(path_text: &str) -> Vec<String> {
-    let normalized = if let Some((prefix, _)) = path_text.split_once('{') {
-        prefix.trim().trim_end_matches("::").to_string()
-    } else {
-        path_text
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .split(" as ")
-            .next()
-            .unwrap_or(path_text)
-            .trim_end_matches("::*")
-            .trim()
-            .to_string()
-    };
-    normalized
-        .split("::")
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .filter(|part| !matches!(*part, "crate" | "self" | "super"))
-        .map(ToString::to_string)
-        .collect()
-}
-
-fn rust_module_candidate_paths(
-    anchor: &Path,
-    module_parts: &[String],
-    crate_root: &Path,
-) -> Vec<std::path::PathBuf> {
-    if module_parts.is_empty() {
-        return Vec::new();
-    }
-    let joined = module_parts
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .join("/");
-    let mut candidates = vec![
-        anchor.join(format!("{joined}.rs")),
-        anchor.join(&joined).join("mod.rs"),
-    ];
-    if anchor == crate_root && module_parts.first().is_some_and(|part| part == "src") {
-        let rest = module_parts[1..]
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .join("/");
-        if !rest.is_empty() {
-            candidates.push(crate_root.join(format!("{rest}.rs")));
-            candidates.push(crate_root.join(rest).join("mod.rs"));
-        }
-    }
-    candidates
+    resolve_rust_import_impl(repo_root, relative_path, import_text)
 }
 
 pub(crate) fn collect_identifier_mentions(
