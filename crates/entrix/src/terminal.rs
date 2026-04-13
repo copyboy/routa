@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use crate::model::Metric;
 use crate::model::{DimensionScore, FitnessReport, MetricResult, ResultState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +24,70 @@ impl StreamMode {
 pub struct TerminalReporter {
     verbose: bool,
     stream_mode: StreamMode,
+}
+
+pub struct ShellOutputController {
+    reporter: Arc<TerminalReporter>,
+    buffered_lines: Mutex<HashMap<String, Vec<(String, String)>>>,
+}
+
+impl ShellOutputController {
+    pub fn new(reporter: Arc<TerminalReporter>) -> Self {
+        Self {
+            reporter,
+            buffered_lines: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn should_capture_output(&self) -> bool {
+        self.reporter.stream_mode != StreamMode::Off
+    }
+
+    pub fn handle_output(&self, metric: &Metric, source: &str, line: &str) {
+        match self.reporter.stream_mode {
+            StreamMode::Off => {}
+            StreamMode::All => self.reporter.print_metric_output(&metric.name, source, line),
+            StreamMode::Failures => {
+                self.buffered_lines
+                    .lock()
+                    .unwrap()
+                    .entry(metric.name.clone())
+                    .or_default()
+                    .push((source.to_string(), line.to_string()));
+            }
+        }
+    }
+
+    pub fn handle_progress(&self, event: &str, metric: &Metric, result: Option<&MetricResult>) {
+        self.reporter.print_metric_progress(
+            event,
+            &metric.name,
+            metric.tier.as_str(),
+            metric.gate == crate::model::Gate::Hard,
+            result,
+        );
+
+        if event != "end" || self.reporter.stream_mode != StreamMode::Failures {
+            return;
+        }
+
+        let buffered = self
+            .buffered_lines
+            .lock()
+            .unwrap()
+            .remove(&metric.name)
+            .unwrap_or_default();
+        if !matches!(
+            result.map(|result| result.state),
+            Some(ResultState::Fail | ResultState::Unknown)
+        ) {
+            return;
+        }
+
+        for (source, line) in buffered {
+            self.reporter.print_metric_output(&metric.name, &source, &line);
+        }
+    }
 }
 
 impl TerminalReporter {
@@ -262,5 +330,63 @@ fn metric_summary(dimension: &DimensionScore) -> String {
         "n/a".to_string()
     } else {
         format!("{}/{}", dimension.passed, dimension.total)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Metric, MetricResult, Tier};
+
+    #[test]
+    fn stream_mode_parses_supported_values() {
+        assert_eq!(StreamMode::parse("off"), StreamMode::Off);
+        assert_eq!(StreamMode::parse("all"), StreamMode::All);
+        assert_eq!(StreamMode::parse("failures"), StreamMode::Failures);
+        assert_eq!(StreamMode::parse("unknown"), StreamMode::Failures);
+    }
+
+    #[test]
+    fn shell_output_controller_only_captures_when_enabled() {
+        let controller = ShellOutputController::new(Arc::new(TerminalReporter::new(
+            false,
+            StreamMode::Failures,
+        )));
+        assert!(controller.should_capture_output());
+
+        let disabled = ShellOutputController::new(Arc::new(TerminalReporter::new(
+            false,
+            StreamMode::Off,
+        )));
+        assert!(!disabled.should_capture_output());
+    }
+
+    #[test]
+    fn shell_output_controller_buffers_failure_lines() {
+        let controller = ShellOutputController::new(Arc::new(TerminalReporter::new(
+            false,
+            StreamMode::Failures,
+        )));
+        let metric = Metric::new("lint", "echo lint");
+        controller.handle_output(&metric, "stdout", "first");
+        controller.handle_output(&metric, "stderr", "second");
+        assert_eq!(
+            controller
+                .buffered_lines
+                .lock()
+                .unwrap()
+                .get("lint")
+                .map(|lines| lines.len()),
+            Some(2)
+        );
+
+        let result = MetricResult::new("lint", true, "ok", Tier::Fast);
+        controller.handle_progress("end", &metric, Some(&result));
+        assert!(controller
+            .buffered_lines
+            .lock()
+            .unwrap()
+            .get("lint")
+            .is_none());
     }
 }

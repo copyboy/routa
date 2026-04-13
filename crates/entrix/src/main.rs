@@ -22,7 +22,7 @@ use entrix::sarif::SarifRunner;
 use entrix::scoring::{score_dimension, score_report};
 use entrix::server;
 use entrix::test_mapping;
-use entrix::terminal::{AsciiReporter, StreamMode, TerminalReporter};
+use entrix::terminal::{AsciiReporter, ShellOutputController, StreamMode, TerminalReporter};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -469,32 +469,33 @@ fn cmd_run(args: RunArgs) -> i32 {
         );
     }
 
-    let progress_callback: Option<ProgressCallback> = reporter.as_ref().map(|reporter| {
-        let reporter = Arc::clone(reporter);
+    let output_controller = reporter
+        .as_ref()
+        .map(|reporter| Arc::new(ShellOutputController::new(Arc::clone(reporter))));
+
+    let progress_callback: Option<ProgressCallback> = output_controller.as_ref().map(|controller| {
+        let controller = Arc::clone(controller);
         Box::new(
             move |event: &str,
                   metric: &entrix::model::Metric,
                   result: Option<&entrix::model::MetricResult>| {
-            reporter.print_metric_progress(
-                event,
-                &metric.name,
-                metric.tier.as_str(),
-                metric.gate == entrix::model::Gate::Hard,
-                result,
-            );
+            controller.handle_progress(event, metric, result);
         },
         ) as ProgressCallback
     });
-    let output_callback: Option<OutputCallback> =
-        reporter.as_ref().and_then(|reporter| match stream_mode {
-            StreamMode::Off => None,
-            _ => Some(Arc::new({
-                let reporter = Arc::clone(reporter);
+    let output_callback: Option<OutputCallback> = output_controller.as_ref().and_then(
+        |controller| {
+            if !controller.should_capture_output() {
+                return None;
+            }
+            Some(Arc::new({
+                let controller = Arc::clone(controller);
                 move |metric: &entrix::model::Metric, source: &str, line: &str| {
-                    reporter.print_metric_output(&metric.name, source, line);
+                    controller.handle_output(metric, source, line);
                 }
-            }) as OutputCallback),
-        });
+            }) as OutputCallback)
+        },
+    );
 
     let mut shell_runner = ShellRunner::new(&repo_root).with_env_overrides(runner_env.clone());
     if let Some(callback) = output_callback {
