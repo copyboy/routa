@@ -169,12 +169,23 @@ export class DockerDetector {
       const args = ["images", "-q", image];
 
       if (dockerPath) {
-        const handle = bridge.process.spawn(dockerPath, args, {});
+        const handle = bridge.process.spawn(dockerPath, args);
         let stdout = "";
         return new Promise((resolve) => {
+          const timer = setTimeout(() => {
+            handle.kill();
+            resolve(false);
+          }, DEFAULT_TIMEOUT_MS);
+
           handle.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf-8"); });
-          handle.on("exit", (code) => { resolve(code === 0 && stdout.trim().length > 0); });
-          handle.on("error", () => resolve(false));
+          handle.on("exit", (code) => {
+            clearTimeout(timer);
+            resolve(code === 0 && stdout.trim().length > 0);
+          });
+          handle.on("error", () => {
+            clearTimeout(timer);
+            resolve(false);
+          });
         });
       } else {
         const { stdout } = await bridge.process.exec(`docker images -q ${image}`, {
@@ -189,19 +200,27 @@ export class DockerDetector {
 
   async pullImage(image: string): Promise<DockerPullResult> {
     const bridge = getServerBridge();
+    const PULL_TIMEOUT_MS = 10 * 60_000; // 10 minutes for image pulls
 
     try {
-      const dockerPath = await which("docker");
+      let dockerPath = await which("docker");
+      if (!dockerPath) dockerPath = await findDockerOnWindows(bridge);
       const args = ["pull", image];
 
       if (dockerPath) {
-        const handle = bridge.process.spawn(dockerPath, args, { timeout: 10 * 60_000 });
+        const handle = bridge.process.spawn(dockerPath, args);
         let stdout = "";
         let stderr = "";
         return new Promise((resolve) => {
+          const timer = setTimeout(() => {
+            handle.kill();
+            resolve({ ok: false, image, error: "docker pull timed out" });
+          }, PULL_TIMEOUT_MS);
+
           handle.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf-8"); });
           handle.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf-8"); });
           handle.on("exit", (code) => {
+            clearTimeout(timer);
             if (code === 0) {
               resolve({ ok: true, image, output: stdout.trim() });
             } else {
@@ -209,12 +228,13 @@ export class DockerDetector {
             }
           });
           handle.on("error", (err: Error) => {
+            clearTimeout(timer);
             resolve({ ok: false, image, error: err.message });
           });
         });
       } else {
         const { stdout, stderr } = await bridge.process.exec(`docker pull ${image}`, {
-          timeout: 10 * 60_000,
+          timeout: PULL_TIMEOUT_MS,
         });
         return { ok: true, image, output: `${stdout}${stderr ? `\n${stderr}` : ""}`.trim() };
       }
