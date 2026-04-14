@@ -5,6 +5,7 @@ import { createTask, TaskStatus, VerificationVerdict, type Task } from "@/core/m
 const notify = vi.fn();
 const ensureDefaultBoard = vi.fn();
 const processKanbanColumnTransition = vi.fn();
+const enqueueKanbanTaskSession = vi.fn();
 const getBoardSnapshot = vi.fn();
 
 const taskStore = {
@@ -59,6 +60,7 @@ vi.mock("@/core/kanban/kanban-event-broadcaster", () => ({
 vi.mock("@/core/kanban/workflow-orchestrator-singleton", () => ({
   getKanbanSessionQueue: () => ({ getBoardSnapshot }),
   processKanbanColumnTransition: (...args: unknown[]) => processKanbanColumnTransition(...args),
+  enqueueKanbanTaskSession: (...args: unknown[]) => enqueueKanbanTaskSession(...args),
 }));
 
 import { GET } from "../route";
@@ -107,6 +109,7 @@ describe("/api/kanban/boards GET", () => {
       queuedCards: [],
       queuedPositions: {},
     });
+    enqueueKanbanTaskSession.mockResolvedValue({ sessionId: "session-next", queued: false });
     boardStore.listByWorkspace.mockResolvedValue([{
       id: "board-1",
       workspaceId: "workspace-1",
@@ -253,6 +256,151 @@ describe("/api/kanban/boards GET", () => {
     expect(processKanbanColumnTransition).toHaveBeenCalledTimes(1);
   });
 
+  it("resumes the next review step instead of replaying step 0 after stale verdict recovery", async () => {
+    const reviewBoard = {
+      id: "board-1",
+      workspaceId: "workspace-1",
+      name: "Default Board",
+      isDefault: true,
+      columns: [{
+        id: "review",
+        name: "Review",
+        position: 0,
+        stage: "review",
+        automation: {
+          enabled: true,
+          transitionType: "entry",
+          steps: [
+            { id: "qa-frontend", role: "GATE", specialistId: "kanban-qa-frontend", specialistName: "QA Frontend" },
+            { id: "review-guard", role: "GATE", specialistId: "kanban-review-guard", specialistName: "Review Guard" },
+          ],
+        },
+      }],
+      createdAt: new Date("2025-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2025-01-01T00:00:00.000Z"),
+    };
+    boardStore.listByWorkspace.mockResolvedValue([reviewBoard]);
+    boardStore.get.mockResolvedValue(reviewBoard);
+    taskStore.listByWorkspace.mockResolvedValue([
+      {
+        ...createTaskWithRunningSession({
+          title: "Approved review story",
+          objective: "Review story",
+          columnId: "review",
+          status: TaskStatus.REVIEW_REQUIRED,
+          verificationVerdict: VerificationVerdict.APPROVED,
+          verificationReport: "looks good",
+        }),
+        laneSessions: [{
+          sessionId: "session-1",
+          columnId: "review",
+          status: "running",
+          stepId: "qa-frontend",
+          stepIndex: 0,
+          stepName: "QA Frontend",
+          startedAt: "2025-01-01T00:00:00.000Z",
+        }],
+      },
+    ]);
+
+    const response = await GET(new NextRequest("http://localhost/api/kanban/boards?workspaceId=workspace-1"));
+
+    expect(response.status).toBe(200);
+    expect(taskStore.save).toHaveBeenCalledWith(expect.objectContaining({
+      triggerSessionId: undefined,
+      laneSessions: [expect.objectContaining({
+        sessionId: "session-1",
+        status: "transitioned",
+        stepIndex: 0,
+      })],
+    }));
+    expect(enqueueKanbanTaskSession).toHaveBeenCalledWith(system, expect.objectContaining({
+      expectedColumnId: "review",
+      ignoreExistingTrigger: true,
+      stepIndex: 1,
+      step: expect.objectContaining({
+        id: "review-guard",
+        specialistName: "Review Guard",
+      }),
+    }));
+    expect(processKanbanColumnTransition).not.toHaveBeenCalled();
+  });
+
+  it("converges approved review cards to done when restart left no active review session", async () => {
+    const reviewBoard = {
+      id: "board-1",
+      workspaceId: "workspace-1",
+      name: "Default Board",
+      isDefault: true,
+      columns: [
+        {
+          id: "review",
+          name: "Review",
+          position: 0,
+          stage: "review",
+          automation: {
+            enabled: true,
+            transitionType: "entry",
+            steps: [
+              { id: "qa-frontend", role: "GATE", specialistId: "kanban-qa-frontend", specialistName: "QA Frontend" },
+              { id: "review-guard", role: "GATE", specialistId: "kanban-review-guard", specialistName: "Review Guard" },
+            ],
+          },
+        },
+        {
+          id: "done",
+          name: "Done",
+          position: 1,
+          stage: "done",
+        },
+      ],
+      createdAt: new Date("2025-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2025-01-01T00:00:00.000Z"),
+    };
+    boardStore.listByWorkspace.mockResolvedValue([reviewBoard]);
+    boardStore.get.mockResolvedValue(reviewBoard);
+    taskStore.listByWorkspace.mockResolvedValue([
+      {
+        ...createTask({
+          id: "task-1",
+          title: "Approved review story",
+          objective: "Review story",
+          workspaceId: "workspace-1",
+          boardId: "board-1",
+          columnId: "review",
+          status: TaskStatus.REVIEW_REQUIRED,
+        }),
+        verificationVerdict: VerificationVerdict.APPROVED,
+        triggerSessionId: undefined,
+        laneSessions: [{
+          sessionId: "session-review-guard",
+          columnId: "review",
+          status: "completed",
+          stepId: "review-guard",
+          stepIndex: 1,
+          stepName: "Review Guard",
+          startedAt: "2025-01-01T00:00:00.000Z",
+          completedAt: "2025-01-01T00:05:00.000Z",
+        }],
+      },
+    ]);
+
+    const response = await GET(new NextRequest("http://localhost/api/kanban/boards?workspaceId=workspace-1"));
+
+    expect(response.status).toBe(200);
+    expect(taskStore.save).toHaveBeenCalledWith(expect.objectContaining({
+      id: "task-1",
+      columnId: "done",
+      status: TaskStatus.COMPLETED,
+    }));
+    expect(enqueueKanbanTaskSession).not.toHaveBeenCalled();
+    expect(processKanbanColumnTransition).toHaveBeenCalledWith(system, expect.objectContaining({
+      cardId: "task-1",
+      fromColumnId: "review",
+      toColumnId: "done",
+    }));
+  });
+
   it("does not revive tasks when the trigger session is still active", async () => {
     processManager.hasActiveSession.mockImplementation((sessionId) => sessionId === "session-1");
     taskStore.listByWorkspace.mockResolvedValue([
@@ -293,8 +441,31 @@ describe("/api/kanban/boards GET", () => {
     expect(processKanbanColumnTransition).not.toHaveBeenCalled();
   });
 
-  it("preserves restorable hydrated sessions without explicit acp status", async () => {
+  it("revives hydrated sessions without explicit acp status when no live lease remains", async () => {
     sessionStore.getSession.mockReturnValue({ sessionId: "session-1" });
+    taskStore.listByWorkspace.mockResolvedValue([
+      createTaskWithRunningSession(),
+    ]);
+
+    const response = await GET(new NextRequest("http://localhost/api/kanban/boards?workspaceId=workspace-1"));
+
+    expect(response.status).toBe(200);
+    expect(taskStore.save).toHaveBeenCalledWith(expect.objectContaining({
+      triggerSessionId: undefined,
+      laneSessions: [expect.objectContaining({
+        sessionId: "session-1",
+        status: "timed_out",
+      })],
+    }));
+    expect(processKanbanColumnTransition).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves hydrated sessions without explicit acp status when the current-instance lease is still active", async () => {
+    sessionStore.getSession.mockReturnValue({
+      sessionId: "session-1",
+      ownerInstanceId: `next-${process.pid}`,
+      leaseExpiresAt: "2099-01-01T00:00:00.000Z",
+    });
     taskStore.listByWorkspace.mockResolvedValue([
       createTaskWithRunningSession(),
     ]);
@@ -320,6 +491,34 @@ describe("/api/kanban/boards GET", () => {
       laneSessions: [expect.objectContaining({
         sessionId: "session-1",
         status: "timed_out",
+      })],
+    }));
+    expect(processKanbanColumnTransition).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears stale trigger session ids when the current-lane session already failed", async () => {
+    sessionStore.getSession.mockReturnValue({ acpStatus: "error" });
+    taskStore.listByWorkspace.mockResolvedValue([
+      {
+        ...createTaskWithRunningSession(),
+        laneSessions: [{
+          sessionId: "session-1",
+          columnId: "backlog",
+          status: "failed",
+          startedAt: "2025-01-01T00:00:00.000Z",
+          completedAt: "2025-01-01T00:05:00.000Z",
+        }],
+      },
+    ]);
+
+    const response = await GET(new NextRequest("http://localhost/api/kanban/boards?workspaceId=workspace-1"));
+
+    expect(response.status).toBe(200);
+    expect(taskStore.save).toHaveBeenCalledWith(expect.objectContaining({
+      triggerSessionId: undefined,
+      laneSessions: [expect.objectContaining({
+        sessionId: "session-1",
+        status: "failed",
       })],
     }));
     expect(processKanbanColumnTransition).toHaveBeenCalledTimes(1);

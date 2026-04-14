@@ -16,7 +16,7 @@ import type {
   KanbanDevSessionSupervision,
   KanbanDevSessionSupervisionMode,
 } from "../models/kanban";
-import { columnIdToTaskStatus, getKanbanAutomationSteps } from "../models/kanban";
+import { getKanbanAutomationSteps, resolveTaskStatusForBoardColumn } from "../models/kanban";
 import type { Task, TaskLaneSessionRecoveryReason } from "../models/task";
 import type { KanbanBoardStore } from "../store/kanban-board-store";
 import type { TaskStore } from "../store/task-store";
@@ -104,7 +104,18 @@ export function getNonDevAutomationRunCount(
     return 0;
   }
 
-  return (task.laneSessions ?? []).filter((entry) => entry.columnId === columnId).length;
+  const laneSessions = task.laneSessions ?? [];
+  let runCount = 0;
+
+  for (let index = laneSessions.length - 1; index >= 0; index -= 1) {
+    const entry = laneSessions[index];
+    if (entry.columnId !== columnId) {
+      break;
+    }
+    runCount += 1;
+  }
+
+  return runCount;
 }
 
 export function hasExceededNonDevAutomationRepeatLimit(
@@ -850,7 +861,7 @@ export class KanbanWorkflowOrchestrator {
       if (!nextColumn) return;
 
       task.columnId = nextColumn.id;
-      task.status = columnIdToTaskStatus(nextColumn.id);
+      task.status = resolveTaskStatusForBoardColumn(board.columns, nextColumn.id);
       if (task.triggerSessionId) {
         if (!task.sessionIds) task.sessionIds = [];
         if (!task.sessionIds.includes(task.triggerSessionId)) {

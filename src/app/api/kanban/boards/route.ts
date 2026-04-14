@@ -1,163 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getRoutaSystem } from "@/core/routa-system";
-import { createKanbanBoard, getKanbanAutomationSteps } from "@/core/models/kanban";
+import { createKanbanBoard } from "@/core/models/kanban";
 import { ensureDefaultBoard } from "@/core/kanban/boards";
 import { getKanbanAutoProvider } from "@/core/kanban/board-auto-provider";
 import { getKanbanSessionConcurrencyLimit } from "@/core/kanban/board-session-limits";
 import { getKanbanDevSessionSupervision } from "@/core/kanban/board-session-supervision";
 import { getKanbanEventBroadcaster } from "@/core/kanban/kanban-event-broadcaster";
+import { reviveMissingEntryAutomations } from "@/core/kanban/restart-recovery";
 import { getKanbanSessionQueue } from "@/core/kanban/workflow-orchestrator-singleton";
-import { processKanbanColumnTransition } from "@/core/kanban/workflow-orchestrator-singleton";
 import { getHttpSessionStore } from "@/core/acp/http-session-store";
 import { getAcpProcessManager } from "@/core/acp/processer";
-import {
-  getTaskLaneSession,
-  markTaskLaneSessionStatus,
-} from "@/core/kanban/task-lane-history";
-import type { Task, TaskLaneSessionStatus } from "@/core/models/task";
 import type { KanbanBoard, KanbanDevSessionSupervision } from "@/core/models/kanban";
-
-function isSessionActivelyRunning(
-  taskSessionId: string | undefined,
-  options: {
-    sessionStore: ReturnType<typeof getHttpSessionStore>;
-    processManager: ReturnType<typeof getAcpProcessManager>;
-  },
-): boolean {
-  if (!taskSessionId) return false;
-
-  if (options.processManager.hasActiveSession(taskSessionId)) {
-    return true;
-  }
-
-  const session = options.sessionStore.getSession(taskSessionId);
-  if (!session) {
-    return false;
-  }
-
-  return session.acpStatus !== "error";
-}
-
-function resolveStaleLaneSessionTerminalStatus(task: Pick<Task, "verificationVerdict" | "verificationReport" | "completionSummary">): TaskLaneSessionStatus {
-  return task.verificationVerdict || task.verificationReport || task.completionSummary
-    ? "transitioned"
-    : "timed_out";
-}
-
-async function sanitizeStaleCurrentLaneAutomation(
-  system: ReturnType<typeof getRoutaSystem>,
-  task: Task,
-  options: {
-    sessionStore: ReturnType<typeof getHttpSessionStore>;
-    processManager: ReturnType<typeof getAcpProcessManager>;
-  },
-): Promise<Task> {
-  let mutated = false;
-  const nextTask: Task = {
-    ...task,
-    laneSessions: [...(task.laneSessions ?? [])],
-    laneHandoffs: [...(task.laneHandoffs ?? [])],
-    sessionIds: [...(task.sessionIds ?? [])],
-    comments: [...(task.comments ?? [])],
-    labels: [...(task.labels ?? [])],
-    dependencies: [...(task.dependencies ?? [])],
-    codebaseIds: [...(task.codebaseIds ?? [])],
-  };
-
-  if (nextTask.triggerSessionId && !isSessionActivelyRunning(nextTask.triggerSessionId, options)) {
-    const triggerLaneSession = getTaskLaneSession(nextTask, nextTask.triggerSessionId);
-    if (triggerLaneSession && triggerLaneSession.columnId === nextTask.columnId && triggerLaneSession.status === "running") {
-      markTaskLaneSessionStatus(
-        nextTask,
-        triggerLaneSession.sessionId,
-        resolveStaleLaneSessionTerminalStatus(nextTask),
-      );
-    }
-    nextTask.triggerSessionId = undefined;
-    mutated = true;
-  }
-
-  for (const entry of nextTask.laneSessions ?? []) {
-    if (
-      entry.columnId === nextTask.columnId
-      && entry.status === "running"
-      && !isSessionActivelyRunning(entry.sessionId, options)
-    ) {
-      markTaskLaneSessionStatus(
-        nextTask,
-        entry.sessionId,
-        resolveStaleLaneSessionTerminalStatus(nextTask),
-      );
-      mutated = true;
-    }
-  }
-
-  if (mutated) {
-    nextTask.updatedAt = new Date();
-    await system.taskStore.save(nextTask);
-    return nextTask;
-  }
-
-  return task;
-}
-
-async function reviveMissingEntryAutomations(
-  system: ReturnType<typeof getRoutaSystem>,
-  workspaceId: string,
-  boardId: string,
-  options: {
-    sessionStore: ReturnType<typeof getHttpSessionStore>;
-    processManager: ReturnType<typeof getAcpProcessManager>;
-  },
-): Promise<void> {
-  const board = await system.kanbanBoardStore.get(boardId);
-  if (!board) return;
-
-  const tasks = await system.taskStore.listByWorkspace(workspaceId);
-  for (const originalTask of tasks) {
-    if (originalTask.boardId !== boardId || !originalTask.columnId) {
-      continue;
-    }
-
-    const task = await sanitizeStaleCurrentLaneAutomation(system, originalTask, {
-      sessionStore: options.sessionStore,
-      processManager: options.processManager,
-    });
-    if (task.triggerSessionId) continue;
-
-    const currentColumnId = task.columnId;
-    if (!currentColumnId) continue;
-    const column = board.columns.find((entry) => entry.id === currentColumnId);
-    if (!column) continue;
-    const automation = column?.automation;
-    const transitionType = automation?.transitionType ?? "entry";
-    const hasLaneSessionForCurrentColumn = (task.laneSessions ?? []).some((entry) => (
-      entry.columnId === currentColumnId
-      && entry.status === "running"
-      && isSessionActivelyRunning(entry.sessionId, options)
-    ));
-    if (
-      !automation?.enabled
-      || (transitionType !== "entry" && transitionType !== "both")
-      || getKanbanAutomationSteps(automation).length === 0
-      || hasLaneSessionForCurrentColumn
-    ) {
-      continue;
-    }
-
-    await processKanbanColumnTransition(system, {
-      cardId: task.id,
-      cardTitle: task.title,
-      boardId,
-      workspaceId,
-      fromColumnId: "__revive__",
-      toColumnId: currentColumnId,
-      fromColumnName: "Revive",
-      toColumnName: column.name,
-    });
-  }
-}
 
 export const dynamic = "force-dynamic";
 
