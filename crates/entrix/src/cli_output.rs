@@ -53,47 +53,53 @@ fn format_line_span(start: usize, end: usize) -> String {
 }
 
 pub(crate) fn print_hook_long_file_summary(report: &LongFileAnalysisReport) {
+    for line in hook_long_file_summary_lines(report) {
+        println!("{line}");
+    }
+}
+
+pub(crate) fn hook_long_file_summary_lines(report: &LongFileAnalysisReport) -> Vec<String> {
     const MAX_CLASSES: usize = 3;
     const MAX_METHODS_PER_CLASS: usize = 4;
     const MAX_FUNCTIONS: usize = 5;
 
     if report.files.is_empty() {
-        println!("Structure summary unavailable: no supported files for structural analysis.");
-        return;
+        return vec!["Structure summary unavailable: no supported files for structural analysis."
+            .to_string()];
     }
 
-    println!("Structure summary (tree-sitter symbols):");
+    let mut lines = vec!["Structure summary (tree-sitter symbols):".to_string()];
     for item in &report.files {
-        println!("- {}", item.file_path);
+        lines.push(format!("- {}", item.file_path));
 
         if item.classes.is_empty() && item.functions.is_empty() {
-            println!("  no class/function symbols found");
+            lines.push("  no class/function symbols found".to_string());
             continue;
         }
 
         for cls in item.classes.iter().take(MAX_CLASSES) {
-            println!(
+            lines.push(format!(
                 "  class {} ({}, methods={})",
                 cls.name,
                 format_line_span(cls.start_line, cls.end_line),
                 cls.method_count,
-            );
+            ));
             for method in cls.methods.iter().take(MAX_METHODS_PER_CLASS) {
-                println!(
+                lines.push(format!(
                     "    method {} ({})",
                     method.name,
                     format_line_span(method.start_line, method.end_line),
-                );
+                ));
             }
             let remaining_methods = cls.methods.len().saturating_sub(MAX_METHODS_PER_CLASS);
             if remaining_methods > 0 {
-                println!("    ... {remaining_methods} more method(s)");
+                lines.push(format!("    ... {remaining_methods} more method(s)"));
             }
         }
 
         let remaining_classes = item.classes.len().saturating_sub(MAX_CLASSES);
         if remaining_classes > 0 {
-            println!("  ... {remaining_classes} more class(es)");
+            lines.push(format!("  ... {remaining_classes} more class(es)"));
         }
 
         if !item.functions.is_empty() {
@@ -109,17 +115,19 @@ pub(crate) fn print_hook_long_file_summary(report: &LongFileAnalysisReport) {
                     )
                 })
                 .collect();
-            println!("  functions: {}", compact.join(", "));
+            lines.push(format!("  functions: {}", compact.join(", ")));
             let remaining_functions = item.functions.len().saturating_sub(MAX_FUNCTIONS);
             if remaining_functions > 0 {
-                println!("  ... {remaining_functions} more function(s)");
+                lines.push(format!("  ... {remaining_functions} more function(s)"));
             }
         }
 
         if !item.warnings.is_empty() {
-            println!("  review-warnings: {}", item.warnings.len());
+            lines.push(format!("  review-warnings: {}", item.warnings.len()));
         }
     }
+
+    lines
 }
 
 pub(crate) fn print_long_file_report(report: &LongFileAnalysisReport, min_lines: usize) {
@@ -215,5 +223,110 @@ pub(crate) fn print_review_trigger_report(report: &ReviewTriggerReport) {
         for reason in &trigger.reasons {
             println!("  - {reason}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hook_long_file_summary_lines;
+    use entrix::long_file::{
+        LongFileAnalysisReport, LongFileClassReport, LongFileCommentSpan, LongFileFileReport,
+        LongFileFunctionReport, LongFileWarning,
+    };
+
+    fn sample_function(name: &str, start_line: usize, end_line: usize) -> LongFileFunctionReport {
+        LongFileFunctionReport {
+            name: name.to_string(),
+            qualified_name: name.to_string(),
+            file_path: "src/app.ts".to_string(),
+            start_line,
+            end_line,
+            line_count: end_line - start_line + 1,
+            commit_count: 0,
+            comment_count: 0,
+            comments: Vec::new(),
+            kind: "function".to_string(),
+            parent_class_name: None,
+            warnings: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn hook_long_file_summary_formats_symbols() {
+        let report = LongFileAnalysisReport {
+            status: "ok".to_string(),
+            base: "HEAD".to_string(),
+            summary: None,
+            files: vec![LongFileFileReport {
+                file_path: "src/app.ts".to_string(),
+                language: "typescript".to_string(),
+                line_count: 1201,
+                budget_limit: 1000,
+                budget_reason: "legacy hotspot".to_string(),
+                over_budget: true,
+                commit_count: 0,
+                classes: vec![LongFileClassReport {
+                    name: "AppController".to_string(),
+                    qualified_name: "AppController".to_string(),
+                    file_path: "src/app.ts".to_string(),
+                    start_line: 10,
+                    end_line: 120,
+                    line_count: 111,
+                    commit_count: 0,
+                    comment_count: 0,
+                    comments: Vec::new(),
+                    method_count: 2,
+                    methods: vec![
+                        sample_function("handleRequest", 20, 80),
+                        sample_function("renderView", 82, 110),
+                    ],
+                    warnings: vec![LongFileWarning {
+                        code: "comment_review".to_string(),
+                        summary: "review hotspot".to_string(),
+                        file_path: "src/app.ts".to_string(),
+                        qualified_name: "AppController".to_string(),
+                        name: "AppController".to_string(),
+                        symbol_kind: "Class".to_string(),
+                        start_line: 10,
+                        end_line: 120,
+                        line_count: 111,
+                        commit_count: 0,
+                        comment_count: 1,
+                        comment_spans: vec![LongFileCommentSpan {
+                            start_line: 12,
+                            end_line: 15,
+                            placement: "leading".to_string(),
+                        }],
+                    }],
+                }],
+                functions: vec![sample_function("bootstrap", 130, 170)],
+                warnings: Vec::new(),
+            }],
+        };
+
+        let lines = hook_long_file_summary_lines(&report);
+        let output = lines.join("\n");
+
+        assert!(output.contains("Structure summary (tree-sitter symbols):"));
+        assert!(output.contains("- src/app.ts"));
+        assert!(output.contains("class AppController (L10-L120, methods=2)"));
+        assert!(output.contains("method handleRequest (L20-L80)"));
+        assert!(output.contains("functions: bootstrap (L130-L170)"));
+    }
+
+    #[test]
+    fn hook_long_file_summary_reports_empty_analysis() {
+        let report = LongFileAnalysisReport {
+            status: "ok".to_string(),
+            base: "HEAD".to_string(),
+            files: Vec::new(),
+            summary: None,
+        };
+
+        assert_eq!(
+            hook_long_file_summary_lines(&report),
+            vec!["Structure summary unavailable: no supported files for structural analysis."
+                .to_string()]
+        );
     }
 }
