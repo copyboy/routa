@@ -8,9 +8,9 @@ use clap::Parser;
 fn graph_stats_accepts_json_flag() {
     let cli = Cli::parse_from(["entrix", "graph", "stats", "--json"]);
     match cli.command {
-        Command::Graph(GraphArgs {
+        Some(Command::Graph(GraphArgs {
             command: Some(GraphCommand::Stats(GraphStatsArgs { json })),
-        }) => assert!(json),
+        })) => assert!(json),
         _ => panic!("expected graph stats command"),
     }
 }
@@ -25,16 +25,22 @@ fn unavailable_status_maps_to_exit_code_one() {
 fn graph_parent_command_parses_without_subcommand() {
     let cli = Cli::parse_from(["entrix", "graph"]);
     match cli.command {
-        Command::Graph(GraphArgs { command: None }) => {}
+        Some(Command::Graph(GraphArgs { command: None })) => {}
         _ => panic!("expected graph command without subcommand"),
     }
+}
+
+#[test]
+fn no_command_parses_without_subcommand() {
+    let cli = Cli::parse_from(["entrix"]);
+    assert!(cli.command.is_none());
 }
 
 #[test]
 fn run_defaults() {
     let cli = Cli::parse_from(["entrix", "run"]);
     match cli.command {
-        Command::Run(args) => {
+        Some(Command::Run(args)) => {
             assert!(args.tier.is_none());
             assert!(args.tier_positional.is_none());
             assert!(!args.parallel);
@@ -88,7 +94,7 @@ fn run_all_flags() {
         "report.json",
     ]);
     match cli.command {
-        Command::Run(args) => {
+        Some(Command::Run(args)) => {
             assert_eq!(args.tier.as_deref(), Some("fast"));
             assert!(args.parallel);
             assert!(args.dry_run);
@@ -113,7 +119,7 @@ fn run_all_flags() {
 fn run_stream_without_value_defaults_to_all() {
     let cli = Cli::parse_from(["entrix", "run", "--stream", "--dry-run"]);
     match cli.command {
-        Command::Run(args) => {
+        Some(Command::Run(args)) => {
             assert_eq!(args.stream, "all");
             assert!(args.dry_run);
         }
@@ -125,7 +131,7 @@ fn run_stream_without_value_defaults_to_all() {
 fn run_stream_with_explicit_value() {
     let cli = Cli::parse_from(["entrix", "run", "--stream", "off"]);
     match cli.command {
-        Command::Run(args) => {
+        Some(Command::Run(args)) => {
             assert_eq!(args.stream, "off");
         }
         _ => panic!("expected run command"),
@@ -136,7 +142,7 @@ fn run_stream_with_explicit_value() {
 fn run_defaults_scope_to_local() {
     let cli = Cli::parse_from(["entrix", "run"]);
     match cli.command {
-        Command::Run(args) => {
+        Some(Command::Run(args)) => {
             assert!(args.scope.is_none());
             let resolved = args
                 .scope
@@ -153,7 +159,7 @@ fn run_defaults_scope_to_local() {
 fn validate_parses() {
     let cli = Cli::parse_from(["entrix", "validate", "--json"]);
     match cli.command {
-        Command::Validate(args) => assert!(args.json),
+        Some(Command::Validate(args)) => assert!(args.json),
         _ => panic!("expected validate command"),
     }
 }
@@ -162,7 +168,7 @@ fn validate_parses() {
 fn review_trigger_defaults() {
     let cli = Cli::parse_from(["entrix", "review-trigger"]);
     match cli.command {
-        Command::ReviewTrigger(args) => {
+        Some(Command::ReviewTrigger(args)) => {
             assert!(args.files.is_empty());
             assert_eq!(args.base, "HEAD~1");
             assert!(args.config.is_none());
@@ -177,7 +183,7 @@ fn review_trigger_defaults() {
 fn release_trigger_defaults() {
     let cli = Cli::parse_from(["entrix", "release-trigger", "--manifest", "manifest.json"]);
     match cli.command {
-        Command::ReleaseTrigger(args) => {
+        Some(Command::ReleaseTrigger(args)) => {
             assert!(args.files.is_empty());
             assert_eq!(args.base, "HEAD~1");
             assert_eq!(args.manifest, "manifest.json");
@@ -202,9 +208,9 @@ fn hook_file_length_flags() {
         "--strict-limit",
     ]);
     match cli.command {
-        Command::Hook(HookArgs {
+        Some(Command::Hook(HookArgs {
             command: Some(HookCommand::FileLength(args)),
-        }) => {
+        })) => {
             assert_eq!(args.config, "budgets.json");
             assert!(args.staged_only);
             assert!(args.strict_limit);
@@ -229,9 +235,9 @@ fn analyze_long_file_flags() {
         "--json",
     ]);
     match cli.command {
-        Command::Analyze(AnalyzeArgs {
+        Some(Command::Analyze(AnalyzeArgs {
             command: Some(AnalyzeCommand::LongFile(args)),
-        }) => {
+        })) => {
             assert_eq!(args.files, vec!["a.rs"]);
             assert_eq!(args.base, "main");
             assert!(args.strict_limit);
@@ -245,9 +251,9 @@ fn analyze_long_file_flags() {
 fn analyze_long_file_positional_paths() {
     let cli = Cli::parse_from(["entrix", "analyze", "long-file", "src/a.ts", "src/b.py"]);
     match cli.command {
-        Command::Analyze(AnalyzeArgs {
+        Some(Command::Analyze(AnalyzeArgs {
             command: Some(AnalyzeCommand::LongFile(args)),
-        }) => {
+        })) => {
             assert_eq!(args.paths, vec!["src/a.ts", "src/b.py"]);
         }
         _ => panic!("expected analyze long-file command"),

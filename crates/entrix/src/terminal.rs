@@ -269,6 +269,10 @@ pub struct AsciiReporter {
     width: usize,
 }
 
+pub struct RichReporter {
+    width: usize,
+}
+
 impl AsciiReporter {
     pub fn new(width: usize) -> Self {
         Self { width }
@@ -310,6 +314,77 @@ impl AsciiReporter {
             println!("Hard gates are blocking this run.");
         } else if report.score_blocked {
             println!("Score is below the configured minimum threshold.");
+        }
+    }
+}
+
+impl RichReporter {
+    pub fn new(width: usize) -> Self {
+        Self { width }
+    }
+
+    pub fn report(&self, report: &FitnessReport) {
+        println!("\n{:^74}", "Fitness Scorecard");
+        println!(
+            "┏{0:━<19}┳{0:━<27}┳{0:━<8}┳{0:━<9}┳{0:━<8}┓",
+            ""
+        );
+        println!(
+            "┃ {:<17} ┃ {:<25} ┃ {:>6} ┃ {:>7} ┃ {:<6} ┃",
+            "Dimension", "Score", "Weight", "Metrics", "Status"
+        );
+        println!(
+            "┡{0:━<19}╇{0:━<27}╇{0:━<8}╇{0:━<9}╇{0:━<8}┩",
+            ""
+        );
+
+        for dimension in &report.dimensions {
+            let scorable = dimension.weight > 0 && dimension.total > 0;
+            let score_text = if scorable {
+                format!("{:>5.1}%", dimension.score)
+            } else {
+                "  n/a".to_string()
+            };
+            println!(
+                "│ {:<17} │ {} {} │ {:>6}% │ {:>7} │ {:<6} │",
+                dimension.dimension.to_uppercase().chars().take(17).collect::<String>(),
+                bar(dimension.score, self.width),
+                score_text,
+                dimension.weight,
+                metric_summary(dimension),
+                status_for_score(dimension.score, scorable),
+            );
+        }
+
+        println!(
+            "└{0:─<19}┴{0:─<27}┴{0:─<8}┴{0:─<9}┴{0:─<8}┘",
+            ""
+        );
+        println!(
+            "\nFINAL SCORE {} {:>5.1}% {}",
+            bar(report.final_score, self.width),
+            report.final_score,
+            status_for_score(report.final_score, !report.dimensions.is_empty())
+        );
+        if report.hard_gate_blocked {
+            println!("Hard gates are blocking this run.");
+        } else if report.score_blocked {
+            println!("Score is below the configured minimum threshold.");
+        }
+
+        let failures = report
+            .dimensions
+            .iter()
+            .flat_map(|dimension| {
+                dimension
+                    .results
+                    .iter()
+                    .filter(|result| matches!(result.state, ResultState::Fail))
+                    .map(|result| result.metric_name.clone())
+            })
+            .collect::<Vec<_>>();
+        if !failures.is_empty() {
+            println!("Failing metrics: {}", failures.join(", "));
         }
     }
 }

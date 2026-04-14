@@ -47,7 +47,7 @@ mod cli_runtime;
 #[command(about = "Rust Entrix CLI")]
 struct Cli {
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -371,27 +371,33 @@ struct GraphReviewContextArgs {
 fn main() {
     let cli = Cli::parse();
     let exit_code = match cli.command {
-        Command::Run(args) => cmd_run(args),
-        Command::Validate(args) => cmd_validate(args),
-        Command::Install(args) | Command::Init(args) => cmd_install(args),
-        Command::Serve => cmd_serve(),
-        Command::Analyze(args) => match args.command {
+        None => {
+            let mut cmd = Cli::command();
+            let _ = cmd.print_help();
+            println!();
+            0
+        }
+        Some(Command::Run(args)) => cmd_run(args),
+        Some(Command::Validate(args)) => cmd_validate(args),
+        Some(Command::Install(args)) | Some(Command::Init(args)) => cmd_install(args),
+        Some(Command::Serve) => cmd_serve(),
+        Some(Command::Analyze(args)) => match args.command {
             Some(AnalyzeCommand::LongFile(args)) => cmd_analyze_long_file(args),
             None => {
                 print_subcommand_help("analyze");
                 0
             }
         },
-        Command::ReleaseTrigger(args) => cmd_release_trigger(args),
-        Command::ReviewTrigger(args) => cmd_review_trigger(args),
-        Command::Hook(args) => match args.command {
+        Some(Command::ReleaseTrigger(args)) => cmd_release_trigger(args),
+        Some(Command::ReviewTrigger(args)) => cmd_review_trigger(args),
+        Some(Command::Hook(args)) => match args.command {
             Some(HookCommand::FileLength(args)) => cmd_hook_file_length(args),
             None => {
                 print_subcommand_help("hook");
                 0
             }
         },
-        Command::Graph(args) => match args.command {
+        Some(Command::Graph(args)) => match args.command {
             Some(GraphCommand::Build(args)) => cmd_graph_build(args),
             Some(GraphCommand::AnalyzeFile(args)) => cmd_graph_analyze_file(args),
             Some(GraphCommand::Stats(args)) => cmd_graph_stats(args),
@@ -568,19 +574,20 @@ fn cmd_run(args: RunArgs) -> i32 {
     let report = score_report(&dimension_scores, policy.min_score);
     let report_json = report_to_dict(&report);
 
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report_json).expect("serialize report")
-        );
-    } else {
-        match args.format.as_str() {
-            "ascii" => AsciiReporter::new(18).report(&report),
-            _ => {
-                if let Some(reporter) = &reporter {
-                    reporter.report(&report, show_tier);
-                } else {
-                    print_report_text(&report, policy.verbose);
+        if args.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report_json).expect("serialize report")
+            );
+        } else {
+            match args.format.as_str() {
+                "ascii" => AsciiReporter::new(18).report(&report),
+                "rich" => entrix::terminal::RichReporter::new(18).report(&report),
+                _ => {
+                    if let Some(reporter) = &reporter {
+                        reporter.report(&report, show_tier);
+                    } else {
+                        print_report_text(&report, policy.verbose);
                 }
             }
         }
