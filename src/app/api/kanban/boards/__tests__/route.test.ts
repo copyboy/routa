@@ -21,6 +21,12 @@ const workspaceStore = {
   get: vi.fn(),
 };
 
+const system = {
+  taskStore,
+  kanbanBoardStore: boardStore,
+  workspaceStore,
+};
+
 const sessionStore = {
   hydrateFromDb: vi.fn<() => Promise<void>>(),
   getSession: vi.fn(),
@@ -28,12 +34,6 @@ const sessionStore = {
 
 const processManager = {
   hasActiveSession: vi.fn<(sessionId: string) => boolean>(),
-};
-
-const system = {
-  taskStore,
-  kanbanBoardStore: boardStore,
-  workspaceStore,
 };
 
 vi.mock("@/core/routa-system", () => ({
@@ -62,6 +62,28 @@ vi.mock("@/core/kanban/workflow-orchestrator-singleton", () => ({
 }));
 
 import { GET } from "../route";
+
+function createTaskWithRunningSession(overrides?: Partial<Task>): Task {
+  return {
+    ...createTask({
+      id: "task-1",
+      title: "Backlog story",
+      objective: "Backlog story",
+      workspaceId: "workspace-1",
+      boardId: "board-1",
+      columnId: "backlog",
+      status: TaskStatus.PENDING,
+    }),
+    triggerSessionId: "session-1",
+    laneSessions: [{
+      sessionId: "session-1",
+      columnId: "backlog",
+      status: "running",
+      startedAt: "2025-01-01T00:00:00.000Z",
+    }],
+    ...overrides,
+  };
+}
 
 describe("/api/kanban/boards GET", () => {
   beforeEach(() => {
@@ -182,25 +204,12 @@ describe("/api/kanban/boards GET", () => {
 
   it("revives tasks after clearing stale trigger sessions in the current lane", async () => {
     taskStore.listByWorkspace.mockResolvedValue([
-      {
-        ...createTask({
-          id: "task-1",
-          title: "Stale review story",
-          objective: "Review story",
-          workspaceId: "workspace-1",
-          boardId: "board-1",
-          columnId: "backlog",
-          status: TaskStatus.REVIEW_REQUIRED,
-        }),
-        triggerSessionId: "session-1",
+      createTaskWithRunningSession({
+        title: "Stale review story",
+        objective: "Review story",
+        status: TaskStatus.REVIEW_REQUIRED,
         verificationVerdict: undefined,
-        laneSessions: [{
-          sessionId: "session-1",
-          columnId: "backlog",
-          status: "running",
-          startedAt: "2025-01-01T00:00:00.000Z",
-        }],
-      },
+      }),
     ]);
 
     const response = await GET(new NextRequest("http://localhost/api/kanban/boards?workspaceId=workspace-1"));
@@ -223,26 +232,13 @@ describe("/api/kanban/boards GET", () => {
 
   it("marks stale review sessions with existing verdicts as transitioned before revive", async () => {
     taskStore.listByWorkspace.mockResolvedValue([
-      {
-        ...createTask({
-          id: "task-1",
-          title: "Approved review story",
-          objective: "Review story",
-          workspaceId: "workspace-1",
-          boardId: "board-1",
-          columnId: "backlog",
-          status: TaskStatus.REVIEW_REQUIRED,
-        }),
-        triggerSessionId: "session-1",
+      createTaskWithRunningSession({
+        title: "Approved review story",
+        objective: "Review story",
+        status: TaskStatus.REVIEW_REQUIRED,
         verificationVerdict: VerificationVerdict.APPROVED,
         verificationReport: "looks good",
-        laneSessions: [{
-          sessionId: "session-1",
-          columnId: "backlog",
-          status: "running",
-          startedAt: "2025-01-01T00:00:00.000Z",
-        }],
-      },
+      }),
     ]);
 
     const response = await GET(new NextRequest("http://localhost/api/kanban/boards?workspaceId=workspace-1"));
@@ -260,29 +256,140 @@ describe("/api/kanban/boards GET", () => {
   it("does not revive tasks when the trigger session is still active", async () => {
     processManager.hasActiveSession.mockImplementation((sessionId) => sessionId === "session-1");
     taskStore.listByWorkspace.mockResolvedValue([
-      {
-        ...createTask({
-          id: "task-1",
-          title: "Active backlog story",
-          objective: "Backlog story",
-          workspaceId: "workspace-1",
-          boardId: "board-1",
-          columnId: "backlog",
-          status: TaskStatus.PENDING,
-        }),
-        triggerSessionId: "session-1",
-        laneSessions: [{
-          sessionId: "session-1",
-          columnId: "backlog",
-          status: "running",
-          startedAt: "2025-01-01T00:00:00.000Z",
-        }],
-      },
+      createTaskWithRunningSession({
+        title: "Active backlog story",
+      }),
     ]);
 
     const response = await GET(new NextRequest("http://localhost/api/kanban/boards?workspaceId=workspace-1"));
     expect(response.status).toBe(200);
     expect(taskStore.save).not.toHaveBeenCalled();
     expect(processKanbanColumnTransition).not.toHaveBeenCalled();
+  });
+
+  it("treats ready session-store records as active lane ownership", async () => {
+    sessionStore.getSession.mockReturnValue({ acpStatus: "ready" });
+    taskStore.listByWorkspace.mockResolvedValue([
+      createTaskWithRunningSession(),
+    ]);
+
+    const response = await GET(new NextRequest("http://localhost/api/kanban/boards?workspaceId=workspace-1"));
+
+    expect(response.status).toBe(200);
+    expect(taskStore.save).not.toHaveBeenCalled();
+    expect(processKanbanColumnTransition).not.toHaveBeenCalled();
+  });
+
+  it("treats connecting session-store records as active lane ownership", async () => {
+    sessionStore.getSession.mockReturnValue({ acpStatus: "connecting" });
+    taskStore.listByWorkspace.mockResolvedValue([
+      createTaskWithRunningSession(),
+    ]);
+
+    const response = await GET(new NextRequest("http://localhost/api/kanban/boards?workspaceId=workspace-1"));
+
+    expect(response.status).toBe(200);
+    expect(taskStore.save).not.toHaveBeenCalled();
+    expect(processKanbanColumnTransition).not.toHaveBeenCalled();
+  });
+
+  it("preserves restorable hydrated sessions without explicit acp status", async () => {
+    sessionStore.getSession.mockReturnValue({ sessionId: "session-1" });
+    taskStore.listByWorkspace.mockResolvedValue([
+      createTaskWithRunningSession(),
+    ]);
+
+    const response = await GET(new NextRequest("http://localhost/api/kanban/boards?workspaceId=workspace-1"));
+
+    expect(response.status).toBe(200);
+    expect(taskStore.save).not.toHaveBeenCalled();
+    expect(processKanbanColumnTransition).not.toHaveBeenCalled();
+  });
+
+  it("revives tasks when the stored session is already in error", async () => {
+    sessionStore.getSession.mockReturnValue({ acpStatus: "error" });
+    taskStore.listByWorkspace.mockResolvedValue([
+      createTaskWithRunningSession(),
+    ]);
+
+    const response = await GET(new NextRequest("http://localhost/api/kanban/boards?workspaceId=workspace-1"));
+
+    expect(response.status).toBe(200);
+    expect(taskStore.save).toHaveBeenCalledWith(expect.objectContaining({
+      triggerSessionId: undefined,
+      laneSessions: [expect.objectContaining({
+        sessionId: "session-1",
+        status: "timed_out",
+      })],
+    }));
+    expect(processKanbanColumnTransition).toHaveBeenCalledTimes(1);
+  });
+
+  it("hydrates session state only once before reviving multiple boards", async () => {
+    boardStore.listByWorkspace.mockResolvedValue([
+      {
+        id: "board-1",
+        workspaceId: "workspace-1",
+        name: "Default Board",
+        isDefault: true,
+        columns: [{
+          id: "backlog",
+          name: "Backlog",
+          position: 0,
+          stage: "backlog",
+          automation: {
+            enabled: true,
+            transitionType: "entry",
+            steps: [{ id: "backlog-refiner", role: "CRAFTER" }],
+          },
+        }],
+        createdAt: new Date("2025-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2025-01-01T00:00:00.000Z"),
+      },
+      {
+        id: "board-2",
+        workspaceId: "workspace-1",
+        name: "Secondary Board",
+        isDefault: false,
+        columns: [{
+          id: "backlog",
+          name: "Backlog",
+          position: 0,
+          stage: "backlog",
+          automation: {
+            enabled: true,
+            transitionType: "entry",
+            steps: [{ id: "backlog-refiner", role: "CRAFTER" }],
+          },
+        }],
+        createdAt: new Date("2025-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2025-01-01T00:00:00.000Z"),
+      },
+    ]);
+    boardStore.get.mockImplementation(async (boardId: string) => ({
+      id: boardId,
+      workspaceId: "workspace-1",
+      name: boardId,
+      isDefault: boardId === "board-1",
+      columns: [{
+        id: "backlog",
+        name: "Backlog",
+        position: 0,
+        stage: "backlog",
+        automation: {
+          enabled: true,
+          transitionType: "entry",
+          steps: [{ id: "backlog-refiner", role: "CRAFTER" }],
+        },
+      }],
+      createdAt: new Date("2025-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2025-01-01T00:00:00.000Z"),
+    }));
+    taskStore.listByWorkspace.mockResolvedValue([]);
+
+    const response = await GET(new NextRequest("http://localhost/api/kanban/boards?workspaceId=workspace-1"));
+
+    expect(response.status).toBe(200);
+    expect(sessionStore.hydrateFromDb).toHaveBeenCalledTimes(1);
   });
 });

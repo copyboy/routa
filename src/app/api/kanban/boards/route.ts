@@ -31,7 +31,11 @@ function isSessionActivelyRunning(
   }
 
   const session = options.sessionStore.getSession(taskSessionId);
-  return session?.acpStatus === "ready" || session?.acpStatus === "connecting";
+  if (!session) {
+    return false;
+  }
+
+  return session.acpStatus !== "error";
 }
 
 function resolveStaleLaneSessionTerminalStatus(task: Pick<Task, "verificationVerdict" | "verificationReport" | "completionSummary">): TaskLaneSessionStatus {
@@ -101,13 +105,13 @@ async function reviveMissingEntryAutomations(
   system: ReturnType<typeof getRoutaSystem>,
   workspaceId: string,
   boardId: string,
+  options: {
+    sessionStore: ReturnType<typeof getHttpSessionStore>;
+    processManager: ReturnType<typeof getAcpProcessManager>;
+  },
 ): Promise<void> {
   const board = await system.kanbanBoardStore.get(boardId);
   if (!board) return;
-
-  const sessionStore = getHttpSessionStore();
-  const processManager = getAcpProcessManager();
-  await sessionStore.hydrateFromDb();
 
   const tasks = await system.taskStore.listByWorkspace(workspaceId);
   for (const originalTask of tasks) {
@@ -116,8 +120,8 @@ async function reviveMissingEntryAutomations(
     }
 
     const task = await sanitizeStaleCurrentLaneAutomation(system, originalTask, {
-      sessionStore,
-      processManager,
+      sessionStore: options.sessionStore,
+      processManager: options.processManager,
     });
     if (task.triggerSessionId) continue;
 
@@ -130,7 +134,7 @@ async function reviveMissingEntryAutomations(
     const hasLaneSessionForCurrentColumn = (task.laneSessions ?? []).some((entry) => (
       entry.columnId === currentColumnId
       && entry.status === "running"
-      && isSessionActivelyRunning(entry.sessionId, { sessionStore, processManager })
+      && isSessionActivelyRunning(entry.sessionId, options)
     ));
     if (
       !automation?.enabled
@@ -172,7 +176,13 @@ export async function GET(request: NextRequest) {
   const boards = await system.kanbanBoardStore.listByWorkspace(workspaceId);
   const workspace = await system.workspaceStore.get(workspaceId);
   const queue = getKanbanSessionQueue(system);
-  await Promise.all(boards.map((board) => reviveMissingEntryAutomations(system, workspaceId, board.id)));
+  const sessionStore = getHttpSessionStore();
+  const processManager = getAcpProcessManager();
+  await sessionStore.hydrateFromDb();
+  await Promise.all(boards.map((board) => reviveMissingEntryAutomations(system, workspaceId, board.id, {
+    sessionStore,
+    processManager,
+  })));
   return NextResponse.json({
     boards: await Promise.all(boards.map(async (board) => ({
       ...board,
