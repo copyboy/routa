@@ -75,6 +75,13 @@ interface KanbanTabProps {
   onAgentPrompt?: KanbanAgentPromptHandler;
 }
 
+function isLikelyGitHubCodebase(codebase: CodebaseData | null | undefined): boolean {
+  if (!codebase) return false;
+  if (codebase.sourceType === "github") return true;
+  if (codebase.sourceUrl?.includes("github.com")) return true;
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(codebase.label?.trim() ?? "");
+}
+
 const KANBAN_DETAIL_SPLIT_RATIO_KEY = "routa:kanban-detail-split-ratio";
 const MIN_DETAIL_SPLIT_RATIO = 0.32;
 const MAX_DETAIL_SPLIT_RATIO = 0.72;
@@ -155,10 +162,10 @@ export function KanbanTab({
     [codebases],
   );
   const hasGitHubCodebase = useMemo(
-    () => codebases.some((codebase) => codebase.sourceUrl?.includes("github.com")),
+    () => codebases.some((codebase) => isLikelyGitHubCodebase(codebase)),
     [codebases],
   );
-  const githubAvailable = Boolean(defaultCodebase?.sourceUrl?.includes("github.com"));
+  const githubAvailable = isLikelyGitHubCodebase(defaultCodebase);
 
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(defaultBoardId);
   const [localTasks, setLocalTasks] = useState<TaskInfo[]>(tasks);
