@@ -5,8 +5,8 @@ use std::io;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::sync::Arc;
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -106,50 +106,45 @@ impl ShellRunner {
             self.output_callback.as_ref(),
             metric,
         ) {
-                Ok(command_result) => {
-                    let CommandRunOutput { output, timed_out } = command_result;
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    let combined = format!("{}{}", stdout, stderr);
-                    let output_truncated = smart_truncate(&combined, 4000, 4000);
-                    let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+            Ok(command_result) => {
+                let CommandRunOutput { output, timed_out } = command_result;
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let combined = format!("{}{}", stdout, stderr);
+                let output_truncated = smart_truncate(&combined, 4000, 4000);
+                let elapsed = start.elapsed().as_secs_f64() * 1000.0;
 
-                    if timed_out {
-                        let timed_out_output = if output_truncated.trim().is_empty() {
-                            format!("TIMEOUT ({}s)", timeout)
-                        } else {
-                            format!("TIMEOUT ({}s)\n{}", timeout, output_truncated)
-                        };
-
-                        MetricResult::new(metric.name.clone(), false, timed_out_output, metric.tier)
-                            .with_hard_gate(metric.gate == Gate::Hard)
-                            .with_duration_ms(elapsed)
+                if timed_out {
+                    let timed_out_output = if output_truncated.trim().is_empty() {
+                        format!("TIMEOUT ({}s)", timeout)
                     } else {
-                        let passed = if !metric.pattern.is_empty() {
-                            Regex::new(&metric.pattern)
-                                .map(|re| re.is_match(&combined))
-                                .unwrap_or(false)
-                        } else {
-                            output.status.success()
-                        };
+                        format!("TIMEOUT ({}s)\n{}", timeout, output_truncated)
+                    };
 
-                        MetricResult::new(
-                            metric.name.clone(),
-                            passed,
-                            output_truncated,
-                            metric.tier,
-                        )
+                    MetricResult::new(metric.name.clone(), false, timed_out_output, metric.tier)
                         .with_hard_gate(metric.gate == Gate::Hard)
                         .with_duration_ms(elapsed)
-                    }
-                }
-                Err(e) => {
-                    let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-                    MetricResult::new(metric.name.clone(), false, e.to_string(), metric.tier)
+                } else {
+                    let passed = if !metric.pattern.is_empty() {
+                        Regex::new(&metric.pattern)
+                            .map(|re| re.is_match(&combined))
+                            .unwrap_or(false)
+                    } else {
+                        output.status.success()
+                    };
+
+                    MetricResult::new(metric.name.clone(), passed, output_truncated, metric.tier)
                         .with_hard_gate(metric.gate == Gate::Hard)
                         .with_duration_ms(elapsed)
                 }
-            };
+            }
+            Err(e) => {
+                let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+                MetricResult::new(metric.name.clone(), false, e.to_string(), metric.tier)
+                    .with_hard_gate(metric.gate == Gate::Hard)
+                    .with_duration_ms(elapsed)
+            }
+        };
 
         result
     }
@@ -296,7 +291,9 @@ fn run_command_with_timeout(
     }
 
     let status = child.wait()?;
-    let output = output.join().map_err(|_| io::Error::other("output collector panicked"))?;
+    let output = output
+        .join()
+        .map_err(|_| io::Error::other("output collector panicked"))?;
     let output = Output {
         status,
         stdout: output.0,
@@ -764,12 +761,12 @@ mod tests {
 
         assert!(result.passed);
         let captured = lines.lock().unwrap();
-        assert!(captured.iter().any(|entry| entry.0 == "streamed"
-            && entry.1 == "stdout"
-            && entry.2 == "hello"));
-        assert!(captured.iter().any(|entry| entry.0 == "streamed"
-            && entry.1 == "stderr"
-            && entry.2 == "oops"));
+        assert!(captured
+            .iter()
+            .any(|entry| entry.0 == "streamed" && entry.1 == "stdout" && entry.2 == "hello"));
+        assert!(captured
+            .iter()
+            .any(|entry| entry.0 == "streamed" && entry.1 == "stderr" && entry.2 == "oops"));
     }
 
     #[test]

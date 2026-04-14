@@ -46,7 +46,9 @@ impl ShellOutputController {
     pub fn handle_output(&self, metric: &Metric, source: &str, line: &str) {
         match self.reporter.stream_mode {
             StreamMode::Off => {}
-            StreamMode::All => self.reporter.print_metric_output(&metric.name, source, line),
+            StreamMode::All => self
+                .reporter
+                .print_metric_output(&metric.name, source, line),
             StreamMode::Failures => {
                 self.buffered_lines
                     .lock()
@@ -85,7 +87,8 @@ impl ShellOutputController {
         }
 
         for (source, line) in buffered {
-            self.reporter.print_metric_output(&metric.name, &source, &line);
+            self.reporter
+                .print_metric_output(&metric.name, &source, &line);
         }
     }
 }
@@ -283,7 +286,12 @@ impl AsciiReporter {
             };
             println!(
                 "{:<16} {} {} {:<5} weight={:>2}% metrics={}",
-                dimension.dimension.to_uppercase().chars().take(16).collect::<String>(),
+                dimension
+                    .dimension
+                    .to_uppercase()
+                    .chars()
+                    .take(16)
+                    .collect::<String>(),
                 bar(dimension.score, self.width),
                 score_text,
                 status_for_score(dimension.score, scorable),
@@ -354,10 +362,8 @@ mod tests {
         )));
         assert!(controller.should_capture_output());
 
-        let disabled = ShellOutputController::new(Arc::new(TerminalReporter::new(
-            false,
-            StreamMode::Off,
-        )));
+        let disabled =
+            ShellOutputController::new(Arc::new(TerminalReporter::new(false, StreamMode::Off)));
         assert!(!disabled.should_capture_output());
     }
 

@@ -21,8 +21,8 @@ use entrix::runner::{OutputCallback, ProgressCallback, ShellRunner};
 use entrix::sarif::SarifRunner;
 use entrix::scoring::{score_dimension, score_report};
 use entrix::server;
-use entrix::test_mapping;
 use entrix::terminal::{AsciiReporter, ShellOutputController, StreamMode, TerminalReporter};
+use entrix::test_mapping;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -502,18 +502,19 @@ fn cmd_run(args: RunArgs) -> i32 {
         .as_ref()
         .map(|reporter| Arc::new(ShellOutputController::new(Arc::clone(reporter))));
 
-    let progress_callback: Option<ProgressCallback> = output_controller.as_ref().map(|controller| {
-        let controller = Arc::clone(controller);
-        Box::new(
-            move |event: &str,
-                  metric: &entrix::model::Metric,
-                  result: Option<&entrix::model::MetricResult>| {
-            controller.handle_progress(event, metric, result);
-        },
-        ) as ProgressCallback
-    });
-    let output_callback: Option<OutputCallback> = output_controller.as_ref().and_then(
-        |controller| {
+    let progress_callback: Option<ProgressCallback> =
+        output_controller.as_ref().map(|controller| {
+            let controller = Arc::clone(controller);
+            Box::new(
+                move |event: &str,
+                      metric: &entrix::model::Metric,
+                      result: Option<&entrix::model::MetricResult>| {
+                    controller.handle_progress(event, metric, result);
+                },
+            ) as ProgressCallback
+        });
+    let output_callback: Option<OutputCallback> =
+        output_controller.as_ref().and_then(|controller| {
             if !controller.should_capture_output() {
                 return None;
             }
@@ -523,8 +524,7 @@ fn cmd_run(args: RunArgs) -> i32 {
                     controller.handle_output(metric, source, line);
                 }
             }) as OutputCallback)
-        },
-    );
+        });
 
     let mut shell_runner = ShellRunner::new(&repo_root).with_env_overrides(runner_env.clone());
     if let Some(callback) = output_callback {
@@ -1807,7 +1807,11 @@ fn parse_build_mode(value: &str) -> ReviewBuildMode {
 }
 
 fn status_exit_code(status: &str) -> i32 {
-    if status == "unavailable" { 1 } else { 0 }
+    if status == "unavailable" {
+        1
+    } else {
+        0
+    }
 }
 
 fn cmd_hook_file_length(args: HookFileLengthArgs) -> i32 {
