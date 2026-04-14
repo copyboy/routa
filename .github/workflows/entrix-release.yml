@@ -76,7 +76,13 @@ jobs:
             "packages/routa-cli/package.json"
             "packages/harness-monitor/package.json"
             "packages/entrix/package.json"
+            "crates/routa-core/Cargo.toml"
+            "crates/routa-rpc/Cargo.toml"
+            "crates/routa-scanner/Cargo.toml"
+            "crates/routa-server/Cargo.toml"
+            "crates/routa-cli/Cargo.toml"
             "crates/entrix/Cargo.toml"
+            "crates/harness-monitor/Cargo.toml"
           )
 
           for file in "${changed_files[@]}"; do
@@ -323,12 +329,46 @@ jobs:
             exit 1
           fi
 
-          failed=0
-          for tarball in dist/npm/*.tgz; do
-            package_name=$(basename "${tarball}")
-            echo "Publishing ${package_name}"
+          # Publish platform packages first, then main package
+          # Platform packages: entrix-{darwin,linux,windows}-*.tgz
+          # Main package: entrix-<version>.tgz (no platform name)
+          shopt -s nullglob
+          platform_tarballs=(dist/npm/entrix-{darwin,linux,windows}-*.tgz)
+          main_tarball=(dist/npm/entrix-[0-9]*.tgz)
 
-            # Capture both stdout and stderr to detect "already published" message
+          failed=0
+
+          # First, publish all platform packages
+          for tarball in "${platform_tarballs[@]}"; do
+            package_name=$(basename "${tarball}")
+            echo "Publishing platform package: ${package_name}"
+
+            publish_output=$(npm publish "${tarball}" --access public 2>&1) || exit_code=$?
+
+            if [[ -z "${exit_code:-}" ]]; then
+              echo "✓ Published ${package_name}"
+            elif echo "${publish_output}" | grep -qi "cannot publish over the previously published"; then
+              echo "⚠ Warning: ${package_name} already published"
+            else
+              echo "✗ Failed to publish ${package_name}" >&2
+              echo "${publish_output}" >&2
+              failed=1
+            fi
+
+            unset exit_code
+          done
+
+          # Exit early if any platform package failed
+          if [[ ${failed} -eq 1 ]]; then
+            echo "❌ Platform packages failed to publish, aborting" >&2
+            exit 1
+          fi
+
+          # Then publish the main package
+          for tarball in "${main_tarball[@]}"; do
+            package_name=$(basename "${tarball}")
+            echo "Publishing main package: ${package_name}"
+
             publish_output=$(npm publish "${tarball}" --access public 2>&1) || exit_code=$?
 
             if [[ -z "${exit_code:-}" ]]; then
