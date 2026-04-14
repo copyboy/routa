@@ -117,10 +117,7 @@ fn run_all_flags() {
             assert!(args.changed_only);
             assert_eq!(
                 args.files,
-                vec![
-                    "src/app/page.tsx",
-                    "crates/routa-server/src/lib.rs"
-                ]
+                vec!["src/app/page.tsx", "crates/routa-server/src/lib.rs"]
             );
             assert_eq!(args.base, "HEAD~2");
             assert_eq!(args.dimensions, vec!["code_quality", "testability"]);
@@ -242,7 +239,10 @@ fn review_trigger_flags() {
     match cli.command {
         Some(Command::ReviewTrigger(args)) => {
             assert_eq!(args.base, "main");
-            assert_eq!(args.config.as_deref(), Some("docs/fitness/review-triggers.yaml"));
+            assert_eq!(
+                args.config.as_deref(),
+                Some("docs/fitness/review-triggers.yaml")
+            );
             assert!(args.fail_on_trigger);
             assert!(args.json);
             assert_eq!(args.files, vec!["src/core/acp/foo.ts"]);
@@ -374,7 +374,14 @@ fn graph_test_radius_flags() {
 
 #[test]
 fn graph_query_flags() {
-    let cli = Cli::parse_from(["entrix", "graph", "query", "tests_for", "MyService.run", "--json"]);
+    let cli = Cli::parse_from([
+        "entrix",
+        "graph",
+        "query",
+        "tests_for",
+        "MyService.run",
+        "--json",
+    ]);
     match cli.command {
         Some(Command::Graph(GraphArgs {
             command: Some(GraphCommand::Query(args)),
@@ -465,7 +472,9 @@ fn graph_test_mapping_allows_missing_when_flag_disabled() {
 
 #[test]
 fn graph_history_flags() {
-    let cli = Cli::parse_from(["entrix", "graph", "history", "--count", "5", "--ref", "main"]);
+    let cli = Cli::parse_from([
+        "entrix", "graph", "history", "--count", "5", "--ref", "main",
+    ]);
     match cli.command {
         Some(Command::Graph(GraphArgs {
             command: Some(GraphCommand::History(args)),

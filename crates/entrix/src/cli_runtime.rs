@@ -7,7 +7,12 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub(crate) fn collect_run_files(repo_root: &Path, files: &[String], changed_only: bool, base: &str) -> Vec<String> {
+pub(crate) fn collect_run_files(
+    repo_root: &Path,
+    files: &[String],
+    changed_only: bool,
+    base: &str,
+) -> Vec<String> {
     if !files.is_empty() {
         return files.to_vec();
     }
@@ -32,7 +37,8 @@ pub(crate) fn collect_run_files(repo_root: &Path, files: &[String], changed_only
         };
         for line in String::from_utf8_lossy(&output.stdout).lines() {
             let path = line.trim();
-            if path.is_empty() || should_ignore_changed_file(path) || !seen.insert(path.to_string()) {
+            if path.is_empty() || should_ignore_changed_file(path) || !seen.insert(path.to_string())
+            {
                 continue;
             }
             changed.push(path.to_string());
@@ -136,7 +142,11 @@ fn metric_domains(metric: &Metric) -> BTreeSet<String> {
     domains
 }
 
-fn matches_changed_files(metric: &Metric, changed_files: &[String], domains: &BTreeSet<String>) -> bool {
+fn matches_changed_files(
+    metric: &Metric,
+    changed_files: &[String],
+    domains: &BTreeSet<String>,
+) -> bool {
     if !metric.run_when_changed.is_empty() {
         return changed_files.iter().any(|changed_file| {
             metric.run_when_changed.iter().any(|pattern| {
@@ -532,13 +542,9 @@ mod tests {
             },
         )
         .expect("snapshot");
-        let artifact_path = write_runtime_fitness_artifacts(
-            repo_root,
-            Some("fast"),
-            &snapshot,
-            1_717_171_717_000,
-        )
-        .expect("artifact");
+        let artifact_path =
+            write_runtime_fitness_artifacts(repo_root, Some("fast"), &snapshot, 1_717_171_717_000)
+                .expect("artifact");
 
         emit_runtime_fitness_event(
             repo_root,
@@ -559,10 +565,19 @@ mod tests {
             .last()
             .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("json event"))
             .expect("event payload");
-        assert_eq!(payload.get("type").and_then(|v| v.as_str()), Some("fitness"));
+        assert_eq!(
+            payload.get("type").and_then(|v| v.as_str()),
+            Some("fitness")
+        );
         assert_eq!(payload.get("mode").and_then(|v| v.as_str()), Some("fast"));
-        assert_eq!(payload.get("status").and_then(|v| v.as_str()), Some("passed"));
-        assert_eq!(payload.get("final_score").and_then(|v| v.as_f64()), Some(100.0));
+        assert_eq!(
+            payload.get("status").and_then(|v| v.as_str()),
+            Some("passed")
+        );
+        assert_eq!(
+            payload.get("final_score").and_then(|v| v.as_f64()),
+            Some(100.0)
+        );
         assert_eq!(
             payload.get("artifact_path").and_then(|v| v.as_str()),
             Some(artifact_path.as_str())

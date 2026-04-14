@@ -68,8 +68,10 @@ pub(crate) fn hook_long_file_summary_lines(report: &LongFileAnalysisReport) -> V
     const MAX_FUNCTIONS: usize = 5;
 
     if report.files.is_empty() {
-        return vec!["Structure summary unavailable: no supported files for structural analysis."
-            .to_string()];
+        return vec![
+            "Structure summary unavailable: no supported files for structural analysis."
+                .to_string(),
+        ];
     }
 
     let mut lines = vec!["Structure summary (tree-sitter symbols):".to_string()];
@@ -191,12 +193,22 @@ pub(crate) fn graph_impact_lines(result: &ImpactAnalysisReport) -> Vec<String> {
     ));
     lines.push(format!(
         "Wide blast radius: {}",
-        if result.wide_blast_radius { "yes" } else { "no" }
+        if result.wide_blast_radius {
+            "yes"
+        } else {
+            "no"
+        }
     ));
     if !result.skipped_files.is_empty() {
         lines.push(format!(
             "Skipped files: {}",
-            result.skipped_files.iter().take(10).cloned().collect::<Vec<_>>().join(", ")
+            result
+                .skipped_files
+                .iter()
+                .take(10)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     lines
@@ -213,7 +225,10 @@ pub(crate) fn graph_test_radius_lines(result: &TestRadiusReport) -> Vec<String> 
     lines.push(format!("Changed files: {}", result.changed_files.len()));
     lines.push(format!("Queryable targets: {}", result.target_nodes.len()));
     lines.push(format!("Unique test files: {}", result.test_files.len()));
-    lines.push(format!("Untested targets: {}", result.untested_targets.len()));
+    lines.push(format!(
+        "Untested targets: {}",
+        result.untested_targets.len()
+    ));
     if !result.test_files.is_empty() {
         lines.push("Test files:".to_string());
         for file_path in result.test_files.iter().take(20) {
@@ -297,7 +312,11 @@ pub(crate) fn graph_review_context_lines(result: &ReviewContextReport) -> Vec<St
         if !snippets.is_empty() {
             lines.push("Source snippets:".to_string());
             for snippet in snippets.iter().take(10) {
-                let suffix = if snippet.truncated { " (truncated)" } else { "" };
+                let suffix = if snippet.truncated {
+                    " (truncated)"
+                } else {
+                    ""
+                };
                 lines.push(format!("  - {}{}", snippet.file_path, suffix));
             }
         }
@@ -475,8 +494,10 @@ mod tests {
 
         assert_eq!(
             hook_long_file_summary_lines(&report),
-            vec!["Structure summary unavailable: no supported files for structural analysis."
-                .to_string()]
+            vec![
+                "Structure summary unavailable: no supported files for structural analysis."
+                    .to_string()
+            ]
         );
     }
 
@@ -571,14 +592,16 @@ mod tests {
             pattern: "tests_for".to_string(),
             target: "src/a.ts".to_string(),
             summary: "query summary".to_string(),
-            results: vec![entrix::review_context::GraphNodePayload::File(FileGraphNode {
-                qualified_name: "src/a.test.ts".to_string(),
-                name: "a.test.ts".to_string(),
-                kind: "File".to_string(),
-                file_path: "src/a.test.ts".to_string(),
-                language: "typescript".to_string(),
-                is_test: true,
-            })],
+            results: vec![entrix::review_context::GraphNodePayload::File(
+                FileGraphNode {
+                    qualified_name: "src/a.test.ts".to_string(),
+                    name: "a.test.ts".to_string(),
+                    kind: "File".to_string(),
+                    file_path: "src/a.test.ts".to_string(),
+                    language: "typescript".to_string(),
+                    is_test: true,
+                },
+            )],
             edges: Vec::new(),
         };
         let query_lines = graph_query_lines(&query).join("\n");
