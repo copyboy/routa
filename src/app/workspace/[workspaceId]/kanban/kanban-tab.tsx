@@ -83,6 +83,7 @@ function isLikelyGitHubCodebase(codebase: CodebaseData | null | undefined): bool
 }
 
 const KANBAN_DETAIL_SPLIT_RATIO_KEY = "routa:kanban-detail-split-ratio";
+const KANBAN_DETAIL_TASK_QUERY_KEY = "taskId";
 const MIN_DETAIL_SPLIT_RATIO = 0.32;
 const MAX_DETAIL_SPLIT_RATIO = 0.72;
 const LIVE_SESSION_TAIL_POLL_MS = 10_000;
@@ -115,6 +116,28 @@ class TaskPatchError extends Error {
 
 function isPlanBacklogBoard(board: KanbanBoardInfo): boolean {
   return board.name.trim().replace(/\s+/g, " ").toLowerCase() === "plan backlog";
+}
+
+function getTaskIdFromKanbanUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get(KANBAN_DETAIL_TASK_QUERY_KEY);
+}
+
+function updateKanbanTaskIdInUrl(taskId: string | null, mode: "push" | "replace" = "push"): void {
+  if (typeof window === "undefined") return;
+
+  const url = new URL(window.location.href);
+  if (taskId) {
+    url.searchParams.set(KANBAN_DETAIL_TASK_QUERY_KEY, taskId);
+  } else {
+    url.searchParams.delete(KANBAN_DETAIL_TASK_QUERY_KEY);
+  }
+
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (nextUrl === currentUrl) return;
+
+  window.history[mode === "push" ? "pushState" : "replaceState"](window.history.state, "", nextUrl);
 }
 
 export function KanbanTab({
@@ -788,11 +811,42 @@ export function KanbanTab({
     await persistBoardAutoProvider(boardAutoProviderId);
   }, [board?.autoProviderId, board?.id, boardAutoProviderId, persistBoardAutoProvider]);
 
+  const syncTaskDetailFromUrl = useCallback(() => {
+    const requestedTaskId = getTaskIdFromKanbanUrl();
+    if (!requestedTaskId) {
+      setActiveTaskId(null);
+      setActiveSessionId(null);
+      setIsTaskDetailFullscreen(false);
+      return;
+    }
+
+    const requestedTask = localTasks.find((task) => task.id === requestedTaskId) ?? null;
+    if (!requestedTask) {
+      if (localTasks.length > 0) {
+        updateKanbanTaskIdInUrl(null, "replace");
+      }
+      return;
+    }
+
+    setActiveTaskId(requestedTask.id);
+    setActiveSessionId(getPreferredTaskSessionId(requestedTask) ?? null);
+    setIsTaskDetailFullscreen(false);
+  }, [localTasks]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    syncTaskDetailFromUrl();
+    window.addEventListener("popstate", syncTaskDetailFromUrl);
+    return () => window.removeEventListener("popstate", syncTaskDetailFromUrl);
+  }, [syncTaskDetailFromUrl]);
+
   const openTaskDetail = useCallback(async (task: TaskInfo) => {
     setActiveTaskId(task.id);
     const latestSession = getPreferredTaskSessionId(task);
     setActiveSessionId(latestSession ?? null);
     setIsTaskDetailFullscreen(false);
+    updateKanbanTaskIdInUrl(task.id, "push");
 
     if (task.codebaseIds?.length === 0 && defaultCodebase) {
       try {
@@ -824,6 +878,7 @@ export function KanbanTab({
     setActiveTaskId(null);
     setActiveSessionId(null);
     setIsTaskDetailFullscreen(false);
+    updateKanbanTaskIdInUrl(null, "replace");
   }, []);
 
   useEffect(() => {
