@@ -70,6 +70,7 @@ impl GitRepoFixture {
 
 fn run_git(repo_path: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
+        .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
         .args(args)
         .current_dir(repo_path)
         .output()
