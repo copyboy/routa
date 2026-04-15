@@ -23,6 +23,8 @@ use tokio::sync::RwLock;
 use super::paths::AcpPaths;
 use super::registry_fetch::fetch_registry;
 use super::runtime_manager::{AcpRuntimeManager, RuntimeType};
+#[cfg(windows)]
+use super::CREATE_NO_WINDOW;
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 

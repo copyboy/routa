@@ -15,10 +15,29 @@ const GIT_LOG_SEARCH_SCAN_LIMIT: usize = 2000;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub fn git_command() -> Command {
-    let mut command = Command::new("git");
     #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
-    command
+    {
+        let mut command = Command::new("git");
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new("git")
+    }
+}
+
+pub fn git_tokio_command() -> tokio::process::Command {
+    #[cfg(windows)]
+    {
+        let mut command = tokio::process::Command::new("git");
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        tokio::process::Command::new("git")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
