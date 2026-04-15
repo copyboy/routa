@@ -6,7 +6,7 @@ use crate::cli_output::{
 use crate::cli_runtime::{
     build_runner_env, build_runtime_fitness_snapshot, collect_run_files, domains_from_files,
     emit_runtime_fitness_event, filter_dimensions_for_incremental, now_millis, runtime_mode,
-    write_runtime_fitness_artifacts, RuntimeFitnessSnapshotOptions,
+    write_runtime_fitness_artifacts, RuntimeFitnessEventOptions, RuntimeFitnessSnapshotOptions,
 };
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use entrix::evidence::{load_dimensions, validate_weights};
@@ -478,9 +478,12 @@ fn cmd_run(args: RunArgs) -> i32 {
             "skipped",
             args.tier.as_deref().or(args.tier_positional.as_deref()),
             None,
-            0,
-            0.0,
-            None,
+            RuntimeFitnessEventOptions {
+                metric_count: 0,
+                duration_ms: 0.0,
+                artifact_path: None,
+                write_mailbox_message: true,
+            },
         ) {
             eprintln!("Failed to emit runtime fitness event: {error}");
             return 1;
@@ -500,9 +503,12 @@ fn cmd_run(args: RunArgs) -> i32 {
             "skipped",
             args.tier.as_deref().or(args.tier_positional.as_deref()),
             None,
-            0,
-            0.0,
-            None,
+            RuntimeFitnessEventOptions {
+                metric_count: 0,
+                duration_ms: 0.0,
+                artifact_path: None,
+                write_mailbox_message: true,
+            },
         ) {
             eprintln!("Failed to emit runtime fitness event: {error}");
             return 1;
@@ -574,6 +580,25 @@ fn cmd_run(args: RunArgs) -> i32 {
     }
     let sarif_runner = SarifRunner::new(&repo_root).with_env_overrides(runner_env);
     let mut dimension_scores = Vec::new();
+    let planned_metric_count = dimensions
+        .iter()
+        .map(|dimension| dimension.metrics.len())
+        .sum::<usize>();
+
+    if let Err(error) = emit_runtime_fitness_event(
+        &repo_root,
+        "running",
+        args.tier.as_deref().or(args.tier_positional.as_deref()),
+        None,
+        RuntimeFitnessEventOptions {
+            metric_count: planned_metric_count,
+            duration_ms: 0.0,
+            artifact_path: None,
+            write_mailbox_message: false,
+        },
+    ) {
+        eprintln!("Failed to emit runtime fitness event: {error}");
+    }
 
     for dimension in &dimensions {
         let results = run_metric_batch(
@@ -702,13 +727,16 @@ fn cmd_run(args: RunArgs) -> i32 {
         if exit_code == 0 { "passed" } else { "failed" },
         mode_tier,
         Some(&report),
-        report
-            .dimensions
-            .iter()
-            .map(|dimension| dimension.results.len())
-            .sum(),
-        duration_ms,
-        artifact_path.as_deref(),
+        RuntimeFitnessEventOptions {
+            metric_count: report
+                .dimensions
+                .iter()
+                .map(|dimension| dimension.results.len())
+                .sum(),
+            duration_ms,
+            artifact_path: artifact_path.as_deref(),
+            write_mailbox_message: true,
+        },
     ) {
         eprintln!("Failed to emit runtime fitness event: {error}");
         return 1;

@@ -465,14 +465,19 @@ fn write_runtime_fitness_mailbox_message(
     fs::write(mailbox_path, serialized)
 }
 
+pub(crate) struct RuntimeFitnessEventOptions<'a> {
+    pub(crate) metric_count: usize,
+    pub(crate) duration_ms: f64,
+    pub(crate) artifact_path: Option<&'a str>,
+    pub(crate) write_mailbox_message: bool,
+}
+
 pub(crate) fn emit_runtime_fitness_event(
     project_root: &Path,
     status: &str,
     tier: Option<&str>,
     report: Option<&FitnessReport>,
-    metric_count: usize,
-    duration_ms: f64,
-    artifact_path: Option<&str>,
+    options: RuntimeFitnessEventOptions<'_>,
 ) -> io::Result<()> {
     let event_path = runtime_event_path(project_root);
     if let Some(parent) = event_path.parent() {
@@ -487,10 +492,10 @@ pub(crate) fn emit_runtime_fitness_event(
         "final_score": report.map(|report| report.final_score),
         "hard_gate_blocked": report.map(|report| report.hard_gate_blocked),
         "score_blocked": report.map(|report| report.score_blocked),
-        "duration_ms": duration_ms,
+        "duration_ms": options.duration_ms,
         "dimension_count": report.map(|report| report.dimensions.len()),
-        "metric_count": metric_count,
-        "artifact_path": artifact_path,
+        "metric_count": options.metric_count,
+        "artifact_path": options.artifact_path,
     });
 
     let mut handle = fs::OpenOptions::new()
@@ -502,7 +507,10 @@ pub(crate) fn emit_runtime_fitness_event(
         "{}",
         serde_json::to_string(&payload).map_err(io::Error::other)?
     )?;
-    write_runtime_fitness_mailbox_message(project_root, &payload)
+    if options.write_mailbox_message {
+        write_runtime_fitness_mailbox_message(project_root, &payload)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -551,9 +559,12 @@ mod tests {
             "passed",
             Some("fast"),
             Some(&report),
-            1,
-            12.5,
-            Some(&artifact_path),
+            RuntimeFitnessEventOptions {
+                metric_count: 1,
+                duration_ms: 12.5,
+                artifact_path: Some(&artifact_path),
+                write_mailbox_message: true,
+            },
         )
         .expect("runtime event");
 
