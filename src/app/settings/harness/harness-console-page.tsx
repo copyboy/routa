@@ -33,6 +33,7 @@ import {
 import { useHarnessSettingsData } from "@/client/hooks/use-harness-settings-data";
 import { useCodebases, useWorkspaces } from "@/client/hooks/use-workspaces";
 import { loadRepoSelection, saveRepoSelection } from "@/client/utils/repo-selection-storage";
+import { normalizeWorkspaceQueryId, resolveWorkspaceSelection } from "@/client/utils/workspace-id";
 
 type SectionId =
   | "overview"
@@ -139,7 +140,12 @@ export default function HarnessConsolePage() {
   const sectionFromUrl = resolveSectionId(searchParams.get(HARNESS_SECTION_QUERY_KEY));
   const architectureSectionActive = sectionFromUrl === "architecture-quality";
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
-  const workspaceId = selectedWorkspaceId || workspacesHook.workspaces[0]?.id || "";
+  const urlWorkspaceId = normalizeWorkspaceQueryId(searchParams.get("workspaceId"));
+  const workspaceId = resolveWorkspaceSelection(
+    selectedWorkspaceId,
+    urlWorkspaceId,
+    workspacesHook.workspaces,
+  );
   const { codebases } = useCodebases(workspaceId);
   const [selectedCodebaseId, setSelectedCodebaseId] = useState("");
   const [selectedRepoOverrideState, setSelectedRepoOverrideState] = useState<{

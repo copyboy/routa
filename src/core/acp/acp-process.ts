@@ -5,7 +5,7 @@ import {
     NotificationHandler,
     PendingRequest,
 } from "@/core/acp/processer";
-import {needsShell} from "@/core/acp/utils";
+import { awaitProcessReady, needsShell } from "@/core/acp/utils";
 import {getTerminalManager} from "@/core/acp/terminal-manager";
 import type {IProcessHandle} from "@/core/platform/interfaces";
 import {getServerBridge} from "@/core/platform";
@@ -161,12 +161,6 @@ export class AcpProcess {
             shell: needsShell(command),
         });
 
-        if (!this.process || !this.process.pid) {
-            throw new Error(
-                `Failed to spawn ${displayName} - is "${command}" installed and in PATH?`
-            );
-        }
-
         if (!this.process.stdin || !this.process.stdout) {
             throw new Error(
                 `${displayName} spawned without required stdio streams`
@@ -175,7 +169,6 @@ export class AcpProcess {
 
         this._alive = true;
 
-        // Parse stdout as NDJSON
         this.process.stdout.on("data", (chunk: Buffer) => {
             this.buffer += chunk.toString("utf-8");
             this.processBuffer();
@@ -220,6 +213,14 @@ export class AcpProcess {
             console.error(`[AcpProcess:${displayName}] Process error:`, err);
             this._alive = false;
         });
+
+        await awaitProcessReady(this.process);
+
+        if (!this.process.pid) {
+            throw new Error(
+                `Failed to spawn ${displayName} - is "${command}" installed and in PATH?`
+            );
+        }
 
         // Wait for process to stabilize
         await new Promise((resolve) => setTimeout(resolve, 500));

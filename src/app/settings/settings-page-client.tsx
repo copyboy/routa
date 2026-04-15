@@ -8,6 +8,7 @@ import { SettingsPanel } from "@/client/components/settings-panel";
 import type { SettingsTab } from "@/client/components/settings-panel-shared";
 import { useTranslation } from "@/i18n";
 import { desktopAwareFetch } from "@/client/utils/diagnostics";
+import { normalizeWorkspaceQueryId } from "@/client/utils/workspace-id";
 import { Settings } from "lucide-react";
 
 
@@ -24,6 +25,7 @@ export function SettingsPageClient() {
   const [providers, setProviders] = useState<ProviderOption[]>([]);
   const requestedTab = searchParams.get("tab");
   const initialTab = isSettingsTab(requestedTab) ? requestedTab : undefined;
+  const workspaceId = normalizeWorkspaceQueryId(searchParams.get("workspaceId"));
 
   useEffect(() => {
     const fetchProviders = async () => {
@@ -46,11 +48,12 @@ export function SettingsPageClient() {
       router.back();
       return;
     }
-    router.push("/");
+    router.push(workspaceId ? `/workspace/${workspaceId}/sessions` : "/");
   };
 
   return (
     <DesktopAppShell
+      workspaceId={workspaceId}
       workspaceSwitcher={(
         <div className="flex items-center gap-1.5 rounded-xl border border-desktop-border bg-desktop-bg-secondary px-2.5 py-1.5 text-[11px] text-desktop-text-primary">
           <Settings className="h-3 w-3 text-desktop-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}/>
