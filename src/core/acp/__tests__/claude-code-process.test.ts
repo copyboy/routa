@@ -165,4 +165,188 @@ describe("ClaudeCodeProcess", () => {
     await expect(promptPromise).rejects.toThrow("Claude Code process exited (code=137)");
     vi.useRealTimers();
   });
+
+  it("translates streaming thinking and tool parameter deltas into session updates", async () => {
+    vi.useFakeTimers();
+    const onNotification = vi.fn();
+    const fakeProcess = new FakeProcess();
+    spawnMock.mockReturnValue(fakeProcess);
+
+    const process = createProcess(onNotification);
+    const startPromise = process.start();
+    await vi.advanceTimersByTimeAsync(500);
+    await startPromise;
+
+    const promptPromise = process.prompt("session-1", "Think and use a tool");
+    fakeProcess.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          JSON.stringify({
+            type: "system",
+            subtype: "init",
+            session_id: "claude-session-1",
+          }),
+          JSON.stringify({
+            type: "stream_event",
+            event: {
+              type: "content_block_start",
+              index: 0,
+              content_block: { type: "thinking" },
+            },
+          }),
+          JSON.stringify({
+            type: "stream_event",
+            event: {
+              type: "content_block_delta",
+              delta: { type: "thinking_delta", thinking: "Analyzing" },
+            },
+          }),
+          JSON.stringify({
+            type: "stream_event",
+            event: {
+              type: "content_block_start",
+              index: 1,
+              content_block: { type: "tool_use", id: "tool-1", name: "Read" },
+            },
+          }),
+          JSON.stringify({
+            type: "stream_event",
+            event: {
+              type: "content_block_delta",
+              delta: { type: "input_json_delta", partial_json: "{\"file\":\"README.md\"}" },
+            },
+          }),
+          JSON.stringify({
+            type: "stream_event",
+            event: {
+              type: "content_block_stop",
+            },
+          }),
+          JSON.stringify({
+            type: "result",
+            result: "",
+            stop_reason: "tool_use",
+          }),
+        ].join("\n") + "\n",
+        "utf-8",
+      ),
+    );
+
+    await expect(promptPromise).resolves.toEqual({ stopReason: "tool_use" });
+    expect(onNotification).toHaveBeenCalledWith(expect.objectContaining({
+      method: "session/update",
+      params: expect.objectContaining({
+        sessionId: "claude-session-1",
+        update: expect.objectContaining({
+          sessionUpdate: "thinking_start",
+        }),
+      }),
+    }));
+    expect(onNotification).toHaveBeenCalledWith(expect.objectContaining({
+      params: expect.objectContaining({
+        update: expect.objectContaining({
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "Analyzing" },
+        }),
+      }),
+    }));
+    expect(onNotification).toHaveBeenCalledWith(expect.objectContaining({
+      params: expect.objectContaining({
+        update: expect.objectContaining({
+          sessionUpdate: "tool_call_start",
+          toolCallId: "tool-1",
+          toolName: "Read",
+        }),
+      }),
+    }));
+    expect(onNotification).toHaveBeenCalledWith(expect.objectContaining({
+      params: expect.objectContaining({
+        update: expect.objectContaining({
+          sessionUpdate: "tool_call_params_delta",
+          toolCallId: "tool-1",
+          parsedInput: { file: "README.md" },
+        }),
+      }),
+    }));
+
+    vi.useRealTimers();
+  });
+
+  it("maps assistant tool_use and user tool_result messages into tool updates", async () => {
+    vi.useFakeTimers();
+    const onNotification = vi.fn();
+    const fakeProcess = new FakeProcess();
+    spawnMock.mockReturnValue(fakeProcess);
+
+    const process = createProcess(onNotification);
+    const startPromise = process.start();
+    await vi.advanceTimersByTimeAsync(500);
+    await startPromise;
+
+    const promptPromise = process.prompt("session-1", "Delegate work");
+    fakeProcess.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          JSON.stringify({
+            type: "assistant",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "task-1",
+                  name: "delegate_task_to_agent",
+                  input: { taskId: "child-42", prompt: "Investigate bug" },
+                },
+              ],
+            },
+          }),
+          JSON.stringify({
+            type: "user",
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: "task-1",
+                  content: "delegated",
+                },
+              ],
+            },
+          }),
+          JSON.stringify({
+            type: "result",
+            result: "delegation queued",
+            stop_reason: "end_turn",
+          }),
+        ].join("\n") + "\n",
+        "utf-8",
+      ),
+    );
+
+    await expect(promptPromise).resolves.toEqual({ stopReason: "end_turn" });
+    expect(onNotification).toHaveBeenCalledWith(expect.objectContaining({
+      params: expect.objectContaining({
+        update: expect.objectContaining({
+          sessionUpdate: "tool_call",
+          toolCallId: "task-1",
+          status: "running",
+        }),
+      }),
+    }));
+    expect(onNotification).toHaveBeenCalledWith(expect.objectContaining({
+      params: expect.objectContaining({
+        update: expect.objectContaining({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "task-1",
+          status: "completed",
+          kind: "delegate_task_to_agent",
+        }),
+      }),
+    }));
+
+    vi.useRealTimers();
+  });
 });
