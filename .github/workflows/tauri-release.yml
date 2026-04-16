@@ -76,6 +76,11 @@ jobs:
             "packages/routa-cli/package.json"
             "packages/harness-monitor/package.json"
             "crates/routa-cli/Cargo.toml"
+            "crates/routa-core/Cargo.toml"
+            "crates/routa-rpc/Cargo.toml"
+            "crates/routa-scanner/Cargo.toml"
+            "crates/routa-server/Cargo.toml"
+            "crates/entrix/Cargo.toml"
             "crates/harness-monitor/Cargo.toml"
           )
 
