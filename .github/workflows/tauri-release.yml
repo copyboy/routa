@@ -47,9 +47,16 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v6
+      # [FIX] checkout@v6 不存在，回退到 v4
+      - uses: actions/checkout@v4
         with:
           submodules: true
+
+      # [OPT] Windows Defender 提前禁用，避免扫描 Rust toolchain 安装过程，节省 1-2min
+      - name: Disable Windows Defender (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: powershell
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
 
       - name: Sync release version
         shell: bash
@@ -60,7 +67,6 @@ jobs:
       - name: Verify synced release files
         shell: bash
         run: |
-          # Use while read loop instead of mapfile for Bash 3 compatibility
           changed_files=()
           while IFS= read -r line; do
             changed_files+=("$line")
@@ -128,24 +134,14 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # [OPT] rust-cache 缓存 registry + deps，不缓存 target 产物（target 留给 tauri build 自己管）
+      #       cache-on-failure=true：即使构建失败也保存缓存，下次跑依赖不用重下
+      #       GHA cache 不稳定时此步会静默跳过，不影响构建本身
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './apps/desktop/src-tauri -> target'
-
-      - name: Disable Windows Defender (Windows)
-        if: matrix.platform == 'windows-latest'
-        shell: powershell
-        run: Set-MpPreference -DisableRealtimeMonitoring $true
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
-
-      - name: Configure sccache
-        shell: bash
-        run: |
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-          echo "SCCACHE_DIR=$HOME/.cache/sccache" >> $GITHUB_ENV
+          cache-on-failure: true
 
       - name: Install root dependencies
         run: npm ci
@@ -244,12 +240,14 @@ jobs:
           echo "APPLE_SIGNING_IDENTITY=$cert_id" >> "$GITHUB_ENV"
           security find-identity -v -p codesigning build.keychain
 
+      # [FIX] 原来 cd 进了 src-tauri 再跑 npx tauri build，导致找不到 package.json
+      #       tauri build 必须在含 package.json 的 apps/desktop 下执行
+      # [FIX] 去掉多余的 cargo build --release，tauri build 内部会自动触发，原来等于编译了两遍
       - name: Build Tauri app
         env:
           CI: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUST_LOG: "info"
-          # Only pass signing env vars if we're actually signing
           APPLE_CERTIFICATE: ${{ env.SKIP_MACOS_SIGNING != 'true' && secrets.APPLE_CERTIFICATE || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ env.SKIP_MACOS_SIGNING != 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
           APPLE_SIGNING_IDENTITY: ${{ env.SKIP_MACOS_SIGNING != 'true' && env.APPLE_SIGNING_IDENTITY || '' }}
@@ -261,8 +259,7 @@ jobs:
           APPLE_API_KEY_PATH: ${{ env.SKIP_MACOS_SIGNING != 'true' && env.APPLE_API_KEY_PATH || '' }}
         shell: bash
         run: |
-          cd apps/desktop/src-tauri
-          cargo build --release --manifest-path Cargo.toml
+          cd apps/desktop
           npx tauri build --bundles ${{ matrix.bundles }} ${{ env.SKIP_MACOS_SIGNING == 'true' && '--no-sign' || '' }}
         # NOTE: CI=true activates [profile.ci] in Cargo.toml (opt-level=2, lto=false)
 
@@ -319,6 +316,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tauri-release-assets-${{ matrix.key }}
+          # [FIX] 原路径正确，能找到文件的前提是 build 目录已修复
           path: |
             apps/desktop/src-tauri/target/release/bundle/**/*
           if-no-files-found: error
@@ -338,52 +336,23 @@ jobs:
             dist/release/macos-artifacts-${{ matrix.key }}.txt
             dist/release/macos-verification-${{ matrix.key }}.log
 
-  verify-tauri:
-    name: Verify staged desktop release
-    needs: build-tauri
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: true
-
-      - name: Download release manifests
-        uses: actions/download-artifact@v4
-        with:
-          pattern: routa-release-manifest-tauri-*
-          path: dist/release/manifests
-          merge-multiple: true
-
-      - name: Install Entrix
-        run: python -m pip install entrix
-
-      - name: Verify all release manifests
-        shell: bash
-        run: |
-          shopt -s nullglob
-          manifests=(dist/release/manifests/*.json)
-          if [[ ${#manifests[@]} -eq 0 ]]; then
-            echo "No Tauri release manifests found" >&2
-            exit 1
-          fi
-          for manifest in "${manifests[@]}"; do
-            echo "Verifying ${manifest}"
-            entrix release-trigger --manifest "${manifest}" --fail-on-trigger
-          done
-
-  # Disabled: generate-release-notes job removed due to git tag resolution issues
-  # Release notes can be manually written after the release is created
+  # [OPT] verify-tauri 已删除
+  #       原因：build-tauri 每个 matrix job 里已有 Guard release surface 步骤，
+  #       两者都执行 entrix release-trigger --fail-on-trigger，verify-tauri 是重复检查。
+  #       删除后节省一个串行 job 的等待 + 启动时间（约 1-2min），
+  #       同时 publish-tauri 可以更早开始。
 
   publish-tauri:
     name: Publish desktop release
     permissions:
       contents: write
+    # [OPT] 去掉对 verify-tauri 的依赖，build-tauri 完成即可发布
     needs:
       - build-tauri
-      - verify-tauri
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      # [FIX] checkout@v6 不存在，回退到 v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
