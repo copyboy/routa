@@ -41,17 +41,21 @@ jobs:
       matrix:
         include:
           - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
+            target: 'aarch64-apple-darwin'
             arch: 'arm64'
+            bundles: 'app,dmg'
           - platform: 'macos-latest'
-            args: '--target x86_64-apple-darwin'
+            target: 'x86_64-apple-darwin'
             arch: 'x64'
+            bundles: 'app,dmg'
           - platform: 'ubuntu-22.04'
-            args: ''
+            target: ''
             arch: 'x64'
+            bundles: 'deb'
           - platform: 'windows-latest'
-            args: ''
+            target: ''
             arch: 'x64'
+            bundles: 'nsis'
 
     runs-on: ${{ matrix.platform }}
 
@@ -128,12 +132,23 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './apps/desktop/src-tauri -> target'
+
+      - name: Disable Windows Defender (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: powershell
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+
+      - name: Setup sccache (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: mozilla-actions/sccache-action@v0.0.6
+        with:
+          version: "0.8.4"
 
       - name: Install root dependencies
         run: npm ci
@@ -159,48 +174,23 @@ jobs:
       - name: Prepare frontend for Tauri bundling
         run: node scripts/prepare-frontend.mjs
 
-      - name: Clean previous Tauri bundle outputs
+      - name: Build Tauri app
+        env:
+          CI: "true"
+          RUST_LOG: "info"
+          SCCACHE_GHA_ENABLED: "true"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          for root in target apps/desktop/src-tauri/target; do
-            if [[ ! -d "$root" ]]; then
-              continue
-            fi
-
-            while IFS= read -r bundle_dir; do
-              rm -rf "$bundle_dir"
-            done < <(find "$root" -type d -path '*/release/bundle' -prune -print)
-          done
-
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: apps/desktop
-          args: ${{ matrix.args }}
+          cd apps/desktop/src-tauri
+          cargo build --release --manifest-path Cargo.toml
+          npx tauri build --bundles ${{ matrix.bundles }}
+        # NOTE: CI=true activates [profile.ci] in Cargo.toml (opt-level=2, lto=false)
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: tauri-build-${{ inputs.version || github.event.inputs.version || 'snapshot' }}-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
-            target/**/release/bundle/**/*.dmg
-            target/**/release/bundle/**/*.app
-            target/**/release/bundle/**/*.deb
-            target/**/release/bundle/**/*.AppImage
-            target/**/release/bundle/**/*.msi
-            target/**/release/bundle/**/*.exe
-            apps/desktop/src-tauri/target/release/bundle/**/*.dmg
-            apps/desktop/src-tauri/target/release/bundle/**/*.app
-            apps/desktop/src-tauri/target/release/bundle/**/*.deb
-            apps/desktop/src-tauri/target/release/bundle/**/*.AppImage
-            apps/desktop/src-tauri/target/release/bundle/**/*.msi
-            apps/desktop/src-tauri/target/release/bundle/**/*.exe
-            apps/desktop/src-tauri/target/**/release/bundle/**/*.dmg
-            apps/desktop/src-tauri/target/**/release/bundle/**/*.app
-            apps/desktop/src-tauri/target/**/release/bundle/**/*.deb
-            apps/desktop/src-tauri/target/**/release/bundle/**/*.AppImage
-            apps/desktop/src-tauri/target/**/release/bundle/**/*.msi
-            apps/desktop/src-tauri/target/**/release/bundle/**/*.exe
+            apps/desktop/src-tauri/target/release/bundle/**/*
           retention-days: 7
