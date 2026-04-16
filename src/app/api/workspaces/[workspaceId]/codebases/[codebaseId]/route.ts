@@ -4,7 +4,7 @@
  * DELETE /api/workspaces/:workspaceId/codebases/:codebaseId → Remove codebase from workspace
  */
 
-import { deleteCodebaseById } from "@/app/api/codebases/delete-codebase";
+import { deleteCodebaseById } from "../../../../codebases/delete-codebase";
 
 export const dynamic = "force-dynamic";
 
