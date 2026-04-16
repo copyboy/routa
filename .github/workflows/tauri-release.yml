@@ -24,21 +24,25 @@ jobs:
       matrix:
         include:
           - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
+            target: 'aarch64-apple-darwin'
             arch: 'arm64'
             key: 'darwin-arm64'
+            bundles: 'app,dmg'
           - platform: 'macos-latest'
-            args: '--target x86_64-apple-darwin'
+            target: 'x86_64-apple-darwin'
             arch: 'x64'
             key: 'darwin-x64'
+            bundles: 'app,dmg'
           - platform: 'ubuntu-22.04'
-            args: ''
+            target: ''
             arch: 'x64'
             key: 'linux-x64'
+            bundles: 'deb'
           - platform: 'windows-latest'
-            args: ''
+            target: ''
             arch: 'x64'
             key: 'windows-x64'
+            bundles: 'nsis'
 
     runs-on: ${{ matrix.platform }}
 
@@ -122,12 +126,23 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './apps/desktop/src-tauri -> target'
+
+      - name: Disable Windows Defender (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: powershell
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+
+      - name: Setup sccache (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: mozilla-actions/sccache-action@v0.0.6
+        with:
+          version: "0.8.4"
 
       - name: Install root dependencies
         run: npm ci
@@ -155,19 +170,6 @@ jobs:
 
       - name: Install Entrix
         run: python -m pip install entrix
-
-      - name: Clean previous Tauri bundle outputs
-        shell: bash
-        run: |
-          for root in target apps/desktop/src-tauri/target; do
-            if [[ ! -d "$root" ]]; then
-              continue
-            fi
-
-            while IFS= read -r bundle_dir; do
-              rm -rf "$bundle_dir"
-            done < <(find "$root" -type d -path '*/release/bundle' -prune -print)
-          done
 
       - name: Check macOS signing availability
         if: runner.os == 'macOS'
@@ -240,9 +242,11 @@ jobs:
           security find-identity -v -p codesigning build.keychain
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
         env:
+          CI: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUST_LOG: "info"
+          SCCACHE_GHA_ENABLED: "true"
           # Only pass signing env vars if we're actually signing
           APPLE_CERTIFICATE: ${{ env.SKIP_MACOS_SIGNING != 'true' && secrets.APPLE_CERTIFICATE || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ env.SKIP_MACOS_SIGNING != 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
@@ -253,9 +257,12 @@ jobs:
           APPLE_API_KEY: ${{ env.SKIP_MACOS_SIGNING != 'true' && secrets.APPLE_API_KEY || '' }}
           APPLE_API_ISSUER: ${{ env.SKIP_MACOS_SIGNING != 'true' && secrets.APPLE_API_ISSUER || '' }}
           APPLE_API_KEY_PATH: ${{ env.SKIP_MACOS_SIGNING != 'true' && env.APPLE_API_KEY_PATH || '' }}
-        with:
-          projectPath: apps/desktop
-          args: ${{ env.SKIP_MACOS_SIGNING == 'true' && format('{0} --no-sign', matrix.args) || matrix.args }}
+        shell: bash
+        run: |
+          cd apps/desktop/src-tauri
+          cargo build --release --manifest-path Cargo.toml
+          npx tauri build --bundles ${{ matrix.bundles }} ${{ env.SKIP_MACOS_SIGNING == 'true' && '--no-sign' || '' }}
+        # NOTE: CI=true activates [profile.ci] in Cargo.toml (opt-level=2, lto=false)
 
       - name: Verify macOS signing and notarization
         if: runner.os == 'macOS'
@@ -266,7 +273,6 @@ jobs:
           artifacts_list="dist/release/macos-artifacts-${{ matrix.key }}.txt"
           verification_log="dist/release/macos-verification-${{ matrix.key }}.log"
           bash scripts/release/verify-macos-signing.sh \
-            --search-root target \
             --search-root apps/desktop/src-tauri/target \
             --list-out "$artifacts_list" \
             --log "$verification_log"
@@ -275,7 +281,7 @@ jobs:
         shell: bash
         run: |
           node scripts/release/generate-release-manifest.mjs \
-            --tauri-bundle-dir target,apps/desktop/src-tauri/target \
+            --tauri-bundle-dir apps/desktop/src-tauri/target \
             --static-dir apps/desktop/src-tauri/frontend \
             --channel latest \
             --out dist/release/manifest-${{ matrix.key }}.json
@@ -312,18 +318,7 @@ jobs:
         with:
           name: tauri-release-assets-${{ matrix.key }}
           path: |
-            target/**/release/bundle/**/*.dmg
-            target/**/release/bundle/**/*.app
-            target/**/release/bundle/**/*.deb
-            target/**/release/bundle/**/*.AppImage
-            target/**/release/bundle/**/*.msi
-            target/**/release/bundle/**/*.exe
-            apps/desktop/src-tauri/target/**/release/bundle/**/*.dmg
-            apps/desktop/src-tauri/target/**/release/bundle/**/*.app
-            apps/desktop/src-tauri/target/**/release/bundle/**/*.deb
-            apps/desktop/src-tauri/target/**/release/bundle/**/*.AppImage
-            apps/desktop/src-tauri/target/**/release/bundle/**/*.msi
-            apps/desktop/src-tauri/target/**/release/bundle/**/*.exe
+            apps/desktop/src-tauri/target/release/bundle/**/*
           if-no-files-found: error
 
       - name: Upload release manifest
