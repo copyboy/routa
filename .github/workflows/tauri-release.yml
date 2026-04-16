@@ -249,7 +249,6 @@ jobs:
           CI: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUST_LOG: "info"
-          SCCACHE_GHA_ENABLED: "true"
           # Only pass signing env vars if we're actually signing
           APPLE_CERTIFICATE: ${{ env.SKIP_MACOS_SIGNING != 'true' && secrets.APPLE_CERTIFICATE || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ env.SKIP_MACOS_SIGNING != 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
