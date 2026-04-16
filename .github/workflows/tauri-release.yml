@@ -143,7 +143,9 @@ jobs:
 
       - name: Configure sccache
         shell: bash
-        run: echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          echo "SCCACHE_DIR=$HOME/.cache/sccache" >> $GITHUB_ENV
 
       - name: Install root dependencies
         run: npm ci
