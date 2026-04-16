@@ -183,6 +183,7 @@ const zh: TranslationDictionary = {
     advancedGroupTools: "工具",
     advancedGroupOther: "其它",
     records: "记录",
+    spec: "规格",
   },
 
   settings: {
@@ -730,6 +731,23 @@ const zh: TranslationDictionary = {
     repoUrlLabel: "仓库地址",
     searchExamples: "搜索示例...",
     skillsShCatalog: "Skills.sh 目录",
+  },
+
+  specBoard: {
+    kind: "类型",
+    severity: "严重级别",
+    area: "领域",
+    date: "日期",
+    reportedBy: "报告人",
+    github: "GitHub",
+    file: "文件",
+    noIssues: "暂无记录",
+    failedToLoad: "加载本地问题规格失败",
+    githubStateUnknown: "未知",
+    statusOpen: "待处理",
+    statusInvestigating: "调查中",
+    statusResolved: "已解决",
+    statusWontfix: "不修复",
   },
 
   agents: {
