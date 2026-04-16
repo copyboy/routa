@@ -122,9 +122,20 @@ async function runCommand(
     throw new Error("Process execution is not available on this platform");
   }
 
+  const env = options?.env ? { ...process.env, ...options.env } : { ...process.env };
+  if (options?.cwd) {
+    // Some CLIs scope project-local config using the inherited PWD env var
+    // rather than only getcwd(2). Keep both aligned when we override cwd.
+    try {
+      env.PWD = fs.realpathSync(options.cwd);
+    } catch {
+      env.PWD = options.cwd;
+    }
+  }
+
   const handle = bridge.process.spawn(command, args, {
     cwd: options?.cwd,
-    env: options?.env,
+    env,
     stdio: ["ignore", "pipe", "pipe"],
     shell: false,
     detached: false,

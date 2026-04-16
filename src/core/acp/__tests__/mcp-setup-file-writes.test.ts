@@ -108,46 +108,73 @@ describe("mcp-setup file-based providers", () => {
     await fs.mkdir(projectDir, { recursive: true });
     const realProjectDir = await fs.realpath(projectDir);
     const mcpEndpoint = "http://127.0.0.1:3210/api/mcp?wsId=ws-qoder&sid=session-qoder";
+    const originalPwd = process.env.PWD;
     await fs.writeFile(
       qoderBinPath,
-      `#!/bin/sh\nprintf '%s|%s\\n' "$PWD" "$*" >> "${qoderLogPath}"\n`,
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+const payload = JSON.stringify({
+  cwd: process.cwd(),
+  pwd: process.env.PWD || "",
+  args: process.argv.slice(2),
+});
+fs.appendFileSync(${JSON.stringify(qoderLogPath)}, payload + "\\n");
+`,
       "utf-8",
     );
     await fs.chmod(qoderBinPath, 0o755);
     process.env.QODER_BIN = qoderBinPath;
+    process.env.PWD = tmpHome;
     vi.resetModules();
 
     const { cleanupMcpForProvider, ensureMcpForProvider } = await import("../mcp-setup");
 
-    const result = await ensureMcpForProvider("qoder", {
-      routaServerUrl: "http://127.0.0.1:3210",
-      mcpEndpoint,
-      workspaceId: "ws-qoder",
-      sessionId: "session-qoder",
-      includeCustomServers: false,
-      cwd: projectDir,
-    });
+    try {
+      const result = await ensureMcpForProvider("qoder", {
+        routaServerUrl: "http://127.0.0.1:3210",
+        mcpEndpoint,
+        workspaceId: "ws-qoder",
+        sessionId: "session-qoder",
+        includeCustomServers: false,
+        cwd: projectDir,
+      });
 
-    expect(result.mcpConfigs).toEqual([]);
-    expect(result.summary).toContain("qoder: added");
-    expect(result.cleanup).toEqual({
-      action: "qoder-remove",
-      providerId: "qoder",
-      serverName: "routa-coordination",
-      scope: "local",
-      cwd: projectDir,
-    });
+      expect(result.mcpConfigs).toEqual([]);
+      expect(result.summary).toContain("qoder: added");
+      expect(result.cleanup).toEqual({
+        action: "qoder-remove",
+        providerId: "qoder",
+        serverName: "routa-coordination",
+        scope: "local",
+        cwd: projectDir,
+      });
 
-    const cleanupSummary = await cleanupMcpForProvider(result.cleanup!);
-    expect(cleanupSummary).toContain("qoder: removed");
+      const cleanupSummary = await cleanupMcpForProvider(result.cleanup!);
+      expect(cleanupSummary).toContain("qoder: removed");
 
-    const logLines = (await fs.readFile(qoderLogPath, "utf-8"))
-      .trim()
-      .split("\n");
-    expect(logLines).toEqual([
-      `${realProjectDir}|mcp add routa-coordination ${mcpEndpoint} -t streamable-http -s local`,
-      `${realProjectDir}|mcp remove routa-coordination -s local`,
-    ]);
+      const logLines = (await fs.readFile(qoderLogPath, "utf-8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { cwd: string; pwd: string; args: string[] });
+      expect(logLines).toEqual([
+        {
+          cwd: realProjectDir,
+          pwd: realProjectDir,
+          args: ["mcp", "add", "routa-coordination", mcpEndpoint, "-t", "streamable-http", "-s", "local"],
+        },
+        {
+          cwd: realProjectDir,
+          pwd: realProjectDir,
+          args: ["mcp", "remove", "routa-coordination", "-s", "local"],
+        },
+      ]);
+    } finally {
+      if (originalPwd === undefined) {
+        delete process.env.PWD;
+      } else {
+        process.env.PWD = originalPwd;
+      }
+    }
   });
 
   it("merges inline Claude-style JSON and ignores unreadable config entries", async () => {

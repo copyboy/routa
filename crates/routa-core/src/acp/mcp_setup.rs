@@ -241,9 +241,16 @@ fn qoder_command() -> String {
 }
 
 async fn run_qoder_mcp_command(cwd: &str, args: &[String]) -> Result<(), String> {
+    let pwd = std::fs::canonicalize(cwd)
+        .unwrap_or_else(|_| PathBuf::from(cwd))
+        .to_string_lossy()
+        .to_string();
     let output = tokio::process::Command::new(qoder_command())
         .args(args)
         .current_dir(cwd)
+        // Keep PWD aligned with current_dir for CLIs that scope project-local
+        // config from the inherited environment instead of getcwd().
+        .env("PWD", &pwd)
         .output()
         .await
         .map_err(|err| format!("spawn qodercli: {err}"))?;
@@ -558,22 +565,36 @@ mod tests {
         let tempdir = tempfile::tempdir().expect("tempdir");
         let qoder_bin = tempdir.path().join("qodercli");
         let qoder_log = tempdir.path().join("qoder.log");
+        let project_dir = tempdir.path().join("project");
+        std::fs::create_dir_all(&project_dir).expect("create project dir");
+        let real_project_dir = std::fs::canonicalize(&project_dir).expect("canonicalize project");
         let script = format!(
-            "#!/bin/sh\nprintf '%s|%s\\n' \"$PWD\" \"$*\" >> '{}'\n",
-            qoder_log.display()
+            r#"#!/usr/bin/env node
+const fs = require("node:fs");
+const payload = JSON.stringify({{
+  cwd: process.cwd(),
+  pwd: process.env.PWD || "",
+  args: process.argv.slice(2),
+}});
+fs.appendFileSync({}, payload + "\n");
+"#,
+            serde_json::to_string(&qoder_log.display().to_string())
+                .expect("serialize qoder log path")
         );
         std::fs::write(&qoder_bin, script).expect("write qoder stub");
         std::fs::set_permissions(&qoder_bin, std::fs::Permissions::from_mode(0o755))
             .expect("chmod qoder stub");
 
         let previous_qoder_bin = std::env::var_os("QODER_BIN");
+        let previous_pwd = std::env::var_os("PWD");
         unsafe {
             std::env::set_var("QODER_BIN", &qoder_bin);
+            std::env::set_var("PWD", tempdir.path());
         }
 
         let setup = ensure_mcp_for_provider(
             "qoder",
-            tempdir.path().to_str().expect("tempdir path"),
+            project_dir.to_str().expect("project dir path"),
             "default",
             "session-123",
             Some("full"),
@@ -592,12 +613,45 @@ mod tests {
         assert!(cleanup_summary.contains("qoder: removed"));
 
         let log = std::fs::read_to_string(&qoder_log).expect("read qoder log");
-        let log_lines: Vec<&str> = log.trim().lines().collect();
+        let log_lines: Vec<serde_json::Value> = log
+            .trim()
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("parse qoder stub log"))
+            .collect();
         assert_eq!(log_lines.len(), 2);
-        assert!(log_lines[0].contains(
-            "mcp add routa-coordination http://127.0.0.1:3210/api/mcp?wsId=default&sid=session-123&toolMode=full&mcpProfile=kanban-planning -t streamable-http -s local"
-        ));
-        assert!(log_lines[1].contains("mcp remove routa-coordination -s local"));
+        assert_eq!(
+            log_lines[0]["cwd"],
+            real_project_dir.to_string_lossy().to_string()
+        );
+        assert_eq!(
+            log_lines[0]["pwd"],
+            real_project_dir.to_string_lossy().to_string()
+        );
+        assert_eq!(
+            log_lines[0]["args"],
+            serde_json::json!([
+                "mcp",
+                "add",
+                "routa-coordination",
+                "http://127.0.0.1:3210/api/mcp?wsId=default&sid=session-123&toolMode=full&mcpProfile=kanban-planning",
+                "-t",
+                "streamable-http",
+                "-s",
+                "local"
+            ])
+        );
+        assert_eq!(
+            log_lines[1]["cwd"],
+            real_project_dir.to_string_lossy().to_string()
+        );
+        assert_eq!(
+            log_lines[1]["pwd"],
+            real_project_dir.to_string_lossy().to_string()
+        );
+        assert_eq!(
+            log_lines[1]["args"],
+            serde_json::json!(["mcp", "remove", "routa-coordination", "-s", "local"])
+        );
 
         match previous_qoder_bin {
             Some(value) => unsafe {
@@ -605,6 +659,14 @@ mod tests {
             },
             None => unsafe {
                 std::env::remove_var("QODER_BIN");
+            },
+        }
+        match previous_pwd {
+            Some(value) => unsafe {
+                std::env::set_var("PWD", value);
+            },
+            None => unsafe {
+                std::env::remove_var("PWD");
             },
         }
     }
