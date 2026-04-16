@@ -75,6 +75,7 @@ jobs:
             "apps/desktop/src-tauri/tauri.conf.json"
             "packages/routa-cli/package.json"
             "packages/harness-monitor/package.json"
+            "crates/routa-cli/Cargo.toml"
             "crates/harness-monitor/Cargo.toml"
           )
 
