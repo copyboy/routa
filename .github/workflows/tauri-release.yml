@@ -260,8 +260,34 @@ jobs:
         shell: bash
         run: |
           cd apps/desktop
-          npx tauri build --bundles ${{ matrix.bundles }} ${{ env.SKIP_MACOS_SIGNING == 'true' && '--no-sign' || '' }}
+          npx tauri build --bundles ${{ matrix.bundles }} \
+            ${{ env.SKIP_MACOS_SIGNING == 'true' && '--no-sign' || '' }}
         # NOTE: CI=true activates [profile.ci] in Cargo.toml (opt-level=2, lto=false)
+
+      # [FIX] bundle 实际输出到 Cargo workspace 根目录的 target/，而非 apps/desktop/src-tauri/target/
+      #       build 完成后立即用 find 定位真实路径，后续所有步骤统一复用此输出
+      - name: Locate bundle directory
+        id: locate-bundle
+        shell: bash
+        run: |
+          bundle_dir=$(find . -type d -name "bundle" \
+            -path "*/target/release/bundle" \
+            ! -path "*/.cargo/*" \
+            | head -1)
+
+          if [[ -z "$bundle_dir" ]]; then
+            echo "ERROR: Could not locate target/release/bundle directory" >&2
+            exit 1
+          fi
+
+          # bundle_dir 形如 ./target/release/bundle
+          # 往上两层得到 target 目录，供 generate-release-manifest 使用
+          tauri_target_dir="$(cd "$(dirname "$(dirname "$bundle_dir")")" && pwd)"
+
+          echo "Found bundle dir: $bundle_dir"
+          echo "Tauri target dir: $tauri_target_dir"
+          echo "bundle_dir=$bundle_dir"             >> "$GITHUB_OUTPUT"
+          echo "tauri_target_dir=$tauri_target_dir" >> "$GITHUB_OUTPUT"
 
       - name: Verify macOS signing and notarization
         if: runner.os == 'macOS'
@@ -272,7 +298,7 @@ jobs:
           artifacts_list="dist/release/macos-artifacts-${{ matrix.key }}.txt"
           verification_log="dist/release/macos-verification-${{ matrix.key }}.log"
           bash scripts/release/verify-macos-signing.sh \
-            --search-root apps/desktop/src-tauri/target \
+            --search-root "${{ steps.locate-bundle.outputs.tauri_target_dir }}" \
             --list-out "$artifacts_list" \
             --log "$verification_log"
 
@@ -280,7 +306,7 @@ jobs:
         shell: bash
         run: |
           node scripts/release/generate-release-manifest.mjs \
-            --tauri-bundle-dir apps/desktop/src-tauri/target \
+            --tauri-bundle-dir "${{ steps.locate-bundle.outputs.tauri_target_dir }}" \
             --static-dir apps/desktop/src-tauri/frontend \
             --channel latest \
             --out dist/release/manifest-${{ matrix.key }}.json
@@ -316,9 +342,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tauri-release-assets-${{ matrix.key }}
-          # [FIX] 原路径正确，能找到文件的前提是 build 目录已修复
-          path: |
-            apps/desktop/src-tauri/target/release/bundle/**/*
+          path: ${{ steps.locate-bundle.outputs.bundle_dir }}/**/*
           if-no-files-found: error
 
       - name: Upload release manifest
