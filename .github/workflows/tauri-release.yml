@@ -73,6 +73,7 @@ jobs:
             "apps/desktop/package.json"
             "apps/desktop/src-tauri/Cargo.toml"
             "apps/desktop/src-tauri/tauri.conf.json"
+            "packages/entrix/package.json"
             "packages/routa-cli/package.json"
             "packages/harness-monitor/package.json"
             "crates/routa-cli/Cargo.toml"
