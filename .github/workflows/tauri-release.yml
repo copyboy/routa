@@ -138,11 +138,12 @@ jobs:
         shell: powershell
         run: Set-MpPreference -DisableRealtimeMonitoring $true
 
-      - name: Setup sccache (Windows)
-        if: matrix.platform == 'windows-latest'
-        uses: mozilla-actions/sccache-action@v0.0.6
-        with:
-          version: "0.8.4"
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      - name: Configure sccache
+        shell: bash
+        run: echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 
       - name: Install root dependencies
         run: npm ci
