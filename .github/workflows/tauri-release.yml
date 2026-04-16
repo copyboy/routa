@@ -293,6 +293,7 @@ jobs:
             --out dist/release/baseline-manifest-${{ matrix.key }}.json
 
       - name: Guard release surface
+        if: github.event_name != 'workflow_dispatch'
         shell: bash
         run: |
           if [[ -f dist/release/baseline-manifest-${{ matrix.key }}.json ]]; then
