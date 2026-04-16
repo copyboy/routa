@@ -20,6 +20,10 @@ fn repo_label_from_path(repo_path: &str) -> String {
         .unwrap_or_else(|| repo_path.to_string())
 }
 
+fn should_set_new_codebase_as_default(has_existing_default: bool, requested_default: bool) -> bool {
+    requested_default || !has_existing_default
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
@@ -155,19 +159,36 @@ async fn add_codebase(
         )));
     }
 
+    let has_existing_default = state.codebase_store.get_default(&workspace_id).await?.is_some();
+    let should_set_default = should_set_new_codebase_as_default(has_existing_default, body.is_default);
+
     let codebase = Codebase::new(
         uuid::Uuid::new_v4().to_string(),
         workspace_id,
         repo_path,
         body.branch,
         body.label,
-        body.is_default,
+        false,
         Some(source_type),
         body.source_url,
     );
 
     state.codebase_store.save(&codebase).await?;
-    Ok(Json(serde_json::json!({ "codebase": codebase })))
+
+    if should_set_default {
+        state
+            .codebase_store
+            .set_default(&codebase.workspace_id, &codebase.id)
+            .await?;
+    }
+
+    let saved_codebase = state
+        .codebase_store
+        .get(&codebase.id)
+        .await?
+        .ok_or_else(|| ServerError::NotFound(format!("Codebase {} not found", codebase.id)))?;
+
+    Ok(Json(serde_json::json!({ "codebase": saved_codebase })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1373,5 +1394,16 @@ mod tests {
         assert!(entry_paths.contains(&"README.md"));
         assert!(entry_paths.contains(&"docs/ARCHITECTURE.md"));
         assert!(!entry_paths.contains(&"docs"));
+    }
+
+    #[test]
+    fn new_codebase_becomes_default_when_workspace_has_no_default() {
+        assert!(should_set_new_codebase_as_default(false, false));
+    }
+
+    #[test]
+    fn requested_default_overrides_existing_default_presence() {
+        assert!(should_set_new_codebase_as_default(true, true));
+        assert!(!should_set_new_codebase_as_default(true, false));
     }
 }
