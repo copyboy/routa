@@ -265,15 +265,15 @@ export function FeatureExplorerPageClient({
             {/* ── Left panel: Feature list ── */}
             <aside className="flex min-h-0 flex-col border-r border-desktop-border bg-desktop-bg-secondary/20">
               {repoLabel && (
-                <div className="border-b border-desktop-border px-3 py-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">
-                    {t.featureExplorer.repository}
-                  </div>
-                  <div className="mt-1 truncate text-[12px] font-medium text-desktop-text-primary" title={defaultCodebase?.repoPath}>
-                    {repoLabel}
-                  </div>
+                <div className="flex items-center gap-1.5 border-b border-desktop-border px-3 py-1.5">
+                  <Folder className="h-3.5 w-3.5 shrink-0 text-desktop-text-secondary" />
+                  <span className="min-w-0 truncate text-[12px] font-medium text-desktop-text-primary" title={defaultCodebase?.repoPath}>
+                    {defaultCodebase?.repoPath ?? repoLabel}
+                  </span>
                   {defaultCodebase?.branch && (
-                    <div className="mt-0.5 text-[10px] text-desktop-text-secondary">{defaultCodebase.branch}</div>
+                    <span className="shrink-0 rounded-sm border border-desktop-border px-1 py-0.5 text-[9px] text-desktop-text-secondary">
+                      {defaultCodebase.branch}
+                    </span>
                   )}
                 </div>
               )}
