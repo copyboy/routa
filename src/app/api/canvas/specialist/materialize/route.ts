@@ -15,6 +15,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function readOptionalString(
+  body: Record<string, unknown>,
+  key: keyof MaterializeCanvasBody,
+): string | undefined {
+  const value = body[key];
+  return typeof value === "string" ? value : undefined;
+}
+
 export async function POST(request: NextRequest) {
   let rawBody: unknown;
   try {
@@ -27,11 +35,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const body = rawBody as MaterializeCanvasBody;
-  const workspaceId = body.workspaceId?.trim();
-  const repoPath = body.repoPath?.trim();
-  const repoLabel = body.repoLabel?.trim();
-  const source = body.source?.trim();
+  const workspaceId = readOptionalString(rawBody, "workspaceId")?.trim();
+  const repoPath = readOptionalString(rawBody, "repoPath")?.trim();
+  const repoLabel = readOptionalString(rawBody, "repoLabel")?.trim();
+  const source = readOptionalString(rawBody, "source")?.trim();
 
   if (!workspaceId) {
     return NextResponse.json({ error: "workspaceId is required" }, { status: 400 });
