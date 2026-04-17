@@ -93,6 +93,7 @@ export function FeatureExplorerPageClient({
   });
 
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("context");
+  const [middleView, setMiddleView] = useState<"sessions" | "tree">("sessions");
   const [featureId, setFeatureId] = useState<string>("");
   const [query, setQuery] = useState("");
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
@@ -135,6 +136,22 @@ export function FeatureExplorerPageClient({
   const fileTree = useMemo(() => featureDetail?.fileTree ?? [], [featureDetail]);
   const fileStats = useMemo(() => featureDetail?.fileStats ?? {}, [featureDetail]);
   const flatMap = useMemo(() => flattenFiles(fileTree), [fileTree]);
+
+  // Flat file list sorted by sessions desc, then changes desc
+  const sessionSortedFiles = useMemo(() => {
+    const leafFiles = Object.values(flatMap).filter((n) => n.kind === "file");
+    return leafFiles.sort((a, b) => {
+      const sa = fileStats[a.path];
+      const sb = fileStats[b.path];
+      const sessionsA = sa?.sessions ?? 0;
+      const sessionsB = sb?.sessions ?? 0;
+      if (sessionsB !== sessionsA) return sessionsB - sessionsA;
+      const changesA = sa?.changes ?? 0;
+      const changesB = sb?.changes ?? 0;
+      return changesB - changesA;
+    });
+  }, [flatMap, fileStats]);
+
   const activeFile = flatMap[activeFileId] ?? null;
   const activeFeature = features.find((f) => f.id === effectiveFeatureId);
   const activeGroup = activeFeature
@@ -383,11 +400,27 @@ export function FeatureExplorerPageClient({
                 )}
               </div>
 
-              <div className="grid grid-cols-[minmax(0,1fr)_64px_48px_80px] border-b border-desktop-border bg-desktop-bg-secondary/40 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">
-                <div>{t.featureExplorer.nameColumn}</div>
-                <div>{t.featureExplorer.changeColumn}</div>
-                <div>{t.featureExplorer.sessionsColumn}</div>
-                <div>{t.featureExplorer.updatedColumn}</div>
+              <div className="flex items-center justify-between border-b border-desktop-border bg-desktop-bg-secondary/40 px-3 py-1.5">
+                <div className="grid flex-1 grid-cols-[minmax(0,1fr)_64px_48px_80px] text-[10px] font-semibold uppercase tracking-[0.16em] text-desktop-text-secondary">
+                  <div>{t.featureExplorer.nameColumn}</div>
+                  <div>{t.featureExplorer.changeColumn}</div>
+                  <div>{t.featureExplorer.sessionsColumn}</div>
+                  <div>{t.featureExplorer.updatedColumn}</div>
+                </div>
+                <div className="ml-2 flex items-center gap-1">
+                  <button
+                    onClick={() => setMiddleView("sessions")}
+                    className={`rounded-sm px-1.5 py-0.5 text-[9px] font-medium ${middleView === "sessions" ? "bg-desktop-bg-active text-desktop-text-primary" : "text-desktop-text-secondary hover:text-desktop-text-primary"}`}
+                  >
+                    {t.featureExplorer.sessionsColumn}
+                  </button>
+                  <button
+                    onClick={() => setMiddleView("tree")}
+                    className={`rounded-sm px-1.5 py-0.5 text-[9px] font-medium ${middleView === "tree" ? "bg-desktop-bg-active text-desktop-text-primary" : "text-desktop-text-secondary hover:text-desktop-text-primary"}`}
+                  >
+                    Tree
+                  </button>
+                </div>
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto">
@@ -396,6 +429,38 @@ export function FeatureExplorerPageClient({
                 ) : fileTree.length === 0 ? (
                   <div className="px-3 py-4 text-xs text-desktop-text-secondary">
                     {t.featureExplorer.noFilesSelected}
+                  </div>
+                ) : middleView === "sessions" ? (
+                  <div className="divide-y divide-desktop-border">
+                    {sessionSortedFiles.map((node) => {
+                      const stat = fileStats[node.path];
+                      const isActive = activeFileId === node.id;
+                      const isSelected = selectedFileIds.includes(node.id);
+                      return (
+                        <div
+                          key={node.id}
+                          className={`grid grid-cols-[minmax(0,1fr)_64px_48px_80px] items-center px-3 py-1 text-xs transition-colors ${
+                            isActive ? "bg-desktop-bg-active" : "hover:bg-desktop-bg-secondary/40"
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleFileSelection(node.id)}
+                              className="h-3.5 w-3.5 rounded border-black/15 bg-transparent dark:border-white/20"
+                            />
+                            <button onClick={() => setActiveFileId(node.id)} className="flex min-w-0 items-center gap-1.5 text-left">
+                              <FileIcon path={node.path} />
+                              <span className="truncate text-[12px] text-desktop-text-primary" title={node.path}>{node.path}</span>
+                            </button>
+                          </div>
+                          <div className="text-[11px] text-desktop-text-secondary">{stat?.changes ?? "-"}</div>
+                          <div className="text-[11px] text-desktop-text-secondary">{stat?.sessions ?? "-"}</div>
+                          <div className="text-[11px] text-desktop-text-secondary">{stat?.updatedAt ? formatShortDate(stat.updatedAt) : "-"}</div>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="divide-y divide-desktop-border">
