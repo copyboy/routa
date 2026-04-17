@@ -280,6 +280,15 @@ fn collect_session_stats(
                     .iter()
                     .map(|f| f.source_files.len().max(1))
                     .sum();
+                // Use latest transcript timestamp for distributed sessions
+                let latest_ts = transcripts
+                    .iter()
+                    .filter_map(|t| {
+                        chrono::DateTime::from_timestamp_millis(t.last_seen_at_ms)
+                            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string())
+                    })
+                    .max()
+                    .unwrap_or_default();
                 for feature in &feature_tree.features {
                     let weight = feature.source_files.len().max(1);
                     let share = (unmatched * weight) / total_files.max(1);
@@ -288,6 +297,9 @@ fn collect_session_stats(
                             .entry(feature.id.clone())
                             .or_insert((0, 0, String::new()));
                         entry.0 += share;
+                        if !latest_ts.is_empty() && (entry.2.is_empty() || latest_ts > entry.2) {
+                            entry.2 = latest_ts.clone();
+                        }
                     }
                 }
             }
