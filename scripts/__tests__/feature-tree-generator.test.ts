@@ -42,9 +42,9 @@ describe("feature-tree-generator", () => {
     const markdown = renderMarkdown(tree, surfaceIndex);
     expect(markdown).toContain("node --import tsx scripts/docs/feature-tree-generator.ts --save");
     expect(markdown).toContain("| Home | `/` | `src/app/page.tsx` |  |");
-    expect(markdown).toContain("| GET | `/api/agents` | List agents |");
-    expect(markdown).toContain("## Next.js API Routes");
-    expect(markdown).toContain("## Rust API Routes");
+    expect(markdown).toContain("| GET | `/api/agents` | List agents | `src/app/api/agents/route.ts` | `crates/routa-server/src/api/agents.rs` |");
+    expect(markdown).not.toContain("## Next.js API Routes");
+    expect(markdown).not.toContain("## Rust API Routes");
     expect(markdown).toContain("feature_metadata:");
     expect(markdown).toContain("schema_version: 1");
     expect(markdown).toContain("Hand-edit semantic `feature_metadata` fields in this frontmatter block.");
@@ -151,6 +151,53 @@ describe("feature-tree-generator", () => {
       "crates/routa-server/src/api/sessions.rs",
       "src/app/api/sessions/[sessionId]/context/route.ts",
     ]);
+  });
+
+  it("infers additional features from unmapped pages and apis", () => {
+    const metadata = normalizeFeatureMetadata({
+      schemaVersion: 1,
+      capabilityGroups: [{ id: "workspace-coordination", name: "Workspace Coordination" }],
+      features: [
+        {
+          id: "workspace-overview",
+          name: "Workspace Overview",
+          group: "workspace-coordination",
+          pages: ["/workspace/:workspaceId/overview"],
+        },
+      ],
+    });
+
+    const index = buildFeatureSurfaceIndex(
+      [
+        { route: "/workspace/:workspaceId/overview", title: "Workspace / Overview", description: "", sourceFile: "src/app/workspace/[workspaceId]/overview/page.tsx" },
+        { route: "/settings/agents", title: "Settings / Agents", description: "", sourceFile: "src/app/settings/agents/page.tsx" },
+      ],
+      {
+        agents: [
+          {
+            domain: "agents",
+            path: "/api/agents",
+            method: "GET",
+            operationId: "listAgents",
+            summary: "List agents",
+          },
+        ],
+      },
+      [{ domain: "agents", method: "GET", path: "/api/agents", sourceFiles: ["src/app/api/agents/route.ts"] }],
+      [{ domain: "agents", method: "GET", path: "/api/agents", sourceFiles: ["crates/routa-server/src/api/agents.rs"] }],
+      metadata,
+    );
+
+    expect(index.metadata?.features.find((feature) => feature.id === "agents")).toMatchObject({
+      group: "inferred-surfaces",
+      pages: ["/settings/agents"],
+      apis: ["GET /api/agents"],
+      sourceFiles: [
+        "crates/routa-server/src/api/agents.rs",
+        "src/app/api/agents/route.ts",
+        "src/app/settings/agents/page.tsx",
+      ],
+    });
   });
 
   it("normalizes feature metadata into a stable shape", () => {

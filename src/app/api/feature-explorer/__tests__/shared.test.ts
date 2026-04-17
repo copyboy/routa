@@ -383,25 +383,9 @@ feature_metadata:
 
 ### Feature-Explorer (1)
 
-| Method | Endpoint | Details |
-|--------|----------|---------|
-| GET | \`/api/feature-explorer\` | List feature explorer features |
-
-## Next.js API Routes
-
-### Feature-Explorer (1)
-
-| Method | Endpoint | Details |
-|--------|----------|---------|
-| GET | \`/api/feature-explorer\` | \`src/app/api/feature-explorer/route.ts\` |
-
-## Rust API Routes
-
-### Feature-Explorer (1)
-
-| Method | Endpoint | Details |
-|--------|----------|---------|
-| GET | \`/api/feature-explorer\` | \`crates/routa-server/src/api/feature_explorer.rs\` |
+| Method | Endpoint | Details | Next.js | Rust |
+|--------|----------|---------|---------|------|
+| GET | \`/api/feature-explorer\` | List feature explorer features | \`src/app/api/feature-explorer/route.ts\` | \`crates/routa-server/src/api/feature_explorer.rs\` |
 `,
     );
 
@@ -415,5 +399,56 @@ feature_metadata:
       "src/app/api/feature-explorer/route.ts",
       "src/app/workspace/[workspaceId]/feature-explorer/page.tsx",
     ]);
+  });
+
+  it("infers feature ownership for unmapped surfaces from the generated tables", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "feature-explorer-inferred-"));
+    const repoRoot = path.join(tempRoot, "repo");
+
+    ensureFile(
+      path.join(repoRoot, "docs/product-specs/FEATURE_TREE.md"),
+      `---
+feature_metadata:
+  capability_groups:
+    - id: workspace-coordination
+      name: Workspace Coordination
+  features:
+    - id: workspace-overview
+      name: Workspace Overview
+      group: workspace-coordination
+      pages:
+        - /workspace/:workspaceId/overview
+---
+
+# Product Feature Specification
+
+## Frontend Pages
+
+| Page | Route | Source File | Description |
+|------|-------|-------------|-------------|
+| Workspace / Overview | \`/workspace/:workspaceId/overview\` | \`src/app/workspace/[workspaceId]/overview/page.tsx\` |  |
+| Settings / Agents | \`/settings/agents\` | \`src/app/settings/agents/page.tsx\` |  |
+
+## API Contract Endpoints
+
+### Agents (1)
+
+| Method | Endpoint | Details | Next.js | Rust |
+|--------|----------|---------|---------|------|
+| GET | \`/api/agents\` | List agents | \`src/app/api/agents/route.ts\` | \`crates/routa-server/src/api/agents.rs\` |
+`,
+    );
+
+    const featureTree = parseFeatureTree(repoRoot);
+    expect(featureTree.features.find((feature) => feature.id === "agents")).toMatchObject({
+      group: "inferred-surfaces",
+      pages: ["/settings/agents"],
+      apis: ["GET /api/agents"],
+      sourceFiles: [
+        "crates/routa-server/src/api/agents.rs",
+        "src/app/api/agents/route.ts",
+        "src/app/settings/agents/page.tsx",
+      ],
+    });
   });
 });

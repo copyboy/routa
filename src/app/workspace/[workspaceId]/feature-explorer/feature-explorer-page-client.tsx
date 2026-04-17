@@ -139,6 +139,7 @@ type ExplorerSection = {
   id: string;
   title: string;
   items: ExplorerSurfaceItem[];
+  metrics?: ExplorerSurfaceMetric[];
 };
 
 function buildApiDeclaration(method: string, endpointPath: string): string {
@@ -423,7 +424,24 @@ export function FeatureExplorerPageClient({
   );
   const explorerSections = useMemo<ExplorerSection[]>(
     () => [
-      { id: "features", title: t.featureExplorer.featureSection, items: featureItems },
+      {
+        id: "features",
+        title: t.featureExplorer.featureSection,
+        items: featureItems,
+        metrics: [
+          {
+            id: "sessions",
+            label: t.featureExplorer.sessionsLabel,
+            value: String(
+              featureItems.reduce(
+                (sum, item) => sum + (featureSummaryById.get(item.featureIds[0] ?? "")?.sessionCount ?? 0),
+                0,
+              ),
+            ),
+            testId: "feature-section-metric-sessions",
+          },
+        ],
+      },
       { id: "pages", title: t.featureExplorer.pageSection, items: pageItems },
       { id: "contract-apis", title: t.featureExplorer.contractApiSection, items: contractApiItems },
       { id: "nextjs-apis", title: t.featureExplorer.nextjsApiSection, items: nextjsApiItems },
@@ -432,6 +450,7 @@ export function FeatureExplorerPageClient({
     [
       contractApiItems,
       featureItems,
+      featureSummaryById,
       nextjsApiItems,
       pageItems,
       rustApiItems,
@@ -440,6 +459,7 @@ export function FeatureExplorerPageClient({
       t.featureExplorer.nextjsApiSection,
       t.featureExplorer.pageSection,
       t.featureExplorer.rustApiSection,
+      t.featureExplorer.sessionsLabel,
     ],
   );
   const explorerItemsByKey = useMemo(() => {
@@ -668,7 +688,18 @@ export function FeatureExplorerPageClient({
                       <div key={section.id}>
                         <div className="mb-1 flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-desktop-text-secondary">
                           <span>{section.title}</span>
-                          <span>{section.items.length}</span>
+                          <div className="flex items-center gap-1">
+                            {section.metrics?.map((metric) => (
+                              <span
+                                key={metric.id}
+                                data-testid={metric.testId}
+                                className="rounded-sm border border-desktop-border bg-desktop-bg-primary px-1.5 py-0.5 text-[9px] font-medium normal-case tracking-normal text-current/80"
+                              >
+                                {metric.value} {metric.label}
+                              </span>
+                            ))}
+                            <span>{section.items.length}</span>
+                          </div>
                         </div>
                         <div className="space-y-1">
                           {section.items.map((item) => {
@@ -692,7 +723,7 @@ export function FeatureExplorerPageClient({
                                     : "border-transparent text-desktop-text-secondary hover:border-desktop-border hover:bg-desktop-bg-primary/70 hover:text-desktop-text-primary"
                                 }`}
                               >
-                                <div className="flex items-start gap-2">
+                                <div className="flex items-center gap-2">
                                   <span className={`inline-flex h-5 min-w-7 items-center justify-center rounded-sm border px-1 text-[9px] font-semibold ${
                                     isActive
                                       ? "border-desktop-accent bg-desktop-bg-primary text-desktop-text-primary"
@@ -700,17 +731,19 @@ export function FeatureExplorerPageClient({
                                   }`}>
                                     {item.kind === "feature" ? featureCodeBadge(firstFeatureId) : surfaceKindBadge(item.kind)}
                                   </span>
-                                  <div className="min-w-0 flex-1">
-                                    <div className="truncate text-[12px] font-medium">
-                                      {item.label}
+                                  <div className="min-w-0 flex flex-1 items-center gap-2 overflow-hidden">
+                                    <div className="min-w-0 flex items-baseline gap-1.5 overflow-hidden">
+                                      <span className="truncate text-[12px] font-medium">
+                                        {item.label}
+                                      </span>
+                                      {item.secondary ? (
+                                        <span className="truncate text-[10px] text-current/75">
+                                          {item.secondary}
+                                        </span>
+                                      ) : null}
                                     </div>
-                                    {item.secondary ? (
-                                      <div className="mt-0.5 truncate text-[10px] text-current/75">
-                                        {item.secondary}
-                                      </div>
-                                    ) : null}
                                     {item.metrics?.length ? (
-                                      <div className="mt-1 flex flex-wrap gap-1">
+                                      <div className="ml-auto flex shrink-0 items-center gap-1">
                                         {item.metrics.map((metric) => (
                                           <span
                                             key={metric.id}
@@ -724,7 +757,7 @@ export function FeatureExplorerPageClient({
                                     ) : null}
                                   </div>
                                   {mappingLabel ? (
-                                    <span className="rounded-sm border border-desktop-border bg-desktop-bg-primary px-1.5 py-0.5 text-[9px] font-medium text-current/80">
+                                    <span className="shrink-0 rounded-sm border border-desktop-border bg-desktop-bg-primary px-1.5 py-0.5 text-[9px] font-medium text-current/80">
                                       {mappingLabel}
                                     </span>
                                   ) : null}

@@ -58,25 +58,9 @@ feature_metadata:
 
 ### Spec (1)
 
-| Method | Endpoint | Details |
-|--------|----------|---------|
-| GET | \`/api/spec/issues\` | List local issue specs |
-
-## Next.js API Routes
-
-### Spec (1)
-
-| Method | Endpoint | Details |
-|--------|----------|---------|
-| GET | \`/api/spec/issues\` | \`src/app/api/spec/issues/route.ts\` |
-
-## Rust API Routes
-
-### Spec (1)
-
-| Method | Endpoint | Details |
-|--------|----------|---------|
-| GET | \`/api/spec/issues\` | \`crates/routa-server/src/api/spec.rs\` |
+| Method | Endpoint | Details | Next.js | Rust |
+|--------|----------|---------|---------|------|
+| GET | \`/api/spec/issues\` | List local issue specs | \`src/app/api/spec/issues/route.ts\` | \`crates/routa-server/src/api/spec.rs\` |
 `,
       );
 

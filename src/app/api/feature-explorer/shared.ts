@@ -3,6 +3,10 @@ import * as path from "path";
 import { execFileSync } from "child_process";
 import * as yaml from "js-yaml";
 
+import featureSurfaceMetadata from "@/core/spec/feature-surface-metadata";
+
+const { buildApiLookupKey, normalizeSurfaceMetadata } = featureSurfaceMetadata;
+
 export { isContextError, parseContext, resolveRepoRoot } from "../harness/hooks/shared";
 export type { HarnessContext as FeatureExplorerContext } from "../harness/hooks/shared";
 
@@ -270,8 +274,8 @@ function parseFeatureTreeTables(raw: string): {
 
   const frontMarker = "## Frontend Pages";
   const apiMarkers = new Set(["## API Endpoints", "## API Contract Endpoints"]);
-  const nextjsMarker = "## Next.js API Routes";
-  const rustMarker = "## Rust API Routes";
+  const nextjsMarkers = new Set(["## Next.js API Routes", "## Next.js-only API Routes"]);
+  const rustMarkers = new Set(["## Rust API Routes", "## Rust-only API Routes"]);
 
   for (const rawLine of raw.split(/\r?\n/)) {
     const trimmed = rawLine.trim();
@@ -288,19 +292,19 @@ function parseFeatureTreeTables(raw: string): {
       continue;
     }
 
-    if (trimmed === nextjsMarker) {
+    if (nextjsMarkers.has(trimmed)) {
       section = "nextjs";
       inTable = false;
       continue;
     }
 
-    if (trimmed === rustMarker) {
+    if (rustMarkers.has(trimmed)) {
       section = "rust";
       inTable = false;
       continue;
     }
 
-    if (trimmed.startsWith("## ") && trimmed !== frontMarker && !apiMarkers.has(trimmed) && trimmed !== nextjsMarker && trimmed !== rustMarker) {
+    if (trimmed.startsWith("## ") && trimmed !== frontMarker && !apiMarkers.has(trimmed) && !nextjsMarkers.has(trimmed) && !rustMarkers.has(trimmed)) {
       section = null;
       inTable = false;
       continue;
@@ -351,6 +355,7 @@ function parseFeatureTreeTables(raw: string): {
         trimmed === "| Method | Endpoint | Description |"
         || trimmed === "| Method | Endpoint | Details |"
         || trimmed === "| Method | Endpoint | Details | Next.js | Rust |"
+        || trimmed === "| Method | Endpoint | Source Files |"
       ) {
         inTable = true;
         continue;
@@ -369,6 +374,7 @@ function parseFeatureTreeTables(raw: string): {
         trimmed === "|--------|----------|-------------|"
         || trimmed === "|--------|----------|---------|"
         || trimmed === "|--------|----------|---------|---------|------|"
+        || trimmed === "|--------|----------|--------------|"
       ) {
         continue;
       }
@@ -376,12 +382,34 @@ function parseFeatureTreeTables(raw: string): {
       const cells = parseMarkdownRow(trimmed);
       if (cells && cells.length >= 3) {
         if (section === "contract") {
+          const nextjsSourceFiles = cells.length >= 5 ? parseSourceFilesCell(cells[3] ?? "") : [];
+          const rustSourceFiles = cells.length >= 5 ? parseSourceFilesCell(cells[4] ?? "") : [];
           apiEndpoints.push({
             group: currentApiGroup,
             method: cells[0] ?? "",
             endpoint: stripCodeCell(cells[1] ?? ""),
             description: cells[2] ?? "",
+            ...(nextjsSourceFiles.length > 0 ? { nextjsSourceFiles } : {}),
+            ...(rustSourceFiles.length > 0 ? { rustSourceFiles } : {}),
           });
+
+          if (nextjsSourceFiles.length > 0) {
+            nextjsApiEndpoints.push({
+              group: currentApiGroup,
+              method: cells[0] ?? "",
+              endpoint: stripCodeCell(cells[1] ?? ""),
+              sourceFiles: nextjsSourceFiles,
+            });
+          }
+
+          if (rustSourceFiles.length > 0) {
+            rustApiEndpoints.push({
+              group: currentApiGroup,
+              method: cells[0] ?? "",
+              endpoint: stripCodeCell(cells[1] ?? ""),
+              sourceFiles: rustSourceFiles,
+            });
+          }
         } else {
           const target = section === "nextjs" ? nextjsApiEndpoints : rustApiEndpoints;
           target.push({
@@ -448,39 +476,6 @@ function toImplementationApiEndpoints(
     .filter((api) => api.method && api.endpoint);
 }
 
-function deriveFeatureSourceFiles(
-  feature: FeatureTreeFeature,
-  frontendPages: FrontendPageDetail[],
-  nextjsApiEndpoints: ApiImplementationDetail[],
-  rustApiEndpoints: ApiImplementationDetail[],
-): string[] {
-  const sourceFiles = new Set(feature.sourceFiles);
-  const pageLookup = new Map(frontendPages.map((page) => [page.route, page.sourceFile]));
-  const nextjsLookup = new Map(nextjsApiEndpoints.map((api) => [`${api.method.toUpperCase()} ${api.endpoint}`, api.sourceFiles]));
-  const rustLookup = new Map(rustApiEndpoints.map((api) => [`${api.method.toUpperCase()} ${api.endpoint}`, api.sourceFiles]));
-
-  for (const route of feature.pages) {
-    const sourceFile = pageLookup.get(route);
-    if (sourceFile) {
-      sourceFiles.add(sourceFile);
-    }
-  }
-
-  for (const declaration of feature.apis) {
-    const parsed = splitDeclaredApi(declaration);
-    const key = `${parsed.method.toUpperCase()} ${parsed.endpoint}`;
-
-    for (const sourceFile of nextjsLookup.get(key) ?? []) {
-      sourceFiles.add(sourceFile);
-    }
-    for (const sourceFile of rustLookup.get(key) ?? []) {
-      sourceFiles.add(sourceFile);
-    }
-  }
-
-  return [...sourceFiles].filter(Boolean).sort();
-}
-
 export function parseFeatureTree(repoRoot: string): FeatureTree {
   const raw = readFeatureTreeContent(repoRoot);
   const index = readFeatureTreeIndex(repoRoot);
@@ -504,15 +499,15 @@ export function parseFeatureTree(repoRoot: string): FeatureTree {
   const resolvedApiEndpoints = apiEndpoints.length > 0 ? apiEndpoints : fallbackTables.apiEndpoints;
   const resolvedNextjsApiEndpoints = nextjsApiEndpoints.length > 0 ? nextjsApiEndpoints : fallbackTables.nextjsApiEndpoints;
   const resolvedRustApiEndpoints = rustApiEndpoints.length > 0 ? rustApiEndpoints : fallbackTables.rustApiEndpoints;
-
-  return {
-    capabilityGroups: (featureMetadata.capability_groups ?? []).map((group) => ({
-      id: group.id ?? "",
-      name: group.name ?? "",
-      description: group.description ?? "",
-    })),
-    features: (featureMetadata.features ?? []).map((feature) => {
-      const normalizedFeature: FeatureTreeFeature = {
+  const normalizedMetadata = normalizeSurfaceMetadata({
+    metadata: {
+      schemaVersion: 1,
+      capabilityGroups: (featureMetadata.capability_groups ?? []).map((group) => ({
+        id: group.id ?? "",
+        name: group.name ?? "",
+        description: group.description ?? "",
+      })),
+      features: (featureMetadata.features ?? []).map((feature) => ({
         id: feature.id ?? "",
         name: feature.name ?? "",
         group: feature.group ?? "",
@@ -523,18 +518,52 @@ export function parseFeatureTree(repoRoot: string): FeatureTree {
         sourceFiles: Array.isArray(feature.source_files) ? [...feature.source_files] : [],
         relatedFeatures: Array.isArray(feature.related_features) ? [...feature.related_features] : [],
         domainObjects: Array.isArray(feature.domain_objects) ? [...feature.domain_objects] : [],
-      };
+      })),
+    },
+    pages: resolvedFrontendPages.map((page) => ({
+      route: page.route,
+      title: page.name,
+      description: page.description,
+      sourceFile: page.sourceFile,
+    })),
+    contractApis: resolvedApiEndpoints.map((api) => ({
+      domain: api.group,
+      method: api.method,
+      path: api.endpoint,
+      summary: api.description,
+    })),
+    nextjsApis: resolvedNextjsApiEndpoints.map((api) => ({
+      domain: api.group,
+      method: api.method,
+      path: api.endpoint,
+      sourceFiles: api.sourceFiles,
+    })),
+    rustApis: resolvedRustApiEndpoints.map((api) => ({
+      domain: api.group,
+      method: api.method,
+      path: api.endpoint,
+      sourceFiles: api.sourceFiles,
+    })),
+  });
 
-      return {
-        ...normalizedFeature,
-        sourceFiles: deriveFeatureSourceFiles(
-          normalizedFeature,
-          resolvedFrontendPages,
-          resolvedNextjsApiEndpoints,
-          resolvedRustApiEndpoints,
-        ),
-      };
-    }),
+  return {
+    capabilityGroups: (normalizedMetadata?.capabilityGroups ?? []).map((group) => ({
+      id: group.id,
+      name: group.name,
+      description: group.description ?? "",
+    })),
+    features: (normalizedMetadata?.features ?? []).map((feature) => ({
+      id: feature.id,
+      name: feature.name,
+      group: feature.group ?? "",
+      summary: feature.summary ?? "",
+      status: feature.status ?? "",
+      pages: Array.isArray(feature.pages) ? [...feature.pages] : [],
+      apis: Array.isArray(feature.apis) ? [...feature.apis] : [],
+      sourceFiles: Array.isArray(feature.sourceFiles) ? [...feature.sourceFiles] : [],
+      relatedFeatures: Array.isArray(feature.relatedFeatures) ? [...feature.relatedFeatures] : [],
+      domainObjects: Array.isArray(feature.domainObjects) ? [...feature.domainObjects] : [],
+    })),
     frontendPages: resolvedFrontendPages,
     apiEndpoints: resolvedApiEndpoints,
     nextjsApiEndpoints: resolvedNextjsApiEndpoints,
@@ -763,7 +792,9 @@ export function parseFeatureTreeLinks(
 
   for (const surface of surfaceLinks) {
     const sourceMatch = feature.sourceFiles.includes(changedFile) || feature.sourceFiles.includes(surface.sourcePath);
-    const routeMatch = feature.pages.includes(surface.route) || feature.apis.includes(surface.route);
+    const normalizedSurfaceApiPath = buildApiLookupKey("GET", surface.route).slice(4);
+    const routeMatch = feature.pages.includes(surface.route)
+      || feature.apis.some((declaration) => buildApiLookupKey(splitDeclaredApi(declaration).method, splitDeclaredApi(declaration).endpoint).slice(4) === normalizedSurfaceApiPath);
     if (!sourceMatch && !routeMatch) {
       continue;
     }

@@ -303,6 +303,7 @@ describe("FeatureExplorerPageClient", () => {
     expect(screen.getByText("Rust API")).toBeTruthy();
     expect(screen.getByText("/workspace/:workspaceId/feature-explorer")).toBeTruthy();
     expect(screen.getAllByText("GET /api/feature-explorer").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("feature-section-metric-sessions").textContent).toBe("0 sessions");
     expect(screen.getByTestId("feature-metric-sessions-feature-a").textContent).toBe("0 sessions");
     expect(screen.getByTestId("feature-metric-files-feature-a").textContent).toBe("1 files");
   });
@@ -398,6 +399,7 @@ describe("FeatureExplorerPageClient", () => {
       expect(screen.getByTestId("feature-tree-sessions-folder-src").textContent).toBe("6");
     });
 
+    expect(screen.getByTestId("feature-section-metric-sessions").textContent).toBe("6 sessions");
     expect(screen.getByTestId("feature-tree-changes-folder-src").textContent).toBe("6");
     expect(screen.getByTestId("feature-tree-sessions-folder-app").textContent).toBe("6");
     expect(screen.getByTestId("feature-tree-updated-folder-src").textContent).not.toBe("-");

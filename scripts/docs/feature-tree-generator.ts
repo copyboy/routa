@@ -8,6 +8,9 @@ import yaml from "js-yaml";
 
 import { fromRoot } from "../lib/paths";
 import { loadYamlFile } from "../lib/yaml";
+import featureSurfaceMetadata from "../../src/core/spec/feature-surface-metadata";
+
+const { INFERRED_GROUP_ID, buildApiLookupKey, normalizeSurfaceMetadata } = featureSurfaceMetadata;
 
 type RouteInfo = {
   route: string;
@@ -815,66 +818,21 @@ function flattenContractApis(apiFeatures: Record<string, ContractApiFeature[]>):
     });
 }
 
-function normalizeApiDeclaration(declaration: string): { method: string; path: string } | null {
-  const [method, ...pathParts] = declaration.trim().split(/\s+/);
-  const endpointPath = pathParts.join(" ").trim();
-  if (!method || !endpointPath) {
-    return null;
-  }
-
-  return {
-    method: method.toUpperCase(),
-    path: endpointPath,
-  };
-}
-
 function augmentFeatureMetadata(params: {
   metadata: FeatureMetadata | null;
   routes: RouteInfo[];
+  contractApis: ContractApiFeature[];
   nextjsApis: ImplementationApiRoute[];
   rustApis: ImplementationApiRoute[];
 }): FeatureMetadata | null {
-  const { metadata, routes, nextjsApis, rustApis } = params;
-  if (!metadata) {
-    return null;
-  }
-
-  const pageSourceLookup = new Map(routes.map((route) => [route.route, route.sourceFile]));
-  const nextjsLookup = new Map(nextjsApis.map((api) => [`${api.method} ${api.path}`, api.sourceFiles]));
-  const rustLookup = new Map(rustApis.map((api) => [`${api.method} ${api.path}`, api.sourceFiles]));
-
-  return {
-    ...metadata,
-    features: metadata.features.map((feature) => {
-      const sourceFiles = new Set(feature.sourceFiles ?? []);
-
-      for (const route of feature.pages ?? []) {
-        const sourceFile = pageSourceLookup.get(route);
-        if (sourceFile) {
-          sourceFiles.add(sourceFile);
-        }
-      }
-
-      for (const declaration of feature.apis ?? []) {
-        const parsed = normalizeApiDeclaration(declaration);
-        if (!parsed) {
-          continue;
-        }
-
-        for (const sourceFile of nextjsLookup.get(`${parsed.method} ${parsed.path}`) ?? []) {
-          sourceFiles.add(sourceFile);
-        }
-        for (const sourceFile of rustLookup.get(`${parsed.method} ${parsed.path}`) ?? []) {
-          sourceFiles.add(sourceFile);
-        }
-      }
-
-      return {
-        ...feature,
-        ...(sourceFiles.size > 0 ? { sourceFiles: [...sourceFiles].sort() } : {}),
-      };
-    }),
-  };
+  const { metadata } = params;
+  return normalizeSurfaceMetadata({
+    metadata,
+    pages: params.routes,
+    contractApis: params.contractApis,
+    nextjsApis: params.nextjsApis,
+    rustApis: params.rustApis,
+  });
 }
 
 export function buildFeatureSurfaceIndex(
@@ -894,6 +852,7 @@ export function buildFeatureSurfaceIndex(
   const augmentedMetadata = augmentFeatureMetadata({
     metadata,
     routes,
+    contractApis,
     nextjsApis,
     rustApis,
   });
@@ -924,17 +883,78 @@ export function buildFeatureSurfaceIndex(
   };
 }
 
-function buildFrontmatterMetadata(metadata: FeatureMetadata): string {
+function apiDeclarationSpecificity(declaration: string): number {
+  const placeholderMatches = declaration.match(/\{[A-Za-z0-9_]+\}|:[A-Za-z0-9_]+/g) ?? [];
+  return placeholderMatches.reduce((score, match) => score + match.length, 0);
+}
+
+function buildPreferredApiDeclarations(surfaceIndex: FeatureSurfaceIndex): Map<string, string> {
+  const preferred = new Map<string, string>();
+  const setPreferred = (method: string, endpointPath: string) => {
+    const declaration = `${method.trim().toUpperCase()} ${endpointPath.trim()}`.trim();
+    preferred.set(buildApiLookupKey(method, endpointPath), declaration);
+  };
+  const setIfMissing = (method: string, endpointPath: string) => {
+    const declaration = `${method.trim().toUpperCase()} ${endpointPath.trim()}`.trim();
+    const key = buildApiLookupKey(method, endpointPath);
+    if (!preferred.has(key)) {
+      preferred.set(key, declaration);
+    }
+  };
+
+  for (const api of surfaceIndex.contractApis) {
+    setPreferred(api.method, api.path);
+  }
+  for (const api of surfaceIndex.nextjsApis) {
+    setIfMissing(api.method, api.path);
+  }
+  for (const api of surfaceIndex.rustApis) {
+    setIfMissing(api.method, api.path);
+  }
+
+  return preferred;
+}
+
+function buildFrontmatterMetadata(metadata: FeatureMetadata, surfaceIndex: FeatureSurfaceIndex): string {
+  const preferredApiDeclarations = buildPreferredApiDeclarations(surfaceIndex);
+  const persistedMetadata: FeatureMetadata = {
+    schemaVersion: metadata.schemaVersion,
+    capabilityGroups: metadata.capabilityGroups.filter((group) => group.id !== INFERRED_GROUP_ID),
+    features: metadata.features
+      .filter((feature) => feature.group !== INFERRED_GROUP_ID && feature.status !== "inferred")
+      .map((feature) => {
+        if (!feature.apis?.length) {
+          return feature;
+        }
+
+        const sanitizedApiDeclarations = new Map<string, string>();
+        for (const declaration of feature.apis) {
+          const [method = "GET", endpointPath = declaration.trim()] = declaration.trim().split(/\s+/, 2);
+          const key = buildApiLookupKey(method, endpointPath);
+          const preferredDeclaration = preferredApiDeclarations.get(key) ?? declaration.trim();
+          const existing = sanitizedApiDeclarations.get(key);
+          if (!existing || apiDeclarationSpecificity(preferredDeclaration) > apiDeclarationSpecificity(existing)) {
+            sanitizedApiDeclarations.set(key, preferredDeclaration);
+          }
+        }
+
+        return {
+          ...feature,
+          apis: [...sanitizedApiDeclarations.values()].sort(),
+        };
+      }),
+  };
+
   return yaml.dump(
     {
       feature_metadata: {
-        schema_version: metadata.schemaVersion,
-        capability_groups: metadata.capabilityGroups.map((group) => ({
+        schema_version: persistedMetadata.schemaVersion,
+        capability_groups: persistedMetadata.capabilityGroups.map((group) => ({
           id: group.id,
           name: group.name,
           ...(group.description ? { description: group.description } : {}),
         })),
-        features: metadata.features.map((feature) => ({
+        features: persistedMetadata.features.map((feature) => ({
           id: feature.id,
           name: feature.name,
           ...(feature.group ? { group: feature.group } : {}),
@@ -952,31 +972,6 @@ function buildFrontmatterMetadata(metadata: FeatureMetadata): string {
   ).trimEnd();
 }
 
-function renderApiSection<T extends { domain: string; method: string; path: string }>(
-  lines: string[],
-  title: string,
-  apis: T[],
-  renderDescription: (api: T) => string,
-): void {
-  const grouped = new Map<string, T[]>();
-  for (const api of apis) {
-    const current = grouped.get(api.domain) ?? [];
-    current.push(api);
-    grouped.set(api.domain, current);
-  }
-
-  lines.push(title, "");
-  for (const [domain, endpoints] of [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    const domainName = domain.replace(/\b\w/g, (char) => char.toUpperCase());
-    lines.push(`### ${domainName} (${endpoints.length})`, "");
-    lines.push("| Method | Endpoint | Details |", "|--------|----------|---------|");
-    for (const endpoint of endpoints) {
-      lines.push(`| ${endpoint.method} | \`${endpoint.path}\` | ${renderDescription(endpoint)} |`);
-    }
-    lines.push("");
-  }
-}
-
 function renderContractApiSection(
   lines: string[],
   apis: FeatureSurfaceIndex["contractApis"],
@@ -984,8 +979,8 @@ function renderContractApiSection(
   rustApis: ImplementationApiRoute[],
 ): void {
   const grouped = new Map<string, FeatureSurfaceIndex["contractApis"][number][]>();
-  const nextjsLookup = new Map(nextjsApis.map((api) => [`${api.method} ${api.path}`, api.sourceFiles]));
-  const rustLookup = new Map(rustApis.map((api) => [`${api.method} ${api.path}`, api.sourceFiles]));
+  const nextjsLookup = new Map(nextjsApis.map((api) => [buildApiLookupKey(api.method, api.path), api.sourceFiles]));
+  const rustLookup = new Map(rustApis.map((api) => [buildApiLookupKey(api.method, api.path), api.sourceFiles]));
 
   for (const api of apis) {
     const current = grouped.get(api.domain) ?? [];
@@ -999,10 +994,46 @@ function renderContractApiSection(
     lines.push(`### ${domainName} (${endpoints.length})`, "");
     lines.push("| Method | Endpoint | Details | Next.js | Rust |", "|--------|----------|---------|---------|------|");
     for (const endpoint of endpoints) {
-      const key = `${endpoint.method} ${endpoint.path}`;
+      const key = buildApiLookupKey(endpoint.method, endpoint.path);
       lines.push(
         `| ${endpoint.method} | \`${endpoint.path}\` | ${endpoint.summary || endpoint.operationId || ""} | ${formatSourceFiles(nextjsLookup.get(key) ?? [])} | ${formatSourceFiles(rustLookup.get(key) ?? [])} |`,
       );
+    }
+    lines.push("");
+  }
+}
+
+function filterImplementationOnlyApis(
+  contractApis: FeatureSurfaceIndex["contractApis"],
+  implementationApis: ImplementationApiRoute[],
+): ImplementationApiRoute[] {
+  const contractKeys = new Set(contractApis.map((api) => buildApiLookupKey(api.method, api.path)));
+  return implementationApis.filter((api) => !contractKeys.has(buildApiLookupKey(api.method, api.path)));
+}
+
+function renderImplementationOnlyApiSection(
+  lines: string[],
+  title: string,
+  apis: ImplementationApiRoute[],
+): void {
+  if (apis.length === 0) {
+    return;
+  }
+
+  const grouped = new Map<string, ImplementationApiRoute[]>();
+  for (const api of apis) {
+    const current = grouped.get(api.domain) ?? [];
+    current.push(api);
+    grouped.set(api.domain, current);
+  }
+
+  lines.push("---", "", title, "");
+  for (const [domain, endpoints] of [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    const domainName = domain.replace(/\b\w/g, (char) => char.toUpperCase());
+    lines.push(`### ${domainName} (${endpoints.length})`, "");
+    lines.push("| Method | Endpoint | Source Files |", "|--------|----------|--------------|");
+    for (const endpoint of endpoints) {
+      lines.push(`| ${endpoint.method} | \`${endpoint.path}\` | ${formatSourceFiles(endpoint.sourceFiles)} |`);
     }
     lines.push("");
   }
@@ -1036,7 +1067,7 @@ export function renderMarkdown(
   ];
 
   if (surfaceIndex.metadata) {
-    lines.push(buildFrontmatterMetadata(surfaceIndex.metadata));
+    lines.push(buildFrontmatterMetadata(surfaceIndex.metadata, surfaceIndex));
   }
 
   lines.push(
@@ -1066,10 +1097,16 @@ export function renderMarkdown(
 
   lines.push("", "---", "");
   renderContractApiSection(lines, surfaceIndex.contractApis, surfaceIndex.nextjsApis, surfaceIndex.rustApis);
-  lines.push("---", "");
-  renderApiSection(lines, "## Next.js API Routes", surfaceIndex.nextjsApis, (api) => formatSourceFiles(api.sourceFiles));
-  lines.push("---", "");
-  renderApiSection(lines, "## Rust API Routes", surfaceIndex.rustApis, (api) => formatSourceFiles(api.sourceFiles));
+  renderImplementationOnlyApiSection(
+    lines,
+    "## Next.js-only API Routes",
+    filterImplementationOnlyApis(surfaceIndex.contractApis, surfaceIndex.nextjsApis),
+  );
+  renderImplementationOnlyApiSection(
+    lines,
+    "## Rust-only API Routes",
+    filterImplementationOnlyApis(surfaceIndex.contractApis, surfaceIndex.rustApis),
+  );
 
   return `${lines.join("\n")}\n`;
 }

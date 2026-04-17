@@ -2,6 +2,10 @@ import { promises as fsp } from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
 
+import featureSurfaceMetadata from "./feature-surface-metadata";
+
+const { normalizeSurfaceMetadata } = featureSurfaceMetadata;
+
 export type FeatureSurfacePage = {
   route: string;
   title: string;
@@ -308,14 +312,14 @@ function parseFeatureTreeMarkdown(raw: string): FeatureSurfaceIndex {
       continue;
     }
 
-    if (trimmed === "## Next.js API Routes") {
+    if (trimmed === "## Next.js API Routes" || trimmed === "## Next.js-only API Routes") {
       section = "nextjs";
       inTable = false;
       currentGroup = "";
       continue;
     }
 
-    if (trimmed === "## Rust API Routes") {
+    if (trimmed === "## Rust API Routes" || trimmed === "## Rust-only API Routes") {
       section = "rust";
       inTable = false;
       currentGroup = "";
@@ -370,6 +374,7 @@ function parseFeatureTreeMarkdown(raw: string): FeatureSurfaceIndex {
       trimmed === "| Method | Endpoint | Details |"
       || trimmed === "| Method | Endpoint | Description |"
       || trimmed === "| Method | Endpoint | Details | Next.js | Rust |"
+      || trimmed === "| Method | Endpoint | Source Files |"
     ) {
       inTable = true;
       continue;
@@ -383,6 +388,7 @@ function parseFeatureTreeMarkdown(raw: string): FeatureSurfaceIndex {
       || trimmed === "|--------|----------|---------|"
       || trimmed === "|--------|----------|-------------|"
       || trimmed === "|--------|----------|---------|---------|------|"
+      || trimmed === "|--------|----------|--------------|"
     ) {
       continue;
     }
@@ -407,6 +413,27 @@ function parseFeatureTreeMarkdown(raw: string): FeatureSurfaceIndex {
         operationId: "",
         summary: details,
       });
+      if (cells.length >= 5) {
+        const nextjsSourceFiles = parseSourceFilesCell(cells[3] ?? "");
+        if (nextjsSourceFiles.length > 0) {
+          nextjsApis.push({
+            domain: currentGroup,
+            method,
+            path: endpointPath,
+            sourceFiles: nextjsSourceFiles,
+          });
+        }
+
+        const rustSourceFiles = parseSourceFilesCell(cells[4] ?? "");
+        if (rustSourceFiles.length > 0) {
+          rustApis.push({
+            domain: currentGroup,
+            method,
+            path: endpointPath,
+            sourceFiles: rustSourceFiles,
+          });
+        }
+      }
       continue;
     }
 
@@ -431,7 +458,13 @@ function parseFeatureTreeMarkdown(raw: string): FeatureSurfaceIndex {
     contractApis,
     nextjsApis,
     rustApis,
-    metadata,
+    metadata: normalizeSurfaceMetadata({
+      metadata,
+      pages,
+      contractApis,
+      nextjsApis,
+      rustApis,
+    }),
   };
 }
 
@@ -497,6 +530,14 @@ export async function readFeatureSurfaceIndex(repoRoot: string): Promise<Feature
       .filter((item): item is FeatureSurfaceImplementationApi => Boolean(item)))
     : [];
 
+  const normalizedMetadata = normalizeSurfaceMetadata({
+    metadata: toMetadata((payload as { metadata?: unknown }).metadata),
+    pages,
+    contractApis,
+    nextjsApis,
+    rustApis,
+  });
+
   return {
     generatedAt: normalizeString((payload as { generatedAt?: unknown }).generatedAt),
     pages,
@@ -504,7 +545,7 @@ export async function readFeatureSurfaceIndex(repoRoot: string): Promise<Feature
     contractApis,
     nextjsApis,
     rustApis,
-    metadata: toMetadata((payload as { metadata?: unknown }).metadata),
+    metadata: normalizedMetadata,
     repoRoot,
     warnings: [],
   };

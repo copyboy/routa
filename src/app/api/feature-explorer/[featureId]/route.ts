@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import featureSurfaceMetadata from "@/core/spec/feature-surface-metadata";
+
 import {
   ApiEndpointDetail,
   FrontendPageDetail,
@@ -14,6 +16,8 @@ import {
   resolveRepoRoot,
   splitDeclaredApi,
 } from "../shared";
+
+const { buildApiLookupKey } = featureSurfaceMetadata;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -97,14 +101,15 @@ function toPageDetails(feature: FeatureTree["features"][number], featureTree: Fe
 function toApiDetails(feature: FeatureTree["features"][number], featureTree: FeatureTree): ApiEndpointDetail[] {
   return feature.apis.map((declaration) => {
     const parsed = splitDeclaredApi(declaration);
+    const lookupKey = buildApiLookupKey(parsed.method, parsed.endpoint);
     const nextjsSourceFiles = featureTree.nextjsApiEndpoints
-      .filter((api) => api.method.toUpperCase() === parsed.method.toUpperCase() && api.endpoint === parsed.endpoint)
+      .filter((api) => buildApiLookupKey(api.method, api.endpoint) === lookupKey)
       .flatMap((api) => api.sourceFiles);
     const rustSourceFiles = featureTree.rustApiEndpoints
-      .filter((api) => api.method.toUpperCase() === parsed.method.toUpperCase() && api.endpoint === parsed.endpoint)
+      .filter((api) => buildApiLookupKey(api.method, api.endpoint) === lookupKey)
       .flatMap((api) => api.sourceFiles);
     const matched = featureTree.apiEndpoints.find(
-      (api) => api.method.toUpperCase() === parsed.method.toUpperCase() && api.endpoint === parsed.endpoint,
+      (api) => buildApiLookupKey(api.method, api.endpoint) === lookupKey,
     );
 
     return matched ? {
